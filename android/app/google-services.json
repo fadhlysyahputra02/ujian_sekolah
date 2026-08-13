@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "369910814359",
+    "project_id": "sesicermat",
+    "storage_bucket": "sesicermat.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:369910814359:android:a3278aa74e851694833bd2",
+        "android_client_info": {
+          "package_name": "com.sesicermat.sys_exam_school"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCc3HYVDjFCJ7iAqdiAzEkk6ApmWchk-c0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

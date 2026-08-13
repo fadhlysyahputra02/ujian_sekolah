@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if the user is a super admin
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.role == 'super_admin';
+    }
+
+    // Helper function to check if a school is active (not disabled)
+    function isSchoolActive(schoolId) {
+      return schoolId == null || 
+        !exists(/databases/$(database)/documents/schools/$(schoolId)) || 
+        get(/databases/$(database)/documents/schools/$(schoolId)).data.disabled != true;
+    }
+
+    // Helper function to check if user belongs to the active school
+    function isUserSchoolActive() {
+      return request.auth != null && 
+        isSchoolActive(request.auth.token.schoolId);
+    }
+
+    // Helper function to check if user is school admin of a specific school (only if active)
+    function isSchoolAdmin(schoolId) {
+      return request.auth != null && 
+             request.auth.token.role == 'school_admin' && 
+             request.auth.token.schoolId == schoolId &&
+             isSchoolActive(schoolId);
+    }
+
+    // Helper function to check if user is a teacher of a specific school (only if active)
+    function isSchoolTeacher(schoolId) {
+      return request.auth != null && 
+             request.auth.token.role == 'teacher' && 
+             request.auth.token.schoolId == schoolId &&
+             isSchoolActive(schoolId);
+    }
+
+    match /schools/{schoolId} {
+      allow read: if true;
+      allow create, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin() || (
+        isSchoolAdmin(schoolId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['meta'])
+      );
+
+      // Sub-collection for teachers
+      match /teachers/{teacherId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
+
+      // Sub-collection for students
+      match /students/{studentId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
+
+      // Sub-collection for auditLogs
+      match /auditLogs/{logId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
+
+      // Sub-collection for subjects
+      match /subjects/{subjectId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
+
+      // Sub-collection for classes
+      match /classes/{classId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
+    }
+
+    // Rules for archives collection
+    match /archives/{schoolId} {
+      allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      match /users/{archiveId} {
+        allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+    }
+
+    // Rules for users collection
+    match /users/{userId} {
+      allow read: if request.auth != null && (
+        isSuperAdmin() || 
+        (request.auth.uid == userId && isUserSchoolActive())
+      );
+      allow create: if isSuperAdmin();
+      allow update: if request.auth != null && (
+        isSuperAdmin() || 
+        (request.auth.uid == userId && isUserSchoolActive() && 
+         // Prevent changing role and schoolId directly
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'schoolId']))
+      );
+      allow delete: if isSuperAdmin();
+    }
+  }
+}
