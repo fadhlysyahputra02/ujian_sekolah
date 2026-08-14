@@ -30,8 +30,11 @@ class AdminUserService {
         .collection('students')
         .where('archived', isEqualTo: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Student.fromFirestore(doc)).toList());
+        .map((snapshot) {
+      final list = snapshot.docs.map((doc) => Student.fromFirestore(doc)).toList();
+      list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      return list;
+    });
   }
 
   /// Stream archived users (both teachers and students) of a school
@@ -405,6 +408,22 @@ class AdminUserService {
         .doc(classId)
         .update({
       'studentIds': FieldValue.arrayUnion([studentId]),
+    });
+  }
+
+  /// Add multiple students to a class
+  Future<void> addStudentsToClass({
+    required String schoolId,
+    required String classId,
+    required List<String> studentIds,
+  }) async {
+    await _firestore
+        .collection('schools')
+        .doc(schoolId)
+        .collection('classes')
+        .doc(classId)
+        .update({
+      'studentIds': FieldValue.arrayUnion(studentIds),
     });
   }
 

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/models/student.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../widgets/class_form_dialog.dart';
@@ -115,109 +116,238 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   }
 
   Future<void> _showAddStudentDialog(List<String> currentIds, List<Student> allStudents) async {
-    final available = allStudents.where((s) => !currentIds.contains(s.id)).toList();
-    if (available.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Semua murid sudah terdaftar di kelas ini.')),
-      );
-      return;
-    }
-
+    final selectedIds = <String>{};
+    bool isSaving = false;
     String localSearch = '';
+
+    // Fetch assigned student IDs across all classes of the school
+    final Future<Set<String>> assignedIdsFuture = FirebaseFirestore.instance
+        .collection('schools')
+        .doc(widget.schoolId)
+        .collection('classes')
+        .get()
+        .then((snap) {
+      final Set<String> assigned = {};
+      for (var doc in snap.docs) {
+        final ids = doc.data()['studentIds'];
+        if (ids is List) {
+          for (var id in ids) {
+            assigned.add(id.toString());
+          }
+        }
+      }
+      return assigned;
+    });
+
     await showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setInner) {
-          final filtered = available
-              .where((s) => s.displayName.toLowerCase().contains(localSearch.toLowerCase()) ||
-                  s.nis.contains(localSearch))
-              .toList();
-          return Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            backgroundColor: Colors.white,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 560),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Tambah Murid ke Kelas',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: _dark),
+          return FutureBuilder<Set<String>>(
+            future: assignedIdsFuture,
+            builder: (context, futureSnapshot) {
+              if (futureSnapshot.connectionState == ConnectionState.waiting) {
+                return Dialog(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  backgroundColor: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: _indigo),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Memuat data...',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: _dark, fontSize: 14),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      autofocus: true,
-                      decoration: InputDecoration(
-                        hintText: 'Cari nama atau NIS...',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _border)),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-                      ),
-                      onChanged: (v) => setInner(() => localSearch = v),
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: filtered.isEmpty
-                          ? const Center(child: Text('Tidak ada murid ditemukan.', style: TextStyle(color: _slate)))
-                          : ListView.separated(
-                              itemCount: filtered.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
-                              itemBuilder: (_, i) {
-                                final s = filtered[i];
-                                return ListTile(
-                                  dense: true,
-                                  leading: CircleAvatar(
-                                    backgroundColor: const Color(0xFF4F46E5).withValues(alpha: 0.1),
-                                    child: Text(
-                                      s.displayName.isNotEmpty ? s.displayName[0].toUpperCase() : '?',
-                                      style: const TextStyle(color: _indigo, fontWeight: FontWeight.bold, fontSize: 14),
-                                    ),
-                                  ),
-                                  title: Text(s.displayName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: _dark)),
-                                  subtitle: Text('NIS: ${s.nis}', style: const TextStyle(fontSize: 12, color: _slate)),
-                                  trailing: ElevatedButton(
-                                    onPressed: () async {
-                                      await _service.addStudentToClass(
-                                        schoolId: widget.schoolId,
-                                        classId: _classId,
-                                        studentId: s.id,
-                                      );
-                                      if (ctx.mounted) Navigator.of(ctx).pop();
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('${s.displayName} berhasil ditambahkan!')),
+                  ),
+                );
+              }
+
+              final allAssignedStudentIds = futureSnapshot.data ?? <String>{};
+              final available = allStudents.where((s) => !allAssignedStudentIds.contains(s.id)).toList();
+              final filtered = available
+                  .where((s) => s.displayName.toLowerCase().contains(localSearch.toLowerCase()) ||
+                      s.nis.contains(localSearch))
+                  .toList();
+
+              return Dialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                backgroundColor: Colors.white,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480, maxHeight: 580),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Tambah Murid ke Kelas',
+                              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: _dark),
+                            ),
+                            if (filtered.isNotEmpty)
+                              TextButton(
+                                onPressed: () {
+                                  setInner(() {
+                                    final filteredIds = filtered.map((e) => e.id).toList();
+                                    final allFilteredSelected = filteredIds.every((id) => selectedIds.contains(id));
+                                    if (allFilteredSelected) {
+                                      selectedIds.removeAll(filteredIds);
+                                    } else {
+                                      selectedIds.addAll(filteredIds);
+                                    }
+                                  });
+                                },
+                                style: TextButton.styleFrom(
+                                  foregroundColor: _indigo,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: Text(
+                                  filtered.every((id) => selectedIds.contains(id.id))
+                                      ? 'Batal Pilih Semua'
+                                      : 'Pilih Semua',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          decoration: InputDecoration(
+                            hintText: 'Cari nama atau NIS...',
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _border)),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                          ),
+                          onChanged: (v) => setInner(() => localSearch = v),
+                        ),
+                        const SizedBox(height: 12),
+                        Expanded(
+                          child: filtered.isEmpty
+                              ? const Center(child: Text('Tidak ada murid ditemukan.', style: TextStyle(color: _slate)))
+                              : ListView.separated(
+                                  itemCount: filtered.length,
+                                  separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
+                                  itemBuilder: (_, i) {
+                                    final s = filtered[i];
+                                    final isSelected = selectedIds.contains(s.id);
+                                    return ListTile(
+                                      dense: true,
+                                      onTap: isSaving ? null : () {
+                                        setInner(() {
+                                          if (isSelected) {
+                                            selectedIds.remove(s.id);
+                                          } else {
+                                            selectedIds.add(s.id);
+                                          }
+                                        });
+                                      },
+                                      leading: CircleAvatar(
+                                        backgroundColor: (isSelected ? const Color(0xFF10B981) : const Color(0xFF4F46E5)).withValues(alpha: 0.1),
+                                        child: Icon(
+                                          isSelected ? Icons.check_rounded : Icons.person_rounded,
+                                          color: isSelected ? const Color(0xFF10B981) : _indigo,
+                                          size: 16,
+                                        ),
+                                      ),
+                                      title: Text(s.displayName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: _dark)),
+                                      subtitle: Text('NIS: ${s.nis}', style: const TextStyle(fontSize: 12, color: _slate)),
+                                      trailing: Checkbox(
+                                        value: isSelected,
+                                        activeColor: const Color(0xFF10B981),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                        onChanged: isSaving ? null : (val) {
+                                          setInner(() {
+                                            if (val == true) {
+                                              selectedIds.add(s.id);
+                                            } else {
+                                              selectedIds.remove(s.id);
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: isSaving ? null : () => Navigator.of(ctx).pop(),
+                              child: const Text('Batal'),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              onPressed: (selectedIds.isEmpty || isSaving)
+                                  ? null
+                                  : () async {
+                                      setInner(() => isSaving = true);
+                                      try {
+                                        await _service.addStudentsToClass(
+                                          schoolId: widget.schoolId,
+                                          classId: _classId,
+                                          studentIds: selectedIds.toList(),
                                         );
+                                        if (ctx.mounted) Navigator.of(ctx).pop();
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('${selectedIds.length} murid berhasil ditambahkan ke kelas!'),
+                                              backgroundColor: const Color(0xFF10B981),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        setInner(() => isSaving = false);
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Gagal menambahkan murid: $e'),
+                                              backgroundColor: const Color(0xFFEF4444),
+                                            ),
+                                          );
+                                        }
                                       }
                                     },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: _indigo,
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                    ),
-                                    child: const Text('Tambah'),
-                                  ),
-                                );
-                              },
+                              icon: isSaving
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.add_rounded, size: 18),
+                              label: Text(isSaving
+                                  ? 'Menyimpan...'
+                                  : 'Tambah (${selectedIds.length} Terpilih)'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _indigo,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                              ),
                             ),
+                          ],
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Tutup'),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         },
       ),

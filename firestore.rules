@@ -72,6 +72,55 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
         allow write: if isSchoolAdmin(schoolId);
       }
+
+      // Sub-collection for rooms
+      match /rooms/{roomId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
+
+      // Sub-collection for events
+      match /events/{eventId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+
+        match /sessions/{sessionId} {
+          allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+          allow write: if isSchoolAdmin(schoolId);
+        }
+
+        match /timetable/{timetableId} {
+          allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+          allow write: if isSchoolAdmin(schoolId);
+        }
+
+        match /proctors/{proctorId} {
+          allow read: if request.auth != null && (
+            isSchoolAdmin(schoolId) ||
+            (isSchoolTeacher(schoolId) && resource.data.teacherId == request.auth.uid)
+          );
+          allow write: if isSchoolAdmin(schoolId);
+        }
+
+        match /allocations/{allocationId} {
+          allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+          allow write: if isSchoolAdmin(schoolId);
+
+          match /seats/{seatId} {
+            allow read: if request.auth != null && (
+              isSchoolAdmin(schoolId) ||
+              isSchoolTeacher(schoolId) ||
+              (request.auth.token.role == 'student' && resource.data.studentRef == /databases/$(database)/documents/schools/$(schoolId)/students/$(request.auth.uid))
+            );
+            allow write: if isSchoolAdmin(schoolId);
+          }
+        }
+      }
+
+      // Sub-collection for event drafts (wizard auto-save)
+      match /eventDrafts/{draftId} {
+        allow read, write: if isSchoolAdmin(schoolId);
+      }
     }
 
     // Rules for archives collection

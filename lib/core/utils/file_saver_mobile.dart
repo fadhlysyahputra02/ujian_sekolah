@@ -6,3 +6,8 @@ Future<void> saveAndDownloadFile(List<int> bytes, String filename) async {
   final file = File('${directory.path}/$filename');
   await file.writeAsBytes(bytes);
 }
+
+Future<void> openUrl(String url) async {
+  // Mobile dummy or using platform channel.
+  print('Open url mobile: $url');
+}

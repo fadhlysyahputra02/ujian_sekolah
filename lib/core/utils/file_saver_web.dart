@@ -9,3 +9,7 @@ Future<void> saveAndDownloadFile(List<int> bytes, String filename) async {
     ..click();
   html.Url.revokeObjectUrl(url);
 }
+
+Future<void> openUrl(String url) async {
+  html.window.open(url, '_blank');
+}

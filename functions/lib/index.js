@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.importTeachersBulk = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
+exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.createEvent = exports.importTeachersBulk = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const firestore_1 = require("firebase-admin/firestore");
@@ -704,8 +704,6 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
                 errors.push('NIS wajib diisi.');
             if (!cleanAngkatan)
                 errors.push('Angkatan wajib diisi.');
-            if (createAuth && !cleanEmail)
-                errors.push('Email wajib diisi untuk membuat akun Auth.');
             if (cleanNis) {
                 if (existingNisSet.has(cleanNis)) {
                     errors.push(`NIS ${cleanNis} sudah terdaftar di sekolah.`);
@@ -722,13 +720,14 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
             try {
                 let uid = null;
                 let tempPassword = '';
-                if (createAuth && cleanEmail) {
+                const loginEmail = cleanEmail || (createAuth ? `s_${cleanNis}_${schoolId}@sesicermat.com` : null);
+                if (createAuth && loginEmail) {
                     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
                     for (let j = 0; j < 10; j++) {
                         tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
                     }
                     const userRecord = await admin.auth().createUser({
-                        email: cleanEmail,
+                        email: loginEmail,
                         password: tempPassword,
                         displayName: cleanName,
                     });
@@ -742,7 +741,7 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
                     nis: cleanNis,
                     gender: cleanGender,
                     angkatan: cleanAngkatan,
-                    email: cleanEmail || null,
+                    email: loginEmail,
                     schoolId,
                     disabled: false,
                     archived: false,
@@ -751,10 +750,10 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
                     updatedAt: firestore_1.FieldValue.serverTimestamp(),
                     deletedAt: null
                 });
-                if (uid && cleanEmail) {
+                if (uid && loginEmail) {
                     await db.collection('users').doc(uid).set({
                         uid,
-                        email: cleanEmail,
+                        email: loginEmail,
                         role: 'student',
                         schoolId,
                         profileRef: newDocRef.path,
@@ -936,5 +935,416 @@ exports.importTeachersBulk = functions.https.onCall(async (request) => {
     catch (err) {
         throw new functions.https.HttpsError('internal', err.message || 'Gagal memproses impor massal.');
     }
+});
+function seedRandom(seed) {
+    return function () {
+        const x = Math.sin(seed++) * 10000;
+        return x - Math.floor(x);
+    };
+}
+function interleaveStudents(students) {
+    const groups = {};
+    students.forEach(s => {
+        const key = s.classId || 'unknown';
+        if (!groups[key])
+            groups[key] = [];
+        groups[key].push(s);
+    });
+    const keys = Object.keys(groups);
+    const result = [];
+    let hasMore = true;
+    let index = 0;
+    while (hasMore) {
+        hasMore = false;
+        keys.forEach(k => {
+            if (index < groups[k].length) {
+                result.push(groups[k][index]);
+                hasMore = true;
+            }
+        });
+        index++;
+    }
+    return result;
+}
+function runAllocationAlgorithm(students, rooms, mode, options) {
+    let pool = [...students];
+    const warnings = [];
+    if (mode === 'random') {
+        const seed = options.seed || 42;
+        const rng = seedRandom(seed);
+        pool.sort(() => rng() - 0.5);
+    }
+    else {
+        if (options.respectAngkatan) {
+            pool.sort((a, b) => a.angkatan.localeCompare(b.angkatan) || a.classId.localeCompare(b.classId) || a.displayName.localeCompare(b.displayName));
+        }
+        else {
+            pool.sort((a, b) => a.classId.localeCompare(b.classId) || a.displayName.localeCompare(b.displayName));
+        }
+        if (options.avoidSameClassAdjacent) {
+            pool = interleaveStudents(pool);
+        }
+    }
+    const sortedRooms = [...rooms].sort((a, b) => a.code.localeCompare(b.code));
+    const seats = [];
+    let studentIdx = 0;
+    sortedRooms.forEach((room, roomIdx) => {
+        const capacity = room.capacity;
+        let seatIndices = Array.from({ length: capacity }, (_, i) => i + 1);
+        if (mode === 'zigzag' && roomIdx % 2 === 1) {
+            seatIndices = seatIndices.reverse();
+        }
+        seatIndices.forEach(seatNum => {
+            if (studentIdx < pool.length) {
+                const student = pool[studentIdx];
+                seats.push({
+                    roomId: room.id,
+                    roomCode: room.code,
+                    roomName: room.name,
+                    seatNumber: seatNum,
+                    studentRef: `schools/${student.schoolId}/students/${student.id}`,
+                    studentId: student.id,
+                    studentName: student.displayName,
+                    classId: student.classId,
+                    angkatan: student.angkatan
+                });
+                studentIdx++;
+            }
+        });
+    });
+    const unassigned = pool.slice(studentIdx);
+    if (unassigned.length > 0) {
+        warnings.push(`Terdapat ${unassigned.length} murid yang tidak mendapatkan ruangan karena kapasitas kurang.`);
+    }
+    return { seats, unassigned, warnings };
+}
+async function fetchActiveStudentsForEvent(db, schoolId, eventId) {
+    const timetableSnap = await db.collection('schools').doc(schoolId).collection('events').doc(eventId).collection('timetable').get();
+    const classIds = [...new Set(timetableSnap.docs.map(doc => doc.data().classId))];
+    const studentsSnap = await db.collection('schools').doc(schoolId).collection('students').where('archived', '==', false).get();
+    const list = [];
+    studentsSnap.docs.forEach(doc => {
+        const data = doc.data();
+        if (classIds.includes(data.classId)) {
+            list.push({
+                id: doc.id,
+                displayName: data.displayName || '',
+                nis: data.nis || '',
+                classId: data.classId || '',
+                angkatan: data.angkatan || '',
+                schoolId: schoolId
+            });
+        }
+    });
+    return list;
+}
+async function fetchActiveRooms(db, schoolId) {
+    const roomsSnap = await db.collection('schools').doc(schoolId).collection('rooms').get();
+    return roomsSnap.docs.map(doc => {
+        const data = doc.data();
+        return {
+            id: doc.id,
+            code: data.code || '',
+            name: data.name || '',
+            capacity: data.capacity || 0
+        };
+    });
+}
+exports.createEvent = functions.https.onCall(async (request) => {
+    const { schoolId, eventInfo, sessions, timetable } = request.data || {};
+    if (!schoolId || !eventInfo) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const eventRef = db.collection('schools').doc(schoolId).collection('events').doc();
+    const eventId = eventRef.id;
+    await db.runTransaction(async (transaction) => {
+        transaction.set(eventRef, {
+            name: eventInfo.name,
+            academicYear: eventInfo.academicYear,
+            startDate: eventInfo.startDate,
+            endDate: eventInfo.endDate,
+            description: eventInfo.description || '',
+            status: 'draft',
+            createdBy: request.auth?.uid,
+            createdAt: firestore_1.FieldValue.serverTimestamp(),
+            updatedAt: firestore_1.FieldValue.serverTimestamp(),
+            config: {
+                participantNumberFormat: eventInfo.participantNumberFormat || '[angkatan][roomCode][seatNumber]',
+                seatNumberPadding: eventInfo.seatNumberPadding || 3
+            }
+        });
+        if (sessions && Array.isArray(sessions)) {
+            sessions.forEach((s) => {
+                const sRef = eventRef.collection('sessions').doc();
+                transaction.set(sRef, {
+                    name: s.name,
+                    date: s.date,
+                    startTime: s.startTime,
+                    endTime: s.endTime,
+                    maxDuration: s.maxDuration || 120,
+                    order: s.order || 0,
+                    createdAt: firestore_1.FieldValue.serverTimestamp(),
+                    updatedAt: firestore_1.FieldValue.serverTimestamp()
+                });
+            });
+        }
+        if (timetable && Array.isArray(timetable)) {
+            timetable.forEach((t) => {
+                const tRef = eventRef.collection('timetable').doc();
+                transaction.set(tRef, {
+                    classId: t.classId,
+                    subjectId: t.subjectId,
+                    subjectName: t.subjectName,
+                    sessionId: t.sessionId,
+                    teacherId: t.teacherId,
+                    status: 'scheduled',
+                    createdAt: firestore_1.FieldValue.serverTimestamp()
+                });
+            });
+        }
+    });
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'CREATE_EVENT', `Membuat event ujian "${eventInfo.name}"`);
+    return { eventId };
+});
+exports.previewAllocation = functions.https.onCall(async (request) => {
+    const { schoolId, eventId, mode, options } = request.data || {};
+    if (!schoolId || !eventId || !mode || !options) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const students = await fetchActiveStudentsForEvent(db, schoolId, eventId);
+    const rooms = await fetchActiveRooms(db, schoolId);
+    const totalCapacity = rooms.reduce((acc, r) => acc + r.capacity, 0);
+    if (students.length > totalCapacity) {
+        return {
+            success: false,
+            warning: `Kapasitas ruangan (${totalCapacity}) kurang dari jumlah murid (${students.length}).`
+        };
+    }
+    const result = runAllocationAlgorithm(students, rooms, mode, options);
+    return {
+        success: true,
+        stats: {
+            totalStudents: students.length,
+            totalCapacity,
+            unassignedCount: result.unassigned.length
+        },
+        previewSeats: result.seats.slice(0, 50),
+        warnings: result.warnings
+    };
+});
+exports.executeAllocation = functions.https.onCall(async (request) => {
+    const { schoolId, eventId, mode, options } = request.data || {};
+    if (!schoolId || !eventId || !mode || !options) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const students = await fetchActiveStudentsForEvent(db, schoolId, eventId);
+    const rooms = await fetchActiveRooms(db, schoolId);
+    const result = runAllocationAlgorithm(students, rooms, mode, options);
+    const allocationRef = db.collection('schools').doc(schoolId).collection('events').doc(eventId).collection('allocations').doc();
+    const allocationId = allocationRef.id;
+    await allocationRef.set({
+        runId: allocationId,
+        mode,
+        status: 'finalized',
+        totalAssigned: result.seats.length,
+        createdAt: firestore_1.FieldValue.serverTimestamp()
+    });
+    let batch = db.batch();
+    let count = 0;
+    for (const seat of result.seats) {
+        const seatRef = allocationRef.collection('seats').doc();
+        batch.set(seatRef, {
+            ...seat,
+            createdAt: firestore_1.FieldValue.serverTimestamp(),
+            updatedAt: firestore_1.FieldValue.serverTimestamp()
+        });
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) {
+        await batch.commit();
+    }
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'EXECUTE_ALLOCATION', `Mengeksekusi alokasi tempat duduk (${mode}) untuk event ${eventId}`);
+    return { allocationId };
+});
+exports.generateParticipantNumbers = functions.https.onCall(async (request) => {
+    const { schoolId, eventId, allocationId, formatConfig } = request.data || {};
+    if (!schoolId || !eventId || !allocationId || !formatConfig) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const seatsRef = db.collection('schools').doc(schoolId).collection('events').doc(eventId)
+        .collection('allocations').doc(allocationId).collection('seats');
+    const seatsSnap = await seatsRef.get();
+    let batch = db.batch();
+    let count = 0;
+    for (const doc of seatsSnap.docs) {
+        const s = doc.data();
+        const angkatan = s.angkatan || '0000';
+        const roomCode = s.roomCode || '00';
+        const seatPadding = formatConfig.seatPadding || 3;
+        const seatNumberStr = String(s.seatNumber).padStart(seatPadding, '0');
+        let num = '';
+        if (formatConfig.delimiter) {
+            num = `${angkatan}${formatConfig.delimiter}${roomCode}${formatConfig.delimiter}${seatNumberStr}`;
+        }
+        else {
+            num = `${angkatan}${roomCode}${seatNumberStr}`;
+        }
+        batch.update(doc.ref, { participantNumber: num, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) {
+        await batch.commit();
+    }
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'GENERATE_PARTICIPANT_NUMBERS', `Membuat nomor peserta untuk alokasi ${allocationId}`);
+    return { generatedCount: seatsSnap.size };
+});
+exports.exportRoomList = functions.https.onCall(async (request) => {
+    const { schoolId, eventId, allocationId, roomId } = request.data || {};
+    if (!schoolId || !eventId || !allocationId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    let query = db.collection('schools').doc(schoolId).collection('events').doc(eventId)
+        .collection('allocations').doc(allocationId).collection('seats');
+    if (roomId) {
+        query = query.where('roomId', '==', roomId);
+    }
+    const seatsSnap = await query.get();
+    let csv = '\uFEFFKode Ruang,Nomor Meja,Nomor Peserta,Nama Siswa,NIS,Kelas,Angkatan\n';
+    seatsSnap.docs.forEach(doc => {
+        const s = doc.data();
+        csv += `"${s.roomCode || ''}","${s.seatNumber || ''}","${s.participantNumber || ''}","${s.studentName || ''}","${s.studentId || ''}","${s.classId || ''}","${s.angkatan || ''}"\n`;
+    });
+    const bucket = admin.storage().bucket();
+    const dest = `exports/${schoolId}/${eventId}/${allocationId}_${roomId || 'all'}.csv`;
+    const file = bucket.file(dest);
+    await file.save(csv, {
+        contentType: 'text/csv; charset=utf-8',
+        metadata: {
+            cacheControl: 'private, max-age=300'
+        }
+    });
+    const [url] = await file.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + 15 * 60 * 1000 // 15 mins
+    });
+    return { downloadUrl: url };
+});
+exports.assignProctors = functions.https.onCall(async (request) => {
+    const { schoolId, eventId, assignments } = request.data || {};
+    if (!schoolId || !eventId || !assignments || !Array.isArray(assignments)) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const proctorsRef = db.collection('schools').doc(schoolId).collection('events').doc(eventId).collection('proctors');
+    const existingSnap = await proctorsRef.get();
+    const existing = existingSnap.docs.map(doc => doc.data());
+    const seen = new Set();
+    for (const a of assignments) {
+        const key = `${a.teacherId}_${a.sessionId}`;
+        if (seen.has(key)) {
+            throw new functions.https.HttpsError('failed-precondition', `Guru dengan ID ${a.teacherId} ditugaskan ganda pada sesi ${a.sessionId}.`);
+        }
+        seen.add(key);
+        const conflict = existing.some(e => e.teacherId === a.teacherId && e.sessionId === a.sessionId && e.roomId !== a.roomId);
+        if (conflict) {
+            throw new functions.https.HttpsError('failed-precondition', `Guru dengan ID ${a.teacherId} sudah ditugaskan mengawas di ruangan lain pada sesi ${a.sessionId}.`);
+        }
+    }
+    let batch = db.batch();
+    let count = 0;
+    for (const a of assignments) {
+        const docRef = proctorsRef.doc();
+        batch.set(docRef, {
+            sessionId: a.sessionId,
+            roomId: a.roomId,
+            teacherId: a.teacherId,
+            role: a.role || 'main',
+            notes: a.notes || '',
+            createdAt: firestore_1.FieldValue.serverTimestamp()
+        });
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) {
+        await batch.commit();
+    }
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'ASSIGN_PROCTORS', `Menugaskan ${assignments.length} pengawas ujian.`);
+    return { success: true };
+});
+exports.rescheduleSession = functions.https.onCall(async (request) => {
+    const { schoolId, eventId, sessionId, newDate, newStartTime, newEndTime } = request.data || {};
+    if (!schoolId || !eventId || !sessionId || !newDate || !newStartTime || !newEndTime) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const sessionRef = db.collection('schools').doc(schoolId).collection('events').doc(eventId).collection('sessions').doc(sessionId);
+    await sessionRef.update({
+        date: newDate,
+        startTime: newStartTime,
+        endTime: newEndTime,
+        updatedAt: firestore_1.FieldValue.serverTimestamp()
+    });
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'RESCHEDULE_SESSION', `Reschedule sesi ${sessionId} menjadi ${newDate} ${newStartTime}-${newEndTime}`);
+    return { success: true };
+});
+exports.rollbackAllocation = functions.https.onCall(async (request) => {
+    const { schoolId, eventId, allocationId } = request.data || {};
+    if (!schoolId || !eventId || !allocationId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const allocationRef = db.collection('schools').doc(schoolId).collection('events').doc(eventId).collection('allocations').doc(allocationId);
+    const seatsRef = allocationRef.collection('seats');
+    const seatsSnap = await seatsRef.get();
+    let batch = db.batch();
+    let count = 0;
+    for (const doc of seatsSnap.docs) {
+        batch.delete(doc.ref);
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) {
+        await batch.commit();
+    }
+    await allocationRef.delete();
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'ROLLBACK_ALLOCATION', `Membatalkan alokasi ${allocationId}`);
+    return { success: true };
 });
 //# sourceMappingURL=index.js.map
