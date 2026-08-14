@@ -15,8 +15,11 @@ class AdminUserService {
         .collection('teachers')
         .where('archived', isEqualTo: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Teacher.fromFirestore(doc)).toList());
+        .map((snapshot) {
+      final list = snapshot.docs.map((doc) => Teacher.fromFirestore(doc)).toList();
+      list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      return list;
+    });
   }
 
   /// Stream active students of a school
@@ -201,6 +204,22 @@ class AdminUserService {
     required bool createAuth,
   }) async {
     final HttpsCallable callable = _functions.httpsCallable('importStudentsBulk');
+    final response = await callable.call({
+      'schoolId': schoolId,
+      'rows': rows,
+      'createAuth': createAuth,
+    });
+    final list = List.from(response.data['results'] as List);
+    return list.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+  }
+
+  /// Import teachers bulk
+  Future<List<Map<String, dynamic>>> importTeachersBulk({
+    required String schoolId,
+    required List<Map<String, dynamic>> rows,
+    required bool createAuth,
+  }) async {
+    final HttpsCallable callable = _functions.httpsCallable('importTeachersBulk');
     final response = await callable.call({
       'schoolId': schoolId,
       'rows': rows,

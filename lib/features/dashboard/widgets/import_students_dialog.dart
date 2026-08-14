@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart' as ex;
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../../../core/utils/file_saver.dart';
 
@@ -29,7 +31,48 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
   bool _showResults = false;
   List<Map<String, dynamic>> _importResults = [];
 
+  // 0 = guide, 1 = import
+  int _stage = 0;
+
   final AdminUserService _adminUserService = AdminUserService();
+
+  Future<void> _downloadTemplate() async {
+    try {
+      final excel = ex.Excel.createExcel();
+      final sheet = excel[excel.getDefaultSheet()!];
+      sheet.appendRow([
+        ex.TextCellValue('name'),
+        ex.TextCellValue('gender'),
+        ex.TextCellValue('nis'),
+        ex.TextCellValue('angkatan'),
+        ex.TextCellValue('email'),
+      ]);
+      sheet.appendRow([
+        ex.TextCellValue('Budi Santoso'),
+        ex.TextCellValue('M'),
+        ex.TextCellValue('12345'),
+        ex.TextCellValue('2024'),
+        ex.TextCellValue('budi@student.sekolah.sch.id'),
+      ]);
+      final bytes = excel.save(fileName: 'Template_Impor_Murid.xlsx');
+      if (bytes != null) {
+        if (!kIsWeb) {
+          await saveAndDownloadFile(bytes, 'Template_Impor_Murid.xlsx');
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Template berhasil diunduh!')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mengunduh template: $e'), backgroundColor: const Color(0xFFEF4444)),
+        );
+      }
+    }
+  }
 
   Future<void> _pickFile() async {
     setState(() {
@@ -70,11 +113,9 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
       List<List<dynamic>> rawGrid = [];
 
       if (fileName.endsWith('.csv')) {
-        // Parse CSV
         final csvString = utf8.decode(bytes);
         rawGrid = const CsvToListConverter().convert(csvString);
       } else if (fileName.endsWith('.xlsx')) {
-        // Parse Excel
         final excel = ex.Excel.decodeBytes(bytes);
         if (excel.tables.isNotEmpty) {
           final table = excel.tables.values.first;
@@ -90,7 +131,6 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
         throw 'File tidak memiliki baris data.';
       }
 
-      // Read Header Row to find columns: name, gender, nis, angkatan, email
       final headers = rawGrid.first.map((e) => e?.toString().trim().toLowerCase() ?? '').toList();
       
       final int nameIdx = headers.indexOf('name');
@@ -100,7 +140,7 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
       final int emailIdx = headers.indexOf('email');
 
       if (nameIdx == -1 || genderIdx == -1 || nisIdx == -1 || angkatanIdx == -1) {
-        throw 'Header file tidak valid. Pastikan terdapat kolom: name, gender, nis, angkatan, dan email (opsional).';
+        throw 'Header file tidak valid. Kolom wajib: name, gender, nis, angkatan, dan email (opsional).';
       }
 
       final List<Map<String, dynamic>> rows = [];
@@ -109,7 +149,7 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
       for (int i = 1; i < rawGrid.length; i++) {
         final row = rawGrid[i];
         if (row.isEmpty || row.every((element) => element == null || element.toString().trim().isEmpty)) {
-          continue; // Skip empty rows
+          continue;
         }
 
         final name = _getCellValue(row, nameIdx);
@@ -118,7 +158,6 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
         final angkatan = _getCellValue(row, angkatanIdx);
         final email = emailIdx != -1 && emailIdx < row.length ? _getCellValue(row, emailIdx) : '';
 
-        // Real-time client-side validation
         final List<String> errors = [];
         if (name.isEmpty) errors.add('Nama kosong.');
         if (gender != 'M' && gender != 'F') errors.add('Gender harus M atau F.');
@@ -158,7 +197,6 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
     if (index >= row.length) return '';
     final val = row[index];
     if (val == null) return '';
-    // Handle SharedString or specific types in excel library
     return val.toString().trim();
   }
 
@@ -195,7 +233,6 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
 
       if (!mounted) return;
 
-      // Map results back to view
       final List<Map<String, dynamic>> results = [];
       for (int i = 0; i < response.length; i++) {
         final res = response[i];
@@ -234,7 +271,6 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
       final excel = ex.Excel.createExcel();
       final sheet = excel[excel.getDefaultSheet()!];
 
-      // Add Headers
       sheet.appendRow([
         ex.TextCellValue('Nama Murid'),
         ex.TextCellValue('NIS'),
@@ -255,9 +291,11 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
         ]);
       }
 
-      final fileBytes = excel.save();
+      final fileBytes = excel.save(fileName: 'SesiCermat_Impor_Murid_Hasil.xlsx');
       if (fileBytes != null) {
-        await saveAndDownloadFile(fileBytes, 'SesiCermat_Impor_Murid_Hasil.xlsx');
+        if (!kIsWeb) {
+          await saveAndDownloadFile(fileBytes, 'SesiCermat_Impor_Murid_Hasil.xlsx');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Hasil impor berhasil diekspor ke Excel!')),
@@ -276,171 +314,434 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final validCount = _parsedRows.where((r) => r['isValid'] == true).length;
-    final invalidCount = _parsedRows.length - validCount;
-
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         width: 700,
-        height: size.height * 0.8,
-        padding: const EdgeInsets.all(28.0),
-        child: _showResults ? _buildResultsView() : _buildParserView(validCount, invalidCount),
+        height: size.height * 0.82,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
+        child: _showResults
+            ? _buildResultsView()
+            : _stage == 0
+                ? _buildGuideView()
+                : _buildParserView(),
       ),
     );
   }
 
-  Widget _buildParserView(int validCount, int invalidCount) {
+  Widget _buildDialogHeader({
+    required String title,
+    required String subtitle,
+    required Color color1,
+    required Color color2,
+    bool showClose = true,
+  }) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 22, 16, 22),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color1, color2],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (showClose)
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.white),
+              onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideView() {
+    final columns = [
+      _CI('name', 'Nama Lengkap', 'Budi Santoso', true, Icons.person_rounded, const Color(0xFF4F46E5), 'Nama lengkap murid sesuai dokumen resmi.'),
+      _CI('gender', 'Jenis Kelamin', 'M atau F', true, Icons.wc_rounded, const Color(0xFFEC4899), 'Isi M (Laki-laki) atau F (Perempuan).'),
+      _CI('nis', 'NIS', '12345', true, Icons.badge_rounded, const Color(0xFF0D9488), 'Nomor Induk Siswa. Harus unik.'),
+      _CI('angkatan', 'Angkatan', '2024', true, Icons.calendar_today_rounded, const Color(0xFFD97706), 'Angkatan / Tahun masuk murid.'),
+      _CI('email', 'Email', 'budi@student.sekolah.sch.id', false, Icons.email_rounded, const Color(0xFF0284C7), 'Alamat email murid (opsional). Dipakai untuk login.'),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Impor Murid Massal (Excel/CSV)',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close_rounded),
-              onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-            ),
-          ],
+        _buildDialogHeader(
+          title: 'Panduan Impor Murid Massal',
+          subtitle: 'Format kolom wajib dalam file Excel / CSV',
+          color1: const Color(0xFF06B6D4),
+          color2: const Color(0xFF0891B2),
         ),
-        const Divider(),
-        const SizedBox(height: 12),
-        const Text(
-          'Format header kolom wajib: name, gender, nis, angkatan, email (opsional). Gender wajib diisi M (Laki-laki) atau F (Perempuan).',
-          style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-        ),
-        const SizedBox(height: 16),
-
-        // File Selector Button
-        OutlinedButton.icon(
-          onPressed: _isLoading ? null : _pickFile,
-          icon: const Icon(Icons.file_upload_outlined),
-          label: Text(_selectedFile == null ? 'Pilih Berkas Excel/CSV' : 'Ganti Berkas: ${_selectedFile!.name}'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 18),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-
-        if (_parseError != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _parseError!,
-            style: const TextStyle(color: Color(0xFFEF4444), fontSize: 13, fontWeight: FontWeight.w500),
-          ),
-        ],
-
-        if (_parsedRows.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          // Statistics Summary
-          Row(
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
             children: [
-              _buildStatChip('Total: ${_parsedRows.length}', const Color(0xFF4F46E5)),
-              const SizedBox(width: 8),
-              _buildStatChip('Valid: $validCount', const Color(0xFF10B981)),
-              const SizedBox(width: 8),
-              _buildStatChip('Gagal Validasi: $invalidCount', const Color(0xFFEF4444)),
+              Text(
+                'Kolom yang diperlukan',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF94A3B8),
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...columns.map((c) => _buildColCard(c)),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.lightbulb_rounded, color: Color(0xFFD97706), size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Baris pertama harus berisi nama kolom (header): name, gender, nis, angkatan, email.',
+                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF92400E)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
             ],
           ),
-          const SizedBox(height: 12),
-          // Preview table
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: ListView.builder(
-                itemCount: _parsedRows.length,
-                itemBuilder: (context, idx) {
-                  final row = _parsedRows[idx];
-                  final bool isValid = row['isValid'] == true;
-                  return Container(
-                    color: idx % 2 == 0 ? Colors.white : const Color(0xFFF8FAFC),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    child: Row(
-                      children: [
-                        Icon(
-                          isValid ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
-                          color: isValid ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 3,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                row['name'] ?? '',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                              Text('NIS: ${row['nis']} | Angkatan: ${row['angkatan']}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            isValid ? 'Siap diimpor' : (row['errors'] as List).join(', '),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isValid ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
           ),
-          const SizedBox(height: 16),
-          CheckboxListTile(
-            title: const Text('Buat akun Auth untuk seluruh murid valid'),
-            subtitle: const Text('Kata sandi sementara akan dihasilkan & dapat diekspor di akhir.'),
-            value: _createAuth,
-            onChanged: _isLoading ? null : (val) => setState(() => _createAuth = val ?? false),
-            controlAffinity: ListTileControlAffinity.leading,
-            contentPadding: EdgeInsets.zero,
+          child: Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _downloadTemplate,
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: Text('Unduh Template', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF0D9488),
+                  side: const BorderSide(color: Color(0xFF0D9488)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('Batal', style: GoogleFonts.inter(color: const Color(0xFF64748B))),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: () => setState(() => _stage = 1),
+                icon: const Icon(Icons.upload_file_rounded, size: 18),
+                label: Text('Pilih File & Impor', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF06B6D4),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
           ),
-        ] else
-          const Spacer(),
+        ),
+      ],
+    );
+  }
 
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(
-              onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-              child: const Text('Batal'),
+  Widget _buildColCard(_CI c) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.color.withValues(alpha: 0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: c.color.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          )
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: c.color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
             ),
-            const SizedBox(width: 12),
-            ElevatedButton(
-              onPressed: _isLoading || _parsedRows.isEmpty || validCount == 0 ? null : _submitImport,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4F46E5),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Icon(c.icon, color: c.color, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      c.label,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: (c.required ? const Color(0xFFEF4444) : const Color(0xFF64748B)).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        c.required ? 'Wajib' : 'Opsional',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: c.required ? const Color(0xFFEF4444) : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  c.desc,
+                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text('Kolom: ', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8))),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: c.color.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        c.key,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: c.color,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text('Contoh: ', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8))),
+                    Text(
+                      c.example,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: const Color(0xFF475569),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParserView() {
+    final validCount = _parsedRows.where((r) => r['isValid'] == true).length;
+    final invalidCount = _parsedRows.length - validCount;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildDialogHeader(
+          title: 'Pilih & Pratinjau File',
+          subtitle: 'Pilih file Excel (.xlsx) atau CSV (.csv) untuk diimpor',
+          color1: const Color(0xFF06B6D4),
+          color2: const Color(0xFF0891B2),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _pickFile,
+                  icon: const Icon(Icons.cloud_upload_outlined, size: 20),
+                  label: Text(
+                    _selectedFile == null ? 'Pilih Berkas Excel/CSV' : 'Ganti Berkas: ${_selectedFile!.name}',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    side: BorderSide(color: const Color(0xFFCBD5E1), width: _selectedFile == null ? 1 : 1.5),
+                    backgroundColor: _selectedFile == null ? Colors.white : const Color(0xFFECFDF5),
+                    foregroundColor: _selectedFile == null ? const Color(0xFF4F46E5) : const Color(0xFF059669),
+                  ),
+                ),
+                if (_parseError != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFFEE2E2))),
+                    child: Row(children: [
+                      const Icon(Icons.error_rounded, color: Color(0xFFEF4444), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_parseError!, style: GoogleFonts.inter(color: const Color(0xFFB91C1C), fontSize: 12, fontWeight: FontWeight.w500))),
+                    ]),
+                  ),
+                ],
+                if (_parsedRows.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      _buildStatChip('Total: ${_parsedRows.length}', const Color(0xFF4F46E5)),
+                      const SizedBox(width: 8),
+                      _buildStatChip('Valid: $validCount', const Color(0xFF10B981)),
+                      const SizedBox(width: 8),
+                      _buildStatChip('Tidak valid: $invalidCount', const Color(0xFFEF4444)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: ListView.builder(
+                        itemCount: _parsedRows.length,
+                        itemBuilder: (context, idx) {
+                          final row = _parsedRows[idx];
+                          final bool isValid = row['isValid'] == true;
+                          return Container(
+                            color: idx % 2 == 0 ? Colors.white : const Color(0xFFF8FAFC),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isValid ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+                                  color: isValid ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 3,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(row['name'] ?? '', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14)),
+                                      Text('NIS: ${row['nis']} | Gender: ${row['gender']} | Angkatan: ${row['angkatan']}', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    isValid ? 'Siap diimpor' : (row['errors'] as List).join(', '),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isValid ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    decoration: BoxDecoration(border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(10), color: Colors.white),
+                    child: CheckboxListTile(
+                      title: Text('Buat akun login untuk seluruh murid valid', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                      subtitle: Text('Kata sandi sementara akan dihasilkan & dapat diekspor di akhir.', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                      value: _createAuth,
+                      onChanged: _isLoading ? null : (val) => setState(() => _createAuth = val ?? false),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      activeColor: const Color(0xFF06B6D4),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton(
+                onPressed: () => setState(() => _stage = 0),
+                child: Text('Kembali', style: GoogleFonts.inter(color: const Color(0xFF64748B))),
               ),
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Text('Impor Data Valid'),
-            ),
-          ],
-        )
+              ElevatedButton(
+                onPressed: _isLoading || _parsedRows.isEmpty || validCount == 0 ? null : _submitImport,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF06B6D4),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: _isLoading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text('Impor Data Valid', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -448,136 +749,139 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
   Widget _buildResultsView() {
     final successCount = _importResults.where((r) => r['success'] == true).length;
     final failedCount = _importResults.length - successCount;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Row(
-          children: [
-            Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 28),
-            SizedBox(width: 12),
-            Text(
-              'Impor Selesai Diproses',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-          ],
+        _buildDialogHeader(
+          title: 'Impor Selesai',
+          subtitle: '$successCount murid sukses · $failedCount gagal',
+          color1: const Color(0xFF10B981),
+          color2: const Color(0xFF059669),
+          showClose: false,
         ),
-        const Divider(),
-        const SizedBox(height: 12),
-        Text(
-          'Hasil pemrosesan: $successCount siswa sukses diimpor, $failedCount siswa gagal.',
-          style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
-        ),
-        const SizedBox(height: 16),
-        if (_createAuth) ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFFBBF24)),
-            ),
-            child: const Row(
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(Icons.info_outline_rounded, color: Color(0xFFD97706)),
-                SizedBox(width: 12),
+                if (_createAuth) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'PENTING: Unduh/Ekspor hasil sekarang untuk mendapatkan daftar password sementara. Data password ini tidak akan bisa diakses lagi setelah Anda menutup dialog ini!',
+                            style: GoogleFonts.inter(color: const Color(0xFF92400E), fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Expanded(
-                  child: Text(
-                    'PENTING: Unduh/Ekspor hasil sekarang untuk mendapatkan daftar password sementara siswa. Data password ini tidak akan bisa diakses lagi setelah Anda menutup dialog ini!',
-                    style: TextStyle(color: Color(0xFFB45309), fontSize: 12, fontWeight: FontWeight.bold),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: ListView.builder(
+                      itemCount: _importResults.length,
+                      itemBuilder: (context, idx) {
+                        final row = _importResults[idx];
+                        final bool success = row['success'] == true;
+                        return Container(
+                          color: idx % 2 == 0 ? Colors.white : const Color(0xFFF8FAFC),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          child: Row(
+                            children: [
+                              Icon(
+                                success ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+                                color: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 3,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(row['name'] ?? '', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    Text('NIS: ${row['nis']}', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  success
+                                      ? (_createAuth ? 'Pass: ${row['tempPassword'] ?? '-'}' : 'Sukses')
+                                      : (row['errors'] as List).join(', '),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-        ],
-        Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: ListView.builder(
-              itemCount: _importResults.length,
-              itemBuilder: (context, idx) {
-                final row = _importResults[idx];
-                final bool success = row['success'] == true;
-                return Container(
-                  color: idx % 2 == 0 ? Colors.white : const Color(0xFFF8FAFC),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: Row(
-                    children: [
-                      Icon(
-                        success ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
-                        color: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              row['name'] ?? '',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                            Text('NIS: ${row['nis']}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        flex: 2,
-                        child: Text(
-                          success
-                              ? (_createAuth ? 'Pass: ${row['tempPassword'] ?? '-'}' : 'Sukses')
-                              : (row['errors'] as List).join(', '),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              if (_createAuth)
+                ElevatedButton.icon(
+                  onPressed: _exportGeneratedCredentials,
+                  icon: const Icon(Icons.download_rounded, size: 18),
+                  label: Text('Ekspor Password ke Excel', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD97706),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                );
-              },
-            ),
+                )
+              else
+                const SizedBox(),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4F46E5),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Selesai'),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            if (_createAuth)
-              ElevatedButton.icon(
-                onPressed: _exportGeneratedCredentials,
-                icon: const Icon(Icons.download_rounded),
-                label: const Text('Ekspor Password Ke Excel'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD97706),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              )
-            else
-              const SizedBox(),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4F46E5),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Selesai'),
-            ),
-          ],
-        )
       ],
     );
   }
@@ -596,4 +900,15 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
       ),
     );
   }
+}
+
+class _CI {
+  final String key;
+  final String label;
+  final String example;
+  final bool required;
+  final IconData icon;
+  final Color color;
+  final String desc;
+  _CI(this.key, this.label, this.example, this.required, this.icon, this.color, this.desc);
 }

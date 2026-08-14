@@ -166,180 +166,419 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
     final isEdit = widget.teacher != null;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
       child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(28.0),
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      isEdit ? 'Ubah Data Guru' : 'Tambah Guru Baru',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        width: 550,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF4F46E5), Color(0xFF3730A3)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    isEdit ? 'Ubah Data Guru' : 'Tambah Guru Baru',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
-                ),
-                const Divider(),
-                const SizedBox(height: 16),
-                
-                // Name Field
-                TextFormField(
-                  controller: _nameController,
-                  decoration: InputDecoration(
-                    labelText: 'Nama Lengkap',
-                    prefixIcon: const Icon(Icons.person_outline_rounded),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  validator: (value) => value == null || value.trim().isEmpty ? 'Nama lengkap wajib diisi' : null,
-                ),
-                const SizedBox(height: 16),
-
-                // NIP Field
-                TextFormField(
-                  controller: _nipController,
-                  decoration: InputDecoration(
-                    labelText: 'NIP (Nomor Induk Pegawai)',
-                    prefixIcon: const Icon(Icons.badge_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                    onPressed: () => Navigator.of(context).pop(),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
-                  validator: (value) => value == null || value.trim().isEmpty ? 'NIP wajib diisi' : null,
-                ),
-                const SizedBox(height: 16),
-
-                // Gender Select
-                Row(
-                  children: [
-                    const Text('Jenis Kelamin: ', style: TextStyle(fontWeight: FontWeight.w500)),
-                    const SizedBox(width: 16),
-                    ChoiceChip(
-                      label: const Text('Laki-laki (M)'),
-                      selected: _selectedGender == 'M',
-                      onSelected: (selected) {
-                        if (selected) setState(() => _selectedGender = 'M');
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    ChoiceChip(
-                      label: const Text('Perempuan (F)'),
-                      selected: _selectedGender == 'F',
-                      onSelected: (selected) {
-                        if (selected) setState(() => _selectedGender = 'F');
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Email Field
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
-                    labelText: 'Email (Opsional)',
-                    prefixIcon: const Icon(Icons.mail_outline_rounded),
-                    helperText: _createAuth ? 'Jika dikosongkan, sistem akan membuat email login otomatis' : null,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  validator: (value) {
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Subjects Select Tagging Field
-                const Text('Pilih Mata Pelajaran:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                const SizedBox(height: 8),
-                if (_isLoadingSubjects)
-                  const Center(child: Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ))
-                else if (_schoolSubjects.isEmpty)
-                  const Text(
-                    'Belum ada mata pelajaran terdaftar. Harap tambahkan mata pelajaran di Tab Mata Pelajaran terlebih dahulu.',
-                    style: TextStyle(color: Color(0xFFEF4444), fontSize: 12),
-                  )
-                else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: _schoolSubjects.map((sub) {
-                      final name = sub['name'] as String;
-                      final isSelected = _subjects.contains(name);
-                      return FilterChip(
-                        label: Text("$name (${sub['code']})"),
-                        selected: isSelected,
-                        onSelected: (selected) {
-                          setState(() {
-                            if (selected) {
-                              _subjects.add(name);
-                            } else {
-                              _subjects.remove(name);
-                            }
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
-                const SizedBox(height: 16),
-
-                // Create Auth Checkbox (Only if not already created)
-                if (!isEdit) ...[
-                  CheckboxListTile(
-                    title: const Text('Buat akun Auth sekarang'),
-                    subtitle: const Text('Generate password sementara & izinkan login'),
-                    value: _createAuth,
-                    onChanged: (val) {
-                      setState(() {
-                        _createAuth = val ?? false;
-                      });
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  const SizedBox(height: 16),
                 ],
-
-                // Action Buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-                      child: const Text('Batal'),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _submit,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4F46E5),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : Text(isEdit ? 'Simpan' : 'Tambah'),
-                    ),
-                  ],
-                )
-              ],
+              ),
             ),
-          ),
+            
+            // Scrollable Form Body
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24.0),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Name Field
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: InputDecoration(
+                          labelText: 'Nama Lengkap',
+                          prefixIcon: const Icon(Icons.person_outline_rounded, color: Color(0xFF64748B)),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        ),
+                        validator: (value) => value == null || value.trim().isEmpty ? 'Nama lengkap wajib diisi' : null,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // NIP Field
+                      TextFormField(
+                        controller: _nipController,
+                        decoration: InputDecoration(
+                          labelText: 'NIP (Nomor Induk Pegawai)',
+                          prefixIcon: const Icon(Icons.badge_outlined, color: Color(0xFF64748B)),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        ),
+                        validator: (value) => value == null || value.trim().isEmpty ? 'NIP wajib diisi' : null,
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Gender Select (Segmented custom buttons)
+                      Row(
+                        children: [
+                          const Text(
+                            'Jenis Kelamin:',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF334155)),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () => setState(() => _selectedGender = 'M'),
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      height: 42,
+                                      decoration: BoxDecoration(
+                                        color: _selectedGender == 'M' ? const Color(0xFFEEF2FF) : Colors.white,
+                                        border: Border.all(
+                                          color: _selectedGender == 'M' ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                                          width: _selectedGender == 'M' ? 1.5 : 1.0,
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.male_rounded,
+                                            color: _selectedGender == 'M' ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                                            size: 18,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Laki-laki (M)',
+                                            style: TextStyle(
+                                              fontWeight: _selectedGender == 'M' ? FontWeight.bold : FontWeight.normal,
+                                              color: _selectedGender == 'M' ? const Color(0xFF312E81) : const Color(0xFF1E293B),
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () => setState(() => _selectedGender = 'F'),
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      height: 42,
+                                      decoration: BoxDecoration(
+                                        color: _selectedGender == 'F' ? const Color(0xFFFDF2F8) : Colors.white,
+                                        border: Border.all(
+                                          color: _selectedGender == 'F' ? const Color(0xFFEC4899) : const Color(0xFFE2E8F0),
+                                          width: _selectedGender == 'F' ? 1.5 : 1.0,
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.female_rounded,
+                                            color: _selectedGender == 'F' ? const Color(0xFFEC4899) : const Color(0xFF64748B),
+                                            size: 18,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Perempuan (F)',
+                                            style: TextStyle(
+                                              fontWeight: _selectedGender == 'F' ? FontWeight.bold : FontWeight.normal,
+                                              color: _selectedGender == 'F' ? const Color(0xFF9D174D) : const Color(0xFF1E293B),
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Email Field
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: 'Email (Opsional)',
+                          prefixIcon: const Icon(Icons.mail_outline_rounded, color: Color(0xFF64748B)),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          helperText: _createAuth ? 'Jika dikosongkan, sistem akan membuat email login otomatis' : null,
+                          helperStyle: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Subjects Select Grid Field
+                      const Text(
+                        'Pilih Mata Pelajaran:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF334155)),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_isLoadingSubjects)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else if (_schoolSubjects.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            border: Border.all(color: const Color(0xFFFEE2E2)),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.error_outline_rounded, color: Color(0xFFEF4444), size: 18),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Belum ada mata pelajaran terdaftar. Harap tambahkan mata pelajaran terlebih dahulu.',
+                                  style: TextStyle(color: Color(0xFFB91C1C), fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        Container(
+                          height: 180,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            borderRadius: BorderRadius.circular(12),
+                            color: const Color(0xFFF8FAFC),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: RawScrollbar(
+                            thumbColor: const Color(0xFFCBD5E1),
+                            radius: const Radius.circular(4),
+                            thickness: 4,
+                            child: GridView.builder(
+                              padding: const EdgeInsets.all(12),
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                                childAspectRatio: 3.2,
+                              ),
+                              itemCount: _schoolSubjects.length,
+                              itemBuilder: (context, idx) {
+                                final sub = _schoolSubjects[idx];
+                                final name = sub['name'] as String;
+                                final code = sub['code'] as String;
+                                final isSelected = _subjects.contains(name);
+                                return InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      if (isSelected) {
+                                        _subjects.remove(name);
+                                      } else {
+                                        _subjects.add(name);
+                                      }
+                                    });
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+                                      border: Border.all(
+                                        color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                                        width: isSelected ? 1.5 : 1.0,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+                                          color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Text(
+                                                name,
+                                                style: TextStyle(
+                                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                                  fontSize: 12,
+                                                  color: isSelected ? const Color(0xFF312E81) : const Color(0xFF1E293B),
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              Text(
+                                                code,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF64748B),
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+
+                      // Create Auth Checkbox (Only if not already created)
+                      if (!isEdit) ...[
+                        Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            borderRadius: BorderRadius.circular(10),
+                            color: Colors.white,
+                          ),
+                          child: CheckboxListTile(
+                            title: const Text(
+                              'Buat akun login otomatis',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                            ),
+                            subtitle: const Text(
+                              'Sistem akan menghasilkan kata sandi sementara untuk guru ini.',
+                              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                            ),
+                            value: _createAuth,
+                            onChanged: (val) {
+                              setState(() {
+                                _createAuth = val ?? false;
+                              });
+                            },
+                            controlAffinity: ListTileControlAffinity.leading,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            activeColor: const Color(0xFF4F46E5),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Actions Footer
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                color: Color(0xFFF8FAFC),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      side: const BorderSide(color: Color(0xFFCBD5E1)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      foregroundColor: const Color(0xFF475569),
+                    ),
+                    child: const Text('Batal'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F46E5),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        : Text(isEdit ? 'Simpan Perubahan' : 'Tambah Guru'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

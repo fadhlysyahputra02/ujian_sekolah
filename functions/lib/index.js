@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
+exports.importTeachersBulk = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const firestore_1 = require("firebase-admin/firestore");
@@ -823,6 +823,118 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
     }
     catch (err) {
         throw new functions.https.HttpsError('internal', err.message || 'Gagal memverifikasi password.');
+    }
+});
+/**
+ * Bulk import teachers from Excel / CSV.
+ */
+exports.importTeachersBulk = functions.https.onCall(async (request) => {
+    const { schoolId, rows, createAuth } = request.data || {};
+    if (!schoolId || !Array.isArray(rows)) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const results = [];
+    try {
+        const teachersRef = db.collection('schools').doc(schoolId).collection('teachers');
+        const existingSnap = await teachersRef.where('archived', '==', false).get();
+        const existingNipSet = new Set(existingSnap.docs.map(doc => doc.data().nip.toString().trim()));
+        const processedNip = new Set();
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const { name, gender, nip, email } = row;
+            const errors = [];
+            const cleanName = name?.toString().trim();
+            const cleanGender = gender?.toString().trim().toUpperCase();
+            const cleanNip = nip?.toString().trim();
+            const cleanEmail = email?.toString().trim();
+            if (!cleanName)
+                errors.push('Nama wajib diisi.');
+            if (!cleanGender || (cleanGender !== 'M' && cleanGender !== 'F'))
+                errors.push('Gender harus M atau F.');
+            if (!cleanNip)
+                errors.push('NIP wajib diisi.');
+            if (cleanNip) {
+                if (existingNipSet.has(cleanNip)) {
+                    errors.push(`NIP ${cleanNip} sudah terdaftar di sekolah.`);
+                }
+                if (processedNip.has(cleanNip)) {
+                    errors.push(`NIP ${cleanNip} duplikat dalam file impor.`);
+                }
+                processedNip.add(cleanNip);
+            }
+            if (errors.length > 0) {
+                results.push({ rowIndex: i, success: false, errors });
+                continue;
+            }
+            try {
+                let uid = null;
+                let tempPassword = '';
+                const loginEmail = cleanEmail || (createAuth ? `t_${cleanNip}_${schoolId}@sesicermat.com` : null);
+                if (createAuth && loginEmail) {
+                    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+                    for (let j = 0; j < 10; j++) {
+                        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    const userRecord = await admin.auth().createUser({
+                        email: loginEmail,
+                        password: tempPassword,
+                        displayName: cleanName,
+                    });
+                    await admin.auth().setCustomUserClaims(userRecord.uid, { role: 'teacher', schoolId });
+                    uid = userRecord.uid;
+                }
+                const newDocRef = teachersRef.doc();
+                await newDocRef.set({
+                    uid,
+                    displayName: cleanName,
+                    nip: cleanNip,
+                    gender: cleanGender,
+                    email: loginEmail,
+                    subjects: [], // No subjects by default
+                    schoolId,
+                    disabled: false,
+                    archived: false,
+                    tempPassword: createAuth ? tempPassword : null,
+                    createdAt: firestore_1.FieldValue.serverTimestamp(),
+                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
+                    deletedAt: null
+                });
+                if (uid && loginEmail) {
+                    await db.collection('users').doc(uid).set({
+                        uid,
+                        email: loginEmail,
+                        role: 'teacher',
+                        schoolId,
+                        profileRef: newDocRef.path,
+                        createdAt: firestore_1.FieldValue.serverTimestamp()
+                    });
+                }
+                await db.collection('schools').doc(schoolId).update({
+                    'meta.teacherCount': firestore_1.FieldValue.increment(1)
+                });
+                results.push({
+                    rowIndex: i,
+                    success: true,
+                    errors: [],
+                    tempPassword: createAuth ? tempPassword : undefined
+                });
+            }
+            catch (err) {
+                results.push({
+                    rowIndex: i,
+                    success: false,
+                    errors: [err.message || 'Error internal saat mengimpor baris ini.']
+                });
+            }
+        }
+        const actorUid = request.auth?.uid || 'system';
+        await writeAuditLog(db, schoolId, actorUid, 'IMPORT_TEACHERS', `Mengimpor ${rows.length} data guru.`);
+        return { results };
+    }
+    catch (err) {
+        throw new functions.https.HttpsError('internal', err.message || 'Gagal memproses impor massal.');
     }
 });
 //# sourceMappingURL=index.js.map

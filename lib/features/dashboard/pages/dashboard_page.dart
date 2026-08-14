@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/school_service.dart';
@@ -12,11 +13,42 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+class _DashboardPageState extends State<DashboardPage>
+    with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   final SchoolService _schoolService = SchoolService();
 
-  final List<String> _titles = ['Ringkasan Sistem', 'Manajemen Sekolah'];
+  late final AnimationController _fadeController;
+  late final Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..forward();
+    _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    super.dispose();
+  }
+
+  final List<_NavItem> _navItems = const [
+    _NavItem(
+      icon: Icons.dashboard_outlined,
+      activeIcon: Icons.dashboard_rounded,
+      label: 'Ringkasan',
+    ),
+    _NavItem(
+      icon: Icons.business_outlined,
+      activeIcon: Icons.business_rounded,
+      label: 'Sekolah',
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -24,242 +56,437 @@ class _DashboardPageState extends State<DashboardPage> {
     final isDesktop = size.width > 800;
     final authService = Provider.of<AuthService>(context);
 
-    // Sidebar items
-    final navigationItems = [
-      const NavigationRailDestination(
-        icon: Icon(Icons.dashboard_rounded),
-        selectedIcon: Icon(Icons.dashboard_rounded, color: Color(0xFF4F46E5)),
-        label: Text('Ringkasan'),
-      ),
-      const NavigationRailDestination(
-        icon: Icon(Icons.school_rounded),
-        selectedIcon: Icon(Icons.school_rounded, color: Color(0xFF4F46E5)),
-        label: Text('Sekolah'),
-      ),
-    ];
-
-    final bottomNavItems = [
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.dashboard_outlined),
-        activeIcon: Icon(Icons.dashboard_rounded),
-        label: 'Ringkasan',
-      ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.school_outlined),
-        activeIcon: Icon(Icons.school_rounded),
-        label: 'Sekolah',
-      ),
-    ];
-
     final pages = [
       _buildOverviewContent(),
       const SchoolListPage(),
     ];
 
+    final backgroundGradient = const BoxDecoration(
+      gradient: LinearGradient(
+        colors: [
+          Color(0xFFF8FAFC),
+          Color(0xFFEFF6FF),
+          Color(0xFFE2E8F0),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    );
+
     if (isDesktop) {
-      // Desktop / Web Layout
       return Scaffold(
         body: Row(
           children: [
-            // Sidebar Navigation Rail
-            NavigationRail(
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) {
-                setState(() {
-                  _selectedIndex = index;
-                });
-              },
-              extended: size.width > 1100,
-              labelType: size.width > 1100 ? NavigationRailLabelType.none : NavigationRailLabelType.selected,
-              backgroundColor: Colors.white,
-              elevation: 4,
-              minWidth: 72,
-              minExtendedWidth: 220,
-              leading: Column(
-                children: [
-                  const SizedBox(height: 24),
-                  // App Branding
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4F46E5).withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.school_rounded,
-                      color: Color(0xFF4F46E5),
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (size.width > 1100) ...[
-                    const Text(
-                      'SesiCermat',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1E293B),
-                      ),
-                    ),
-                    const Text(
-                      'Super Admin',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF64748B),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 32),
-                ],
-              ),
-              destinations: navigationItems,
-              trailing: Expanded(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 24.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Divider(indent: 10, endIndent: 10),
-                        const SizedBox(height: 12),
-                        IconButton(
-                          icon: const Icon(Icons.logout_rounded, color: Color(0xFFEF4444)),
-                          onPressed: () => authService.signOut(),
-                          tooltip: 'Keluar',
-                        ),
-                        if (size.width > 1100) ...[
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Keluar',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFFEF4444),
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ]
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            // Main Content Area
+            _buildSidebar(authService, size),
             Expanded(
               child: Container(
-                color: const Color(0xFFF8FAFC),
-                child: pages[_selectedIndex],
+                decoration: backgroundGradient,
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: pages[_selectedIndex],
+                ),
               ),
             ),
           ],
         ),
       );
-    } else {
-      // Mobile / Tablet Layout
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(
-            _titles[_selectedIndex],
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          backgroundColor: Colors.white,
-          foregroundColor: const Color(0xFF1E293B),
-          elevation: 0,
+    }
+
+    // Mobile layout
+    return Scaffold(
+      appBar: _buildMobileAppBar(authService),
+      drawer: _buildDrawer(authService),
+      body: Container(
+        decoration: backgroundGradient,
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: pages[_selectedIndex],
         ),
-        drawer: Drawer(
-          child: Column(
+      ),
+      bottomNavigationBar: _buildBottomNav(),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SIDEBAR
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildSidebar(AuthService authService, Size size) {
+    final extended = size.width > 1100;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      width: extended ? 240 : 72,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 20,
+            offset: Offset(4, 0),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Logo area
+          Container(
+            height: 72,
+            padding: EdgeInsets.symmetric(
+              horizontal: extended ? 20 : 0,
+            ),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.07),
+                ),
+              ),
+            ),
+            child: extended
+                ? Row(
+                    children: [
+                      _buildLogoIcon(),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'SesiCermat',
+                              style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              'Super Admin',
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFF818CF8),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                : Center(child: _buildLogoIcon()),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Nav items
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Column(
+                children: _navItems.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final item = entry.value;
+                  return _buildSidebarItem(item, idx, extended);
+                }).toList(),
+              ),
+            ),
+          ),
+
+          // Logout button
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
+              ),
+            ),
+            child: extended
+                ? _buildLogoutTile(authService, extended: true)
+                : _buildLogoutTile(authService, extended: false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogoIcon() {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withValues(alpha: 0.4),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: const Icon(Icons.school_rounded, color: Colors.white, size: 22),
+    );
+  }
+
+  Widget _buildSidebarItem(_NavItem item, int idx, bool extended) {
+    final isSelected = _selectedIndex == idx;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: InkWell(
+        onTap: () => setState(() {
+          _selectedIndex = idx;
+        }),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: EdgeInsets.symmetric(
+            horizontal: extended ? 14 : 0,
+            vertical: 12,
+          ),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? const Color(0xFF4F46E5).withValues(alpha: 0.2)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: isSelected
+                ? Border.all(color: const Color(0xFF4F46E5).withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment:
+                extended ? MainAxisAlignment.start : MainAxisAlignment.center,
             children: [
-              UserAccountsDrawerHeader(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF4F46E5), Color(0xFF06B6D4)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              Icon(
+                isSelected ? item.activeIcon : item.icon,
+                color: isSelected ? const Color(0xFF818CF8) : const Color(0xFF64748B),
+                size: 22,
+              ),
+              if (extended) ...[
+                const SizedBox(width: 12),
+                Text(
+                  item.label,
+                  style: GoogleFonts.inter(
+                    color:
+                        isSelected ? const Color(0xFFE0E7FF) : const Color(0xFF94A3B8),
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.w500,
+                    fontSize: 14,
                   ),
                 ),
-                currentAccountPicture: CircleAvatar(
-                  backgroundColor: Colors.white.withValues(alpha: 0.2),
-                  child: const Icon(
-                    Icons.admin_panel_settings_rounded,
-                    size: 40,
-                    color: Colors.white,
+                if (isSelected) ...[
+                  const Spacer(),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF818CF8),
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                accountName: const Text(
-                  'Super Admin',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                accountEmail: Text(authService.user?.email ?? 'sadmin@sesicermat.com'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.dashboard_rounded),
-                title: const Text('Ringkasan'),
-                selected: _selectedIndex == 0,
-                selectedColor: const Color(0xFF4F46E5),
-                onTap: () {
-                  setState(() {
-                    _selectedIndex = 0;
-                  });
-                  Navigator.of(context).pop();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.school_rounded),
-                title: const Text('Manajemen Sekolah'),
-                selected: _selectedIndex == 1,
-                selectedColor: const Color(0xFF4F46E5),
-                onTap: () {
-                  setState(() {
-                    _selectedIndex = 1;
-                  });
-                  Navigator.of(context).pop();
-                },
-              ),
-              const Spacer(),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.logout_rounded, color: Color(0xFFEF4444)),
-                title: const Text(
-                  'Keluar',
-                  style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold),
-                ),
-                onTap: () async {
-                  Navigator.of(context).pop();
-                  await authService.signOut();
-                },
-              ),
-              const SizedBox(height: 16),
+                ],
+              ],
             ],
           ),
         ),
-        body: pages[_selectedIndex],
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: (index) {
-            setState(() {
-              _selectedIndex = index;
-            });
-          },
-          selectedItemColor: const Color(0xFF4F46E5),
-          unselectedItemColor: const Color(0xFF64748B),
-          backgroundColor: Colors.white,
-          elevation: 8,
-          items: bottomNavItems,
-        ),
-      );
-    }
+      ),
+    );
   }
 
+  Widget _buildLogoutTile(AuthService authService, {required bool extended}) {
+    return InkWell(
+      onTap: () => authService.signOut(),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: extended ? 14 : 0,
+          vertical: 12,
+        ),
+        child: Row(
+          mainAxisAlignment:
+              extended ? MainAxisAlignment.start : MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.logout_rounded,
+                  color: Color(0xFFFCA5A5), size: 16),
+            ),
+            if (extended) ...[
+              const SizedBox(width: 12),
+              Text(
+                'Keluar',
+                style: GoogleFonts.inter(
+                  color: const Color(0xFFFCA5A5),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MOBILE APP BAR & DRAWER
+  // ─────────────────────────────────────────────────────────────────────────
+  AppBar _buildMobileAppBar(AuthService authService) {
+    return AppBar(
+      leading: Builder(
+        builder: (context) => IconButton(
+          icon: const Icon(Icons.menu_rounded),
+          onPressed: () => Scaffold.of(context).openDrawer(),
+        ),
+      ),
+      title: Text(
+        _selectedIndex == 0 ? 'Ringkasan Sistem' : 'Manajemen Sekolah',
+        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 17),
+      ),
+      backgroundColor: Colors.white,
+      foregroundColor: const Color(0xFF0F172A),
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(height: 1, color: const Color(0xFFE2E8F0)),
+      ),
+    );
+  }
+
+  Widget _buildDrawer(AuthService authService) {
+    return Drawer(
+      backgroundColor: const Color(0xFF0F172A),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 56, 20, 24),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF0F172A), Color(0xFF1E1B4B)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Row(
+              children: [
+                _buildLogoIcon(),
+                const SizedBox(width: 14),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SesiCermat',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      authService.user?.email ?? 'sadmin@sesicermat.com',
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFF818CF8),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Container(
+              color: const Color(0xFF0F172A),
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: _navItems.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final item = entry.value;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: _buildSidebarItem(item, idx, true),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          Container(
+            color: const Color(0xFF0F172A),
+            padding: const EdgeInsets.all(12),
+            child: _buildLogoutTile(authService, extended: true),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNav() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(color: Color(0x0F000000), blurRadius: 10, offset: Offset(0, -2)),
+        ],
+      ),
+      child: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (idx) => setState(() => _selectedIndex = idx),
+        selectedItemColor: const Color(0xFF4F46E5),
+        unselectedItemColor: const Color(0xFF94A3B8),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        selectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 11),
+        unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 11),
+        items: [
+          BottomNavigationBarItem(
+            icon: Container(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: const Icon(Icons.dashboard_outlined),
+            ),
+            activeIcon: Container(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: const Icon(Icons.dashboard_rounded),
+            ),
+            label: 'Ringkasan',
+          ),
+          BottomNavigationBarItem(
+            icon: Container(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: const Icon(Icons.business_outlined),
+            ),
+            activeIcon: Container(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: const Icon(Icons.business_rounded),
+            ),
+            label: 'Sekolah',
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // OVERVIEW CONTENT
+  // ─────────────────────────────────────────────────────────────────────────
   Widget _buildOverviewContent() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _schoolService.getSchoolsStream(),
       builder: (context, snapshot) {
         final schools = snapshot.data?.docs ?? [];
-        int totalSchools = schools.length;
-        int activeSchools = schools.where((s) => s.data()['disabled'] != true).length;
-        int inactiveSchools = totalSchools - activeSchools;
+        final int totalSchools = schools.length;
+        final int activeSchools =
+            schools.where((s) => s.data()['disabled'] != true).length;
+        final int inactiveSchools = totalSchools - activeSchools;
 
         int totalTeachers = 0;
         int totalStudents = 0;
@@ -269,134 +496,88 @@ class _DashboardPageState extends State<DashboardPage> {
           totalStudents += (meta['studentCount'] ?? 0) as int;
         }
 
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
+
         return SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Selamat datang, Super Admin!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Berikut adalah ringkasan data sistem SesiCermat secara real-time.',
-                style: TextStyle(color: Color(0xFF64748B)),
-              ),
-              const SizedBox(height: 24),
+              // Welcome Banner
+              _buildWelcomeBanner(),
+              const SizedBox(height: 28),
 
-              // KPI Stats Grid
-              GridView.count(
-                crossAxisCount: MediaQuery.of(context).size.width > 1200
-                    ? 5
-                    : MediaQuery.of(context).size.width > 800
-                        ? 3
-                        : 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.3,
-                children: [
-                  _buildStatCard(
-                    title: 'Total Sekolah',
-                    value: '$totalSchools',
-                    icon: Icons.business_rounded,
-                    color: const Color(0xFF4F46E5),
-                  ),
-                  _buildStatCard(
-                    title: 'Sekolah Aktif',
-                    value: '$activeSchools',
-                    icon: Icons.check_circle_rounded,
-                    color: const Color(0xFF10B981),
-                  ),
-                  _buildStatCard(
-                    title: 'Sekolah Nonaktif',
-                    value: '$inactiveSchools',
-                    icon: Icons.remove_circle_rounded,
-                    color: const Color(0xFFEF4444),
-                  ),
-                  _buildStatCard(
-                    title: 'Total Guru',
-                    value: '$totalTeachers',
-                    icon: Icons.people_alt_rounded,
-                    color: const Color(0xFFF59E0B),
-                  ),
-                  _buildStatCard(
-                    title: 'Total Murid',
-                    value: '$totalStudents',
-                    icon: Icons.face_rounded,
-                    color: const Color(0xFF06B6D4),
-                  ),
-                ],
+              // Section label
+              _buildSectionLabel('Statistik Sistem'),
+              const SizedBox(height: 14),
+
+              // KPI Cards
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  int crossAxisCount = 2;
+                  if (constraints.maxWidth > 1100) {
+                    crossAxisCount = 5;
+                  } else if (constraints.maxWidth > 700) {
+                    crossAxisCount = 3;
+                  }
+
+                  return GridView.count(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    childAspectRatio: 1.35,
+                    children: [
+                      _buildStatCard(
+                        title: 'Total Sekolah',
+                        value: isLoading ? '—' : '$totalSchools',
+                        icon: Icons.business_rounded,
+                        gradientColors: [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
+                        bgColor: const Color(0xFFF5F3FF),
+                        iconBg: const Color(0xFF4F46E5),
+                      ),
+                      _buildStatCard(
+                        title: 'Sekolah Aktif',
+                        value: isLoading ? '—' : '$activeSchools',
+                        icon: Icons.check_circle_rounded,
+                        gradientColors: [const Color(0xFF059669), const Color(0xFF10B981)],
+                        bgColor: const Color(0xFFF0FDF4),
+                        iconBg: const Color(0xFF10B981),
+                      ),
+                      _buildStatCard(
+                        title: 'Nonaktif',
+                        value: isLoading ? '—' : '$inactiveSchools',
+                        icon: Icons.cancel_rounded,
+                        gradientColors: [const Color(0xFFDC2626), const Color(0xFFEF4444)],
+                        bgColor: const Color(0xFFFFF5F5),
+                        iconBg: const Color(0xFFEF4444),
+                      ),
+                      _buildStatCard(
+                        title: 'Total Guru',
+                        value: isLoading ? '—' : '$totalTeachers',
+                        icon: Icons.person_rounded,
+                        gradientColors: [const Color(0xFFD97706), const Color(0xFFF59E0B)],
+                        bgColor: const Color(0xFFFFFBEB),
+                        iconBg: const Color(0xFFF59E0B),
+                      ),
+                      _buildStatCard(
+                        title: 'Total Murid',
+                        value: isLoading ? '—' : '$totalStudents',
+                        icon: Icons.school_rounded,
+                        gradientColors: [const Color(0xFF0284C7), const Color(0xFF06B6D4)],
+                        bgColor: const Color(0xFFF0FDFF),
+                        iconBg: const Color(0xFF06B6D4),
+                      ),
+                    ],
+                  );
+                },
               ),
 
               const SizedBox(height: 32),
-              // Subtitle
-              const Text(
-                'Aktivitas Cepat',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Quick Actions Container
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'Daftarkan Sekolah Baru Sekarang',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E293B),
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Tambahkan sekolah baru ke ekosistem SesiCermat dan buat akun administrator pertamanya.',
-                            style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _selectedIndex = 1; // Go to schools management
-                        });
-                      },
-                      icon: const Icon(Icons.arrow_forward),
-                      label: const Text('Kelola Sekolah'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4F46E5),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    )
-                  ],
-                ),
-              )
+              _buildSectionLabel('Aktivitas Cepat'),
+              const SizedBox(height: 14),
+              _buildQuickActionCard(),
             ],
           ),
         );
@@ -404,22 +585,127 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  Widget _buildWelcomeBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1E1B4B), Color(0xFF312E81), Color(0xFF3730A3)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '👋  Selamat Datang!',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFFC7D2FE),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Super Admin\nSesiCermat',
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    height: 1.2,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Pantau dan kelola seluruh ekosistem sekolah dari sini.',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF818CF8),
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: const Icon(Icons.admin_panel_settings_rounded,
+                color: Color(0xFFC7D2FE), size: 40),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionLabel(String text) {
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 18,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          text,
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF0F172A),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildStatCard({
     required String title,
     required String value,
     required IconData icon,
-    required Color color,
+    required List<Color> gradientColors,
+    required Color bgColor,
+    required Color iconBg,
   }) {
+    final themeColor = gradientColors.last;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: themeColor.withValues(alpha: 0.15),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.01),
-            blurRadius: 10,
+            color: themeColor.withValues(alpha: 0.06),
+            blurRadius: 12,
             offset: const Offset(0, 4),
           ),
         ],
@@ -430,28 +716,147 @@ class _DashboardPageState extends State<DashboardPage> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF64748B),
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF64748B),
+                    height: 1.3,
+                  ),
                 ),
               ),
-              Icon(icon, color: color, size: 24),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: gradientColors),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: themeColor.withValues(alpha: 0.35),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Icon(icon, color: Colors.white, size: 18),
+              ),
             ],
           ),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E293B),
+            style: GoogleFonts.inter(
+              fontSize: 30,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF0F172A),
+              letterSpacing: -1,
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildQuickActionCard() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Colors.white, Color(0xFFF5F3FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFDDD6FE)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withValues(alpha: 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Icon(Icons.add_business_rounded,
+                color: Colors.white, size: 26),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Daftarkan Sekolah Baru',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Tambahkan sekolah baru ke ekosistem SesiCermat.',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF64748B),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          ElevatedButton.icon(
+            onPressed: () => setState(() => _selectedIndex = 1),
+            icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+            label: Text(
+              'Kelola',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA CLASS
+// ─────────────────────────────────────────────────────────────────────────────
+class _NavItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  const _NavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+  });
 }

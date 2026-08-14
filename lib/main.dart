@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'core/services/auth_service.dart';
 import 'firebase_options.dart';
@@ -36,14 +37,30 @@ class MyApp extends StatelessWidget {
             seedColor: const Color(0xFF4F46E5),
             primary: const Color(0xFF4F46E5),
             secondary: const Color(0xFF06B6D4),
+            brightness: Brightness.light,
           ),
-          fontFamily: 'Roboto',
+          textTheme: GoogleFonts.interTextTheme(
+            ThemeData.light().textTheme,
+          ),
+          appBarTheme: AppBarTheme(
+            titleTextStyle: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF0F172A),
+            ),
+          ),
+          elevatedButtonTheme: ElevatedButtonThemeData(
+            style: ElevatedButton.styleFrom(
+              textStyle: GoogleFonts.inter(fontWeight: FontWeight.w600),
+            ),
+          ),
         ),
         home: const AuthWrapper(),
       ),
     );
   }
 }
+
 
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
