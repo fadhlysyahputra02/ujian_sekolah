@@ -441,8 +441,15 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
     const email = currentData?.email;
     const displayName = currentData?.displayName;
     const identifier = collectionType === 'teachers' ? currentData?.nip : currentData?.nis;
-    if (!email) {
-        throw new functions.https.HttpsError('failed-precondition', 'Pengguna ini tidak memiliki email. Tambahkan email terlebih dahulu untuk membuat akun login.');
+    let finalEmail = email ? email.trim() : '';
+    if (!finalEmail) {
+        const schoolSnap = await db.collection('schools').doc(schoolId).get();
+        const schoolCode = schoolSnap.data()?.code || schoolId;
+        const cleanName = displayName
+            ? displayName.toLowerCase().replace(/[^a-z0-9]/g, '')
+            : (identifier ? identifier.toLowerCase().replace(/[^a-z0-9]/g, '') : 'user');
+        const random2Digits = Math.floor(10 + Math.random() * 90);
+        finalEmail = `${cleanName}${random2Digits}@${schoolCode.toLowerCase()}.com`;
     }
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
     let tempPassword = '';
@@ -453,7 +460,7 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
         if (!uid) {
             // 1. Create a new Firebase Auth user
             const userRecord = await admin.auth().createUser({
-                email,
+                email: finalEmail,
                 password: tempPassword,
                 displayName,
             });
@@ -465,12 +472,13 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
                 transaction.update(docRef, {
                     uid,
                     tempPassword,
+                    email: finalEmail,
                     updatedAt: firestore_1.FieldValue.serverTimestamp()
                 });
                 const globalUserRef = db.collection('users').doc(uid);
                 transaction.set(globalUserRef, {
                     uid,
-                    email,
+                    email: finalEmail,
                     role,
                     schoolId,
                     profileRef: docRef.path,
@@ -486,6 +494,7 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
             // Update tempPassword in Firestore doc
             await docRef.update({
                 tempPassword,
+                email: finalEmail,
                 updatedAt: firestore_1.FieldValue.serverTimestamp()
             });
         }
@@ -508,6 +517,14 @@ exports.softDeleteUser = functions.https.onCall(async (request) => {
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
     try {
+        let classDocRefs = [];
+        if (collectionType === 'students') {
+            const classesSnap = await db.collection('schools').doc(schoolId)
+                .collection('classes')
+                .where('studentIds', 'array-contains', docId)
+                .get();
+            classDocRefs = classesSnap.docs.map(doc => doc.ref);
+        }
         await db.runTransaction(async (transaction) => {
             const docRef = db.collection('schools').doc(schoolId).collection(collectionType).doc(docId);
             const docSnap = await transaction.get(docRef);
@@ -542,6 +559,11 @@ exports.softDeleteUser = functions.https.onCall(async (request) => {
             else {
                 transaction.update(schoolRef, {
                     'meta.studentCount': firestore_1.FieldValue.increment(-1)
+                });
+            }
+            for (const ref of classDocRefs) {
+                transaction.update(ref, {
+                    studentIds: firestore_1.FieldValue.arrayRemove(docId)
                 });
             }
         });
@@ -625,6 +647,14 @@ exports.permanentDeleteUser = functions.https.onCall(async (request) => {
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
     try {
+        let classDocRefs = [];
+        if (collectionType === 'students') {
+            const classesSnap = await db.collection('schools').doc(schoolId)
+                .collection('classes')
+                .where('studentIds', 'array-contains', docId)
+                .get();
+            classDocRefs = classesSnap.docs.map(doc => doc.ref);
+        }
         const docRef = db.collection('schools').doc(schoolId).collection(collectionType).doc(docId);
         const snap = await docRef.get();
         if (!snap.exists) {
@@ -657,6 +687,11 @@ exports.permanentDeleteUser = functions.https.onCall(async (request) => {
             if (uid) {
                 const globalUserRef = db.collection('users').doc(uid);
                 transaction.delete(globalUserRef);
+            }
+            for (const ref of classDocRefs) {
+                transaction.update(ref, {
+                    studentIds: firestore_1.FieldValue.arrayRemove(docId)
+                });
             }
         });
         if (uid) {
@@ -1075,6 +1110,7 @@ exports.createEvent = functions.https.onCall(async (request) => {
                 seatNumberPadding: eventInfo.seatNumberPadding || 3
             }
         });
+        const sessionMap = new Map();
         if (sessions && Array.isArray(sessions)) {
             sessions.forEach((s) => {
                 const sRef = eventRef.collection('sessions').doc();
@@ -1088,16 +1124,20 @@ exports.createEvent = functions.https.onCall(async (request) => {
                     createdAt: firestore_1.FieldValue.serverTimestamp(),
                     updatedAt: firestore_1.FieldValue.serverTimestamp()
                 });
+                if (s.tempId) {
+                    sessionMap.set(s.tempId, sRef.id);
+                }
             });
         }
         if (timetable && Array.isArray(timetable)) {
             timetable.forEach((t) => {
                 const tRef = eventRef.collection('timetable').doc();
+                const mappedSessionId = t.sessionId ? (sessionMap.get(t.sessionId) || t.sessionId) : null;
                 transaction.set(tRef, {
                     classId: t.classId,
                     subjectId: t.subjectId,
                     subjectName: t.subjectName,
-                    sessionId: t.sessionId,
+                    sessionId: mappedSessionId,
                     teacherId: t.teacherId,
                     status: 'scheduled',
                     createdAt: firestore_1.FieldValue.serverTimestamp()

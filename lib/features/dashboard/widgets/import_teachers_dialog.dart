@@ -25,6 +25,7 @@ class _ImportTeachersDialogState extends State<ImportTeachersDialog> {
   List<Map<String, dynamic>> _parsedRows = [];
   bool _createAuth = false;
   bool _isLoading = false;
+  double _progressValue = 0.0;
   String? _parseError;
 
   bool _showResults = false;
@@ -147,26 +148,50 @@ class _ImportTeachersDialogState extends State<ImportTeachersDialog> {
   Future<void> _submitImport() async {
     final validRows = _parsedRows.where((r) => r['isValid'] == true).toList();
     if (validRows.isEmpty) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _progressValue = 0.0;
+    });
     try {
       final cleanRows = validRows.map((r) => {
         'name': r['name'], 'gender': r['gender'], 'nip': r['nip'],
         'email': r['email'].toString().isEmpty ? null : r['email'],
       }).toList();
-      final response = await _adminUserService.importTeachersBulk(
-        schoolId: widget.schoolId, rows: cleanRows, createAuth: _createAuth,
-      );
-      if (!mounted) return;
+
       final List<Map<String, dynamic>> results = [];
-      for (int i = 0; i < response.length; i++) {
-        final res = response[i];
-        final sourceRow = validRows[res['rowIndex'] as int];
-        results.add({
-          'name': sourceRow['name'], 'nip': sourceRow['nip'], 'email': sourceRow['email'],
-          'success': res['success'] ?? false, 'errors': List<String>.from(res['errors'] ?? []),
-          'tempPassword': res['tempPassword'] as String?,
-        });
+      final batchSize = 10;
+      final totalRows = cleanRows.length;
+
+      for (int i = 0; i < totalRows; i += batchSize) {
+        final end = (i + batchSize < totalRows) ? i + batchSize : totalRows;
+        final batch = cleanRows.sublist(i, end);
+        final response = await _adminUserService.importTeachersBulk(
+          schoolId: widget.schoolId,
+          rows: batch,
+          createAuth: _createAuth,
+        );
+
+        for (int j = 0; j < response.length; j++) {
+          final res = response[j];
+          final sourceRow = validRows[i + (res['rowIndex'] as int)];
+          results.add({
+            'name': sourceRow['name'],
+            'nip': sourceRow['nip'],
+            'email': sourceRow['email'],
+            'success': res['success'] ?? false,
+            'errors': List<String>.from(res['errors'] ?? []),
+            'tempPassword': res['tempPassword'] as String?,
+          });
+        }
+
+        if (mounted) {
+          setState(() {
+            _progressValue = end / totalRows;
+          });
+        }
       }
+
+      if (!mounted) return;
       setState(() { _importResults = results; _showResults = true; });
     } catch (e) {
       if (!mounted) return;
@@ -174,7 +199,9 @@ class _ImportTeachersDialogState extends State<ImportTeachersDialog> {
         SnackBar(content: Text('Gagal melakukan impor: $e'), backgroundColor: const Color(0xFFEF4444)),
       );
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -214,9 +241,58 @@ class _ImportTeachersDialogState extends State<ImportTeachersDialog> {
       child: Container(
         width: 700, height: size.height * 0.82,
         clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
-        child: _showResults ? _buildResultsView() : _stage == 0 ? _buildGuideView() : _buildParserView(),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), color: Colors.white),
+        child: _isLoading
+            ? _buildLoadingView()
+            : _showResults
+                ? _buildResultsView()
+                : _stage == 0
+                    ? _buildGuideView()
+                    : _buildParserView(),
       ),
+    );
+  }
+
+  Widget _buildLoadingView() {
+    final pct = (_progressValue * 100).toInt();
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.cloud_upload_outlined, size: 72, color: Color(0xFF4F46E5)),
+        const SizedBox(height: 24),
+        Text(
+          'Mengimpor Data...',
+          style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Harap jangan menutup jendela ini atau me-refresh halaman.',
+          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+        ),
+        const SizedBox(height: 32),
+        Container(
+          width: 320,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: LinearProgressIndicator(
+                  value: _progressValue,
+                  backgroundColor: const Color(0xFFE2E8F0),
+                  color: const Color(0xFF4F46E5),
+                  minHeight: 10,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '$pct%',
+                style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF4F46E5)),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

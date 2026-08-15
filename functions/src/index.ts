@@ -538,11 +538,15 @@ export const generateTempPassword = functions.https.onCall(async (request) => {
   const displayName = currentData?.displayName;
   const identifier = collectionType === 'teachers' ? currentData?.nip : currentData?.nis;
 
-  if (!email) {
-    throw new functions.https.HttpsError(
-      'failed-precondition',
-      'Pengguna ini tidak memiliki email. Tambahkan email terlebih dahulu untuk membuat akun login.'
-    );
+  let finalEmail = email ? email.trim() : '';
+  if (!finalEmail) {
+    const schoolSnap = await db.collection('schools').doc(schoolId).get();
+    const schoolCode = schoolSnap.data()?.code || schoolId;
+    const cleanName = displayName
+      ? displayName.toLowerCase().replace(/[^a-z0-9]/g, '')
+      : (identifier ? identifier.toLowerCase().replace(/[^a-z0-9]/g, '') : 'user');
+    const random2Digits = Math.floor(10 + Math.random() * 90);
+    finalEmail = `${cleanName}${random2Digits}@${schoolCode.toLowerCase()}.com`;
   }
 
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
@@ -555,7 +559,7 @@ export const generateTempPassword = functions.https.onCall(async (request) => {
     if (!uid) {
       // 1. Create a new Firebase Auth user
       const userRecord = await admin.auth().createUser({
-        email,
+        email: finalEmail,
         password: tempPassword,
         displayName,
       });
@@ -569,13 +573,14 @@ export const generateTempPassword = functions.https.onCall(async (request) => {
         transaction.update(docRef, {
           uid,
           tempPassword,
+          email: finalEmail,
           updatedAt: FieldValue.serverTimestamp()
         });
 
         const globalUserRef = db.collection('users').doc(uid);
         transaction.set(globalUserRef, {
           uid,
-          email,
+          email: finalEmail,
           role,
           schoolId,
           profileRef: docRef.path,
@@ -590,6 +595,7 @@ export const generateTempPassword = functions.https.onCall(async (request) => {
       // Update tempPassword in Firestore doc
       await docRef.update({
         tempPassword,
+        email: finalEmail,
         updatedAt: FieldValue.serverTimestamp()
       });
     }
@@ -617,6 +623,15 @@ export const softDeleteUser = functions.https.onCall(async (request) => {
   const db = admin.firestore();
 
   try {
+    let classDocRefs: admin.firestore.DocumentReference[] = [];
+    if (collectionType === 'students') {
+      const classesSnap = await db.collection('schools').doc(schoolId)
+        .collection('classes')
+        .where('studentIds', 'array-contains', docId)
+        .get();
+      classDocRefs = classesSnap.docs.map(doc => doc.ref);
+    }
+
     await db.runTransaction(async (transaction) => {
       const docRef = db.collection('schools').doc(schoolId).collection(collectionType).doc(docId);
       const docSnap = await transaction.get(docRef);
@@ -654,6 +669,12 @@ export const softDeleteUser = functions.https.onCall(async (request) => {
       } else {
         transaction.update(schoolRef, {
           'meta.studentCount': FieldValue.increment(-1)
+        });
+      }
+
+      for (const ref of classDocRefs) {
+        transaction.update(ref, {
+          studentIds: FieldValue.arrayRemove(docId)
         });
       }
     });
@@ -755,6 +776,15 @@ export const permanentDeleteUser = functions.https.onCall(async (request) => {
   const db = admin.firestore();
 
   try {
+    let classDocRefs: admin.firestore.DocumentReference[] = [];
+    if (collectionType === 'students') {
+      const classesSnap = await db.collection('schools').doc(schoolId)
+        .collection('classes')
+        .where('studentIds', 'array-contains', docId)
+        .get();
+      classDocRefs = classesSnap.docs.map(doc => doc.ref);
+    }
+
     const docRef = db.collection('schools').doc(schoolId).collection(collectionType).doc(docId);
     const snap = await docRef.get();
     if (!snap.exists) {
@@ -790,6 +820,12 @@ export const permanentDeleteUser = functions.https.onCall(async (request) => {
       if (uid) {
         const globalUserRef = db.collection('users').doc(uid);
         transaction.delete(globalUserRef);
+      }
+
+      for (const ref of classDocRefs) {
+        transaction.update(ref, {
+          studentIds: FieldValue.arrayRemove(docId)
+        });
       }
     });
 
@@ -1284,6 +1320,7 @@ export const createEvent = functions.https.onCall(async (request) => {
       }
     });
 
+    const sessionMap = new Map<string, string>();
     if (sessions && Array.isArray(sessions)) {
       sessions.forEach((s: any) => {
         const sRef = eventRef.collection('sessions').doc();
@@ -1297,17 +1334,21 @@ export const createEvent = functions.https.onCall(async (request) => {
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });
+        if (s.tempId) {
+          sessionMap.set(s.tempId, sRef.id);
+        }
       });
     }
 
     if (timetable && Array.isArray(timetable)) {
       timetable.forEach((t: any) => {
         const tRef = eventRef.collection('timetable').doc();
+        const mappedSessionId = t.sessionId ? (sessionMap.get(t.sessionId) || t.sessionId) : null;
         transaction.set(tRef, {
           classId: t.classId,
           subjectId: t.subjectId,
           subjectName: t.subjectName,
-          sessionId: t.sessionId,
+          sessionId: mappedSessionId,
           teacherId: t.teacherId,
           status: 'scheduled',
           createdAt: FieldValue.serverTimestamp()

@@ -37,6 +37,32 @@ class AdminUserService {
     });
   }
 
+  /// Get active teachers once
+  Future<List<Teacher>> getTeachersOnce(String schoolId) async {
+    final snapshot = await _firestore
+        .collection('schools')
+        .doc(schoolId)
+        .collection('teachers')
+        .where('archived', isEqualTo: false)
+        .get();
+    final list = snapshot.docs.map((doc) => Teacher.fromFirestore(doc)).toList();
+    list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+    return list;
+  }
+
+  /// Get active students once
+  Future<List<Student>> getStudentsOnce(String schoolId) async {
+    final snapshot = await _firestore
+        .collection('schools')
+        .doc(schoolId)
+        .collection('students')
+        .where('archived', isEqualTo: false)
+        .get();
+    final list = snapshot.docs.map((doc) => Student.fromFirestore(doc)).toList();
+    list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+    return list;
+  }
+
   /// Stream archived users (both teachers and students) of a school
   Stream<List<Map<String, dynamic>>> streamArchive(String schoolId) {
     return _firestore

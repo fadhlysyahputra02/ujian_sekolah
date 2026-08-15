@@ -1,5 +1,4 @@
-import 'dart:math' show pi;
-import 'package:flutter/material.dart' show Color, Colors;
+import 'package:flutter/material.dart' show Color;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -13,10 +12,8 @@ class ExamPdfGenerator {
   static final _indigo = _pdfColor(const Color(0xFF475569));
   static final _violet = _pdfColor(const Color(0xFF475569));
   static final _slate = _pdfColor(const Color(0xFF334155));
-  static final _slateLight = _pdfColor(const Color(0xFF64748B));
   static final _bgGray = _pdfColor(const Color(0xFFF8FAFC));
-  static final _border = _pdfColor(const Color(0xFFE2E8F0));
-  static final _green = _pdfColor(const Color(0xFF475569));
+  static final _border = _pdfColor(const Color(0xFFCBD5E1));
 
   // ── Date Formatting Bahasa Indonesia ─────────────────────────────────────
   static String formatIndonesianDate(DateTime date, {bool includeDayName = true}) {
@@ -71,7 +68,7 @@ class ExamPdfGenerator {
         color: accentColor,
         borderRadius: pw.BorderRadius.circular(6),
       ),
-      padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       width: double.infinity,
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -81,28 +78,28 @@ class ExamPdfGenerator {
             title,
             style: pw.TextStyle(
               color: PdfColors.white,
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: pw.FontWeight.bold,
             ),
             textAlign: pw.TextAlign.center,
           ),
-          pw.SizedBox(height: 4),
+          pw.SizedBox(height: 3),
           pw.Text(
             '$eventName  |  $examType',
-            style: const pw.TextStyle(color: PdfColors.white, fontSize: 10),
+            style: const pw.TextStyle(color: PdfColors.white, fontSize: 9.5),
             textAlign: pw.TextAlign.center,
           ),
           pw.SizedBox(height: 2),
           pw.Text(
             dateRange,
-            style: const pw.TextStyle(color: PdfColors.white, fontSize: 9),
+            style: const pw.TextStyle(color: PdfColors.white, fontSize: 8.5),
             textAlign: pw.TextAlign.center,
           ),
           if (showPrintedDate) ...[
-            pw.SizedBox(height: 6),
+            pw.SizedBox(height: 4),
             pw.Text(
               'Dicetak: ${formatIndonesianDate(DateTime.now(), includeDayName: false)} ${DateFormat('HH:mm').format(DateTime.now())}',
-              style: const pw.TextStyle(color: PdfColors.white, fontSize: 7.5),
+              style: const pw.TextStyle(color: PdfColors.white, fontSize: 7),
               textAlign: pw.TextAlign.center,
             ),
           ],
@@ -121,7 +118,6 @@ class ExamPdfGenerator {
     required DateTime? endDate,
     required List<Map<String, dynamic>> sessions,
     required List<Map<String, dynamic>> timetable,
-    required Map<String, String> scheduleGrid,
     required List<Map<String, dynamic>> rooms,
     required Map<String, List<Map<String, dynamic>>> roomAssignments,
   }) async {
@@ -131,7 +127,6 @@ class ExamPdfGenerator {
         ? '${formatIndonesianDate(startDate, includeDayName: false)} - ${formatIndonesianDate(endDate, includeDayName: false)}'
         : '-';
 
-    // Build exam days list
     final days = <DateTime>[];
     if (startDate != null && endDate != null) {
       DateTime cur = DateTime(startDate.year, startDate.month, startDate.day);
@@ -142,43 +137,39 @@ class ExamPdfGenerator {
       }
     }
 
-    // Collect unique classes from timetable
-    final classMap = <String, String>{}; // classId -> className
+    final classMap = <String, String>{};
     for (final t in timetable) {
-      classMap[t['classId'] as String? ?? ''] = t['className'] as String? ?? '-';
+      final cid = t['classId']?.toString() ?? '';
+      final cname = t['className']?.toString() ?? '-';
+      if (cid.isNotEmpty) classMap[cid] = cname;
     }
 
-    // Per-class schedule: className -> list of { day, session, subjectName }
-    final classSchedules = <String, List<Map<String, dynamic>>>{};
+    final classSchedules = <String, List<Map<String, String>>>{};
     for (final entry in classMap.entries) {
       final cid = entry.key;
       final cname = entry.value;
-      classSchedules[cname] = [];
+      final scheduleEntries = <Map<String, String>>[];
 
       for (int d = 0; d < days.length; d++) {
         for (int s = 0; s < sessions.length; s++) {
-          final key = 'day_${d}_session_$s';
-          final subjectId = scheduleGrid[key];
-          if (subjectId == null) continue;
-          // Check if this class has this subject
-          final hasSubject = timetable.any(
-            (t) => t['classId'] == cid && t['subjectId'] == subjectId,
-          );
-          if (!hasSubject) continue;
-          final session = sessions[s];
-          final subjectName = timetable.firstWhere(
-            (t) => t['subjectId'] == subjectId,
-            orElse: () => {'subjectName': subjectId},
-          )['subjectName'] as String? ?? subjectId ?? '-';
+          final sessionKey = 'day_${d}_session_$s';
+          final matched = timetable.where(
+            (t) => t['classId']?.toString() == cid && t['sessionId']?.toString() == sessionKey,
+          ).toList();
+          if (matched.isEmpty) continue;
 
-          classSchedules[cname]!.add({
-            'day': formatIndonesianDate(days[d]),
-            'sessionName': session['name'] ?? 'Sesi ${s + 1}',
-            'time': '${session['startTime']} - ${session['endTime']}',
-            'subject': subjectName,
-          });
+          final session = sessions[s];
+          for (final m in matched) {
+            scheduleEntries.add({
+              'day': formatIndonesianDate(days[d]),
+              'sessionName': session['name']?.toString() ?? 'Sesi ${s + 1}',
+              'time': '${session['startTime'] ?? ''} - ${session['endTime'] ?? ''}',
+              'subject': m['subjectName']?.toString() ?? '-',
+            });
+          }
         }
       }
+      classSchedules[cname] = scheduleEntries;
     }
 
     final sortedClasses = classSchedules.keys.toList()..sort();
@@ -186,151 +177,116 @@ class ExamPdfGenerator {
     for (final className in sortedClasses) {
       final entries = classSchedules[className] ?? [];
       doc.addPage(
-        pw.Page(
+        pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(28),
-          build: (ctx) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              _pageHeader(
-                eventName: eventName,
-                examType: examType,
-                dateRange: dateRange,
-                title: 'Jadwal Ujian per Kelas',
-                accentColor: _indigo,
-                showPrintedDate: false,
-              ),
-              pw.SizedBox(height: 16),
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: pw.BoxDecoration(
-                  color: _bgGray,
-                  border: pw.Border(
-                    left: pw.BorderSide(color: _indigo, width: 3),
-                    top: pw.BorderSide(color: _border, width: 0.5),
-                    right: pw.BorderSide(color: _border, width: 0.5),
-                    bottom: pw.BorderSide(color: _border, width: 0.5),
-                  ),
+          build: (ctx) => [
+            _pageHeader(
+              eventName: eventName.isNotEmpty ? eventName : 'Event Ujian',
+              examType: examType.isNotEmpty ? examType : 'Ujian',
+              dateRange: dateRange,
+              title: 'Jadwal Ujian per Kelas',
+              accentColor: _indigo,
+              showPrintedDate: false,
+            ),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: pw.BoxDecoration(
+                color: _bgGray,
+                border: pw.Border(
+                  left: pw.BorderSide(color: _indigo, width: 3),
+                  top: pw.BorderSide(color: _border, width: 0.5),
+                  right: pw.BorderSide(color: _border, width: 0.5),
+                  bottom: pw.BorderSide(color: _border, width: 0.5),
                 ),
-                child: pw.Row(
-                  children: [
-                    pw.Text(
-                      'Kelas: $className',
-                      style: pw.TextStyle(
-                        fontSize: 11,
-                        fontWeight: pw.FontWeight.bold,
-                        color: _slate,
-                      ),
+              ),
+              child: pw.Row(
+                children: [
+                  pw.Text(
+                    'Kelas: $className',
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _slate,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              pw.SizedBox(height: 8),
-              if (entries.isEmpty)
-                pw.Padding(
-                  padding: const pw.EdgeInsets.only(left: 12, bottom: 8),
-                  child: pw.Text('Tidak ada jadwal ujian.', style: const pw.TextStyle(fontSize: 9)),
-                )
-              else ...[
-                // Group entries by day
-                ...() {
-                  final Map<String, List<Map<String, dynamic>>> dayGrouped = {};
-                  for (final entry in entries) {
-                    final day = entry['day'] as String? ?? '-';
-                    dayGrouped.putIfAbsent(day, () => []).add(entry);
-                  }
+            ),
+            pw.SizedBox(height: 10),
+            if (entries.isEmpty)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(left: 4, top: 8),
+                child: pw.Text('Tidak ada jadwal ujian untuk kelas ini.', style: const pw.TextStyle(fontSize: 9)),
+              )
+            else ...() {
+              final Map<String, List<Map<String, String>>> dayGrouped = {};
+              for (final entry in entries) {
+                final day = entry['day'] ?? '-';
+                dayGrouped.putIfAbsent(day, () => []).add(entry);
+              }
 
-                  return dayGrouped.entries.map((dayEntry) {
-                    final dayName = dayEntry.key;
-                    final sessionsList = dayEntry.value;
+              final List<pw.Widget> widgets = [];
+              for (final dayEntry in dayGrouped.entries) {
+                final dayName = dayEntry.key;
+                final sessionsList = dayEntry.value;
 
-                    return pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        // Day Sub-header
-                        pw.Container(
-                          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          width: double.infinity,
-                          decoration: pw.BoxDecoration(
-                            color: _bgGray,
-                            border: pw.Border(
-                              left: pw.BorderSide(color: _indigo, width: 3),
-                              top: pw.BorderSide(color: _border, width: 0.5),
-                              right: pw.BorderSide(color: _border, width: 0.5),
-                              bottom: pw.BorderSide(color: _border, width: 0.5),
-                            ),
-                          ),
-                          child: pw.Text(
-                            dayName,
-                            style: pw.TextStyle(
-                              fontSize: 9,
-                              fontWeight: pw.FontWeight.bold,
-                              color: _slate,
-                            ),
-                          ),
-                        ),
-                        // Sessions Table
-                        pw.Table(
-                          border: pw.TableBorder.all(color: _border, width: 0.5),
-                          columnWidths: {
-                            0: const pw.FlexColumnWidth(1.2), // Sesi
-                            1: const pw.FlexColumnWidth(1.2), // Waktu
-                            2: const pw.FlexColumnWidth(3),   // Mata Pelajaran
-                          },
-                          children: [
-                            // Table Header inside table
-                            pw.TableRow(
-                              decoration: pw.BoxDecoration(color: _bgGray),
-                              children: ['Sesi', 'Waktu', 'Mata Pelajaran']
-                                  .map((h) => pw.Padding(
-                                        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        child: pw.Text(h,
-                                            style: pw.TextStyle(
-                                              color: _slate,
-                                              fontSize: 8,
-                                              fontWeight: pw.FontWeight.bold,
-                                            )),
-                                      ))
-                                  .toList(),
-                            ),
-                            // Rows data
-                            ...sessionsList.asMap().entries.map((se) {
-                              final sIdx = se.key;
-                              final sRow = se.value;
-                              final isOdd = sIdx.isOdd;
-                              return pw.TableRow(
-                                decoration: pw.BoxDecoration(
-                                  color: isOdd ? _bgGray : PdfColors.white,
-                                ),
-                                children: [
-                                  sRow['sessionName'],
-                                  sRow['time'],
-                                  sRow['subject'],
-                                ].map((cell) => pw.Padding(
-                                      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      child: pw.Text(
-                                        cell as String? ?? '-',
-                                        style: const pw.TextStyle(fontSize: 8),
-                                      ),
-                                    )).toList(),
-                              );
-                            }).toList(),
-                          ],
-                        ),
-                        pw.SizedBox(height: 12),
-                      ],
-                    );
-                  }).toList();
-                }(),
-              ],
-            ],
-          ),
+                widgets.add(
+                  pw.Container(
+                    margin: const pw.EdgeInsets.only(top: 8, bottom: 4),
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    width: double.infinity,
+                    decoration: pw.BoxDecoration(
+                      color: _bgGray,
+                      border: pw.Border.all(color: _border, width: 0.5),
+                      borderRadius: pw.BorderRadius.circular(3),
+                    ),
+                    child: pw.Text(
+                      dayName,
+                      style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _slate),
+                    ),
+                  ),
+                );
+
+                widgets.add(
+                  pw.TableHelper.fromTextArray(
+                    border: pw.TableBorder.all(color: _border, width: 0.5),
+                    headers: ['Sesi', 'Waktu', 'Mata Pelajaran'],
+                    data: sessionsList.map((s) => [
+                      s['sessionName'] ?? '-',
+                      s['time'] ?? '-',
+                      s['subject'] ?? '-',
+                    ]).toList(),
+                    headerStyle: pw.TextStyle(color: _slate, fontSize: 8, fontWeight: pw.FontWeight.bold),
+                    headerDecoration: pw.BoxDecoration(color: _bgGray),
+                    headerHeight: 20,
+                    cellHeight: 20,
+                    cellStyle: const pw.TextStyle(fontSize: 8),
+                    cellAlignments: {
+                      0: pw.Alignment.centerLeft,
+                      1: pw.Alignment.centerLeft,
+                      2: pw.Alignment.centerLeft,
+                    },
+                    columnWidths: {
+                      0: const pw.FlexColumnWidth(1.2),
+                      1: const pw.FlexColumnWidth(1.3),
+                      2: const pw.FlexColumnWidth(3.0),
+                    },
+                  ),
+                );
+                widgets.add(pw.SizedBox(height: 8));
+              }
+              return widgets;
+            }(),
+          ],
         ),
       );
     }
 
+    final bytes = await doc.save();
     await Printing.sharePdf(
-      bytes: await doc.save(),
+      bytes: bytes,
       filename: 'jadwal_per_kelas_${eventName.replaceAll(' ', '_')}.pdf',
     );
   }
@@ -345,9 +301,10 @@ class ExamPdfGenerator {
     required DateTime? endDate,
     required List<Map<String, dynamic>> sessions,
     required List<Map<String, dynamic>> timetable,
-    required Map<String, String> scheduleGrid,
     required Map<String, String> proctorGrid,
-    required List<Map<String, dynamic>> teachers, // [{id, displayName}]
+    required List<Map<String, dynamic>> rooms,
+    required Map<String, List<Map<String, dynamic>>> roomAssignments,
+    required List<Map<String, dynamic>> teachers,
   }) async {
     final doc = pw.Document();
 
@@ -355,7 +312,6 @@ class ExamPdfGenerator {
         ? '${formatIndonesianDate(startDate, includeDayName: false)} - ${formatIndonesianDate(endDate, includeDayName: false)}'
         : '-';
 
-    // Build exam days
     final days = <DateTime>[];
     if (startDate != null && endDate != null) {
       DateTime cur = DateTime(startDate.year, startDate.month, startDate.day);
@@ -366,151 +322,179 @@ class ExamPdfGenerator {
       }
     }
 
-    // Helper: teacher name by id
     String teacherName(String? tid) {
-      if (tid == null) return '-';
-      final t = teachers.firstWhere((t) => t['id'] == tid, orElse: () => {'displayName': '-'});
-      return t['displayName'] as String? ?? '-';
+      if (tid == null || tid.isEmpty) return '-';
+      for (final t in teachers) {
+        if (t['id']?.toString() == tid) {
+          return t['displayName']?.toString() ?? '-';
+        }
+      }
+      return '-';
     }
 
-    // Helper: subject name by id
-    String subjectName(String? sid) {
-      if (sid == null) return '-';
-      final t = timetable.firstWhere((t) => t['subjectId'] == sid, orElse: () => {'subjectName': '-'});
-      return t['subjectName'] as String? ?? '-';
-    }
+    final List<pw.Widget> pageContent = [
+      _pageHeader(
+        eventName: eventName.isNotEmpty ? eventName : 'Event Ujian',
+        examType: examType.isNotEmpty ? examType : 'Ujian',
+        dateRange: dateRange,
+        title: 'Jadwal Ujian & Pengawas Ruangan',
+        accentColor: _violet,
+      ),
+      pw.SizedBox(height: 12),
+    ];
 
-    // Helper: classes for subject
-    String classesForSubject(String? sid) {
-      if (sid == null) return '-';
-      final classes = timetable
-          .where((t) => t['subjectId'] == sid)
-          .map((t) => t['className'] as String? ?? '-')
-          .toSet()
-          .toList()
-        ..sort();
-      return classes.join(', ');
+    if (days.isEmpty) {
+      pageContent.add(
+        pw.Text('Belum ada tanggal pelaksanaan ujian.', style: const pw.TextStyle(fontSize: 10)),
+      );
+    } else {
+      for (int dayIdx = 0; dayIdx < days.length; dayIdx++) {
+        final day = days[dayIdx];
+        final dayLabel = formatIndonesianDate(day);
+
+        pageContent.add(
+          pw.Container(
+            margin: const pw.EdgeInsets.only(top: 8, bottom: 4),
+            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            width: double.infinity,
+            decoration: pw.BoxDecoration(
+              color: _bgGray,
+              border: pw.Border(
+                left: pw.BorderSide(color: _violet, width: 3),
+                top: pw.BorderSide(color: _border, width: 0.5),
+                right: pw.BorderSide(color: _border, width: 0.5),
+                bottom: pw.BorderSide(color: _border, width: 0.5),
+              ),
+            ),
+            child: pw.Text(
+              dayLabel,
+              style: pw.TextStyle(color: _slate, fontSize: 9.5, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        );
+
+        final List<List<String>> tableData = [];
+        for (int sIdx = 0; sIdx < sessions.length; sIdx++) {
+          final session = sessions[sIdx];
+          final sessionKey = 'day_${dayIdx}_session_$sIdx';
+          final sName = session['name']?.toString() ?? 'Sesi ${sIdx + 1}';
+          final sTime = '${session['startTime'] ?? ''} - ${session['endTime'] ?? ''}';
+
+          if (rooms.isEmpty) {
+            final proctorKey = 'day_${dayIdx}_session_$sIdx';
+            final tid = proctorGrid[proctorKey];
+            final pname = teacherName(tid);
+
+            final scheduledEntries = timetable
+                .where((t) => t['sessionId']?.toString() == sessionKey)
+                .toList();
+
+            final subjectText = scheduledEntries.isEmpty
+                ? '-'
+                : scheduledEntries
+                    .map((t) => t['subjectName']?.toString() ?? '-')
+                    .toSet()
+                    .join(' & ');
+
+            final classesText = scheduledEntries.isEmpty
+                ? '-'
+                : scheduledEntries
+                    .map((t) => t['className']?.toString() ?? '-')
+                    .toSet()
+                    .toList()
+                    .join(', ');
+
+            tableData.add([sName, sTime, '-', subjectText, classesText, pname]);
+          } else {
+            for (final room in rooms) {
+              final rid = room['id']?.toString() ?? '';
+              final rname = room['name']?.toString() ?? room['code']?.toString() ?? '-';
+
+              final proctorKey = 'day_${dayIdx}_session_${sIdx}_room_$rid';
+              final tid = proctorGrid[proctorKey] ?? proctorGrid['day_${dayIdx}_session_$sIdx'];
+              final pname = teacherName(tid);
+
+              final roomClasses = roomAssignments[rid] ?? [];
+              final roomClassIds = roomClasses.map((rc) => rc['classId']?.toString() ?? '').toSet();
+
+              final scheduledEntries = timetable
+                  .where((t) =>
+                      t['sessionId']?.toString() == sessionKey &&
+                      (roomClassIds.isEmpty || roomClassIds.contains(t['classId']?.toString() ?? '')))
+                  .toList();
+
+              final subjectText = scheduledEntries.isEmpty
+                  ? '-'
+                  : scheduledEntries
+                      .map((t) => t['subjectName']?.toString() ?? '-')
+                      .toSet()
+                      .join(' & ');
+
+              final classesText = scheduledEntries.isEmpty
+                  ? '-'
+                  : scheduledEntries
+                      .map((t) => t['className']?.toString() ?? '-')
+                      .toSet()
+                      .toList()
+                      .join(', ');
+
+              tableData.add([sName, sTime, rname, subjectText, classesText, pname]);
+            }
+          }
+        }
+
+        if (tableData.isEmpty) {
+          pageContent.add(
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+              child: pw.Text('Tidak ada sesi ujian pada hari ini.', style: const pw.TextStyle(fontSize: 8)),
+            ),
+          );
+        } else {
+          pageContent.add(
+            pw.TableHelper.fromTextArray(
+              border: pw.TableBorder.all(color: _border, width: 0.5),
+              headers: ['Sesi', 'Waktu', 'Ruangan', 'Mata Pelajaran', 'Kelas', 'Pengawas'],
+              data: tableData,
+              headerStyle: pw.TextStyle(color: _slate, fontSize: 8, fontWeight: pw.FontWeight.bold),
+              headerDecoration: pw.BoxDecoration(color: _bgGray),
+              headerHeight: 22,
+              cellHeight: 20,
+              cellStyle: const pw.TextStyle(fontSize: 7.5),
+              cellAlignments: {
+                0: pw.Alignment.centerLeft,
+                1: pw.Alignment.centerLeft,
+                2: pw.Alignment.centerLeft,
+                3: pw.Alignment.centerLeft,
+                4: pw.Alignment.centerLeft,
+                5: pw.Alignment.centerLeft,
+              },
+              columnWidths: {
+                0: const pw.FlexColumnWidth(1.1),
+                1: const pw.FlexColumnWidth(1.2),
+                2: const pw.FlexColumnWidth(1.1),
+                3: const pw.FlexColumnWidth(2.0),
+                4: const pw.FlexColumnWidth(1.6),
+                5: const pw.FlexColumnWidth(1.8),
+              },
+            ),
+          );
+        }
+        pageContent.add(pw.SizedBox(height: 10));
+      }
     }
 
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(28),
-        build: (ctx) => [
-          _pageHeader(
-            eventName: eventName,
-            examType: examType,
-            dateRange: dateRange,
-            title: 'Jadwal Ujian & Pengawas Ruangan',
-            accentColor: _violet,
-          ),
-          pw.SizedBox(height: 16),
-          ...List.generate(days.length, (dayIdx) {
-            final day = days[dayIdx];
-            final dayLabel = formatIndonesianDate(day);
-            final sessionRows = List.generate(sessions.length, (sIdx) {
-              final key = 'day_${dayIdx}_session_$sIdx';
-              final sid = scheduleGrid[key];
-              final tid = proctorGrid[key];
-              final session = sessions[sIdx];
-              return {
-                'session': session['name'] ?? 'Sesi ${sIdx + 1}',
-                'time': '${session['startTime']} - ${session['endTime']}',
-                'subject': subjectName(sid),
-                'classes': classesForSubject(sid),
-                'proctor': teacherName(tid),
-              };
-            });
-
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                // Day header
-                pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: pw.BoxDecoration(
-                    color: _bgGray,
-                    border: pw.Border(
-                      left: pw.BorderSide(color: _violet, width: 3),
-                      top: pw.BorderSide(color: _border, width: 0.5),
-                      right: pw.BorderSide(color: _border, width: 0.5),
-                      bottom: pw.BorderSide(color: _border, width: 0.5),
-                    ),
-                  ),
-                  child: pw.Row(
-                    children: [
-                      pw.Text(
-                        dayLabel,
-                        style: pw.TextStyle(
-                          color: _slate,
-                          fontSize: 10,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                pw.SizedBox(height: 4),
-                pw.Table(
-                  border: pw.TableBorder.all(color: _border, width: 0.5),
-                  columnWidths: {
-                    0: const pw.FlexColumnWidth(1.2),
-                    1: const pw.FlexColumnWidth(1.2),
-                    2: const pw.FlexColumnWidth(1.8),
-                    3: const pw.FlexColumnWidth(2.5),
-                    4: const pw.FlexColumnWidth(2),
-                  },
-                  children: [
-                    pw.TableRow(
-                      decoration: pw.BoxDecoration(color: _bgGray),
-                      children: ['Sesi', 'Waktu', 'Mata Pelajaran', 'Kelas', 'Pengawas']
-                          .map((h) => pw.Padding(
-                                padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                                child: pw.Text(h,
-                                    style: pw.TextStyle(
-                                      color: _slate,
-                                      fontSize: 9,
-                                      fontWeight: pw.FontWeight.bold,
-                                    )),
-                              ))
-                          .toList(),
-                    ),
-                    ...sessionRows.asMap().entries.map((e) {
-                      final isOdd = e.key.isOdd;
-                      final row = e.value;
-                      return pw.TableRow(
-                        decoration: pw.BoxDecoration(
-                          color: isOdd ? _bgGray : PdfColors.white,
-                        ),
-                        children: [
-                          row['session'],
-                          row['time'],
-                          row['subject'],
-                          row['classes'],
-                          row['proctor'],
-                        ]
-                            .map((cell) => pw.Padding(
-                                  padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                                  child: pw.Text(
-                                    cell as String? ?? '-',
-                                    style: const pw.TextStyle(fontSize: 9),
-                                  ),
-                                ))
-                            .toList(),
-                      );
-                    }),
-                  ],
-                ),
-                pw.SizedBox(height: 14),
-              ],
-            );
-          }),
-        ],
+        build: (ctx) => pageContent,
       ),
     );
 
+    final pdfBytes = await doc.save();
     await Printing.sharePdf(
-      bytes: await doc.save(),
+      bytes: pdfBytes,
       filename: 'jadwal_pengawas_${eventName.replaceAll(' ', '_')}.pdf',
     );
   }

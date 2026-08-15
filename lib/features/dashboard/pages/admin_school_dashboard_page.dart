@@ -31,6 +31,102 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   
   final AdminUserService _adminUserService = AdminUserService();
 
+  // Futures for one-time fetch
+  Future<List<Teacher>>? _teachersFuture;
+  Future<List<Student>>? _studentsFuture;
+
+  // Pagination states
+  int _teacherRowsPerPage = 10;
+  int _teacherCurrentPage = 0;
+
+  int _studentRowsPerPage = 10;
+  int _studentCurrentPage = 0;
+
+  void _initFutures(String schoolId) {
+    if (schoolId.isNotEmpty) {
+      _teachersFuture ??= _adminUserService.getTeachersOnce(schoolId);
+      _studentsFuture ??= _adminUserService.getStudentsOnce(schoolId);
+    }
+  }
+
+  void _refreshTeachers(String schoolId) {
+    if (schoolId.isNotEmpty) {
+      setState(() {
+        _teachersFuture = _adminUserService.getTeachersOnce(schoolId);
+        _teacherCurrentPage = 0;
+      });
+    }
+  }
+
+  void _refreshStudents(String schoolId) {
+    if (schoolId.isNotEmpty) {
+      setState(() {
+        _studentsFuture = _adminUserService.getStudentsOnce(schoolId);
+        _studentCurrentPage = 0;
+      });
+    }
+  }
+
+  Widget _buildPaginationControls({
+    required int currentPage,
+    required int rowsPerPage,
+    required int totalItems,
+    required ValueChanged<int> onPageChanged,
+    required ValueChanged<int> onRowsPerPageChanged,
+  }) {
+    final totalPages = (totalItems / rowsPerPage).ceil();
+    final start = currentPage * rowsPerPage;
+    final end = (start + rowsPerPage < totalItems) ? start + rowsPerPage : totalItems;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(
+            'Baris per halaman:',
+            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+          ),
+          const SizedBox(width: 8),
+          DropdownButton<int>(
+            value: rowsPerPage,
+            items: [10, 20, 50].map((val) {
+              return DropdownMenuItem<int>(
+                value: val,
+                child: Text('$val', style: GoogleFonts.inter(fontSize: 12)),
+              );
+            }).toList(),
+            onChanged: (val) {
+              if (val != null) {
+                onRowsPerPageChanged(val);
+              }
+            },
+            underline: const SizedBox(),
+          ),
+          const SizedBox(width: 24),
+          Text(
+            totalItems == 0 ? '0-0 dari 0' : '${start + 1}-$end dari $totalItems',
+            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+          ),
+          const SizedBox(width: 16),
+          IconButton(
+            icon: const Icon(Icons.chevron_left_rounded, size: 20),
+            onPressed: currentPage > 0 ? () => onPageChanged(currentPage - 1) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 12),
+          IconButton(
+            icon: const Icon(Icons.chevron_right_rounded, size: 20),
+            onPressed: currentPage < totalPages - 1 ? () => onPageChanged(currentPage + 1) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
   // Search & Filter States
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -45,6 +141,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     setState(() {
       _searchController.clear();
       _searchQuery = '';
+      _teacherCurrentPage = 0;
+      _studentCurrentPage = 0;
     });
   }
 
@@ -179,6 +277,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       if (mounted) {
         Navigator.of(context).pop(); // Dismiss loading indicator
         
+        if (collectionType == 'teachers') {
+          _refreshTeachers(schoolId);
+        } else {
+          _refreshStudents(schoolId);
+        }
+
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -193,6 +297,178 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         Navigator.of(context).pop(); // Dismiss loading indicator
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gagal mereset kata sandi: $e'), backgroundColor: const Color(0xFFEF4444)),
+        );
+      }
+    }
+  }
+
+  Future<void> _generateAllPasswords(String schoolId, List<Student> students) async {
+    final targets = students.where((s) => s.tempPassword == null || s.tempPassword!.isEmpty).toList();
+
+    if (targets.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Informasi'),
+          content: const Text('Semua murid dalam list ini sudah memiliki kata sandi.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Tutup'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Generate Sandi Massal'),
+        content: Text('Apakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} murid yang belum memilikinya?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF59E0B)),
+            child: const Text('Mulai Generate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    if (!mounted) return;
+
+    final progressNotifier = ValueNotifier<Map<String, dynamic>>({
+      'pct': 0.0,
+      'name': '',
+      'processed': 0,
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return ValueListenableBuilder<Map<String, dynamic>>(
+          valueListenable: progressNotifier,
+          builder: (context, val, child) {
+            final pct = val['pct'] as double;
+            final processed = val['processed'] as int;
+            final name = val['name'] as String;
+            final pctInt = (pct * 100).toInt();
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Text('Generate Sandi Massal', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              content: SizedBox(
+                width: 320,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Memproses $processed dari ${targets.length} murid...',
+                      style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF0F172A), fontWeight: FontWeight.bold),
+                    ),
+                    if (name.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        name,
+                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontStyle: FontStyle.italic),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: pct,
+                        backgroundColor: const Color(0xFFE2E8F0),
+                        color: const Color(0xFFF59E0B),
+                        minHeight: 8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '$pctInt%',
+                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFFF59E0B)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    try {
+      for (int i = 0; i < targets.length; i++) {
+        final s = targets[i];
+        if (!mounted) break;
+
+        progressNotifier.value = {
+          'pct': i / targets.length,
+          'name': s.displayName,
+          'processed': i,
+        };
+
+        await _adminUserService.generateTempPassword(
+          schoolId: schoolId,
+          collectionType: 'students',
+          docId: s.id,
+        );
+      }
+
+      progressNotifier.value = {
+        'pct': 1.0,
+        'name': 'Selesai!',
+        'processed': targets.length,
+      };
+
+      await Future.delayed(const Duration(milliseconds: 600));
+    } catch (e) {
+      debugPrint('Error mass generating password: $e');
+    } finally {
+      if (mounted) {
+        Navigator.of(context).pop();
+        _refreshStudents(schoolId);
+      }
+    }
+  }
+
+  Future<void> _generateSinglePasswordDirectly(String schoolId, Student s) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final tempPassword = await _adminUserService.generateTempPassword(
+        schoolId: schoolId,
+        collectionType: 'students',
+        docId: s.id,
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        _refreshStudents(schoolId);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Kata sandi berhasil dibuat untuk ${s.displayName}: $tempPassword'),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuat kata sandi: $e'), backgroundColor: const Color(0xFFEF4444)),
         );
       }
     }
@@ -224,6 +500,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         docId: docId,
       );
       if (mounted) {
+        if (collectionType == 'teachers') {
+          _refreshTeachers(schoolId);
+        } else {
+          _refreshStudents(schoolId);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Akun $name berhasil dihapus permanen!')),
         );
@@ -241,6 +522,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final schoolId = authService.schoolId ?? '';
+    _initFutures(schoolId);
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 900;
 
@@ -856,18 +1138,28 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Widget _buildTeachersTab(String schoolId, bool isDesktop) {
-    return StreamBuilder<List<Teacher>>(
-      stream: _adminUserService.streamTeachers(schoolId),
+    return FutureBuilder<List<Teacher>>(
+      future: _teachersFuture,
       builder: (context, snapshot) {
         if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-
+ 
         final allTeachers = snapshot.data ?? [];
         final filteredTeachers = allTeachers.where((t) {
           final query = _searchQuery.toLowerCase();
           return t.displayName.toLowerCase().contains(query) || t.nip.contains(query);
         }).toList();
 
+        // Slice for pagination
+        final totalItems = filteredTeachers.length;
+        final totalPages = (totalItems / _teacherRowsPerPage).ceil();
+        if (_teacherCurrentPage >= totalPages && totalPages > 0) {
+          _teacherCurrentPage = totalPages - 1;
+        }
+        final pageStart = _teacherCurrentPage * _teacherRowsPerPage;
+        final pageEnd = (pageStart + _teacherRowsPerPage < totalItems) ? pageStart + _teacherRowsPerPage : totalItems;
+        final paginatedTeachers = (pageStart < totalItems) ? filteredTeachers.sublist(pageStart, pageEnd) : <Teacher>[];
+ 
         return Padding(
           padding: EdgeInsets.all(isDesktop ? 24.0 : 16.0),
           child: Column(
@@ -1000,7 +1292,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                 ),
               ],
               const SizedBox(height: 20),
-
+ 
               // Search Bar
               Container(
                 height: 48,
@@ -1029,19 +1321,33 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  onChanged: (val) => setState(() => _searchQuery = val),
+                  onChanged: (val) => setState(() {
+                    _searchQuery = val;
+                    _teacherCurrentPage = 0; // Reset page on filter
+                  }),
                 ),
               ),
               const SizedBox(height: 20),
-
+ 
               // Content List
               Expanded(
                 child: filteredTeachers.isEmpty
                     ? const Center(child: Text('Tidak ada data guru.'))
                     : isDesktop
-                        ? _buildTeachersTable(schoolId, filteredTeachers)
-                        : _buildTeachersMobileList(schoolId, filteredTeachers),
+                        ? _buildTeachersTable(schoolId, paginatedTeachers)
+                        : _buildTeachersMobileList(schoolId, paginatedTeachers),
               ),
+              if (filteredTeachers.isNotEmpty)
+                _buildPaginationControls(
+                  currentPage: _teacherCurrentPage,
+                  rowsPerPage: _teacherRowsPerPage,
+                  totalItems: totalItems,
+                  onPageChanged: (page) => setState(() => _teacherCurrentPage = page),
+                  onRowsPerPageChanged: (rows) => setState(() {
+                    _teacherRowsPerPage = rows;
+                    _teacherCurrentPage = 0;
+                  }),
+                ),
             ],
           ),
         );
@@ -1283,8 +1589,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           }
         }
 
-        return StreamBuilder<List<Student>>(
-          stream: _adminUserService.streamStudents(schoolId),
+        return FutureBuilder<List<Student>>(
+          future: _studentsFuture,
           builder: (context, snapshot) {
             if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
             if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
@@ -1294,6 +1600,16 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               final query = _searchQuery.toLowerCase();
               return s.displayName.toLowerCase().contains(query) || s.nis.contains(query);
             }).toList();
+
+            // Slice for pagination
+            final totalItems = filteredStudents.length;
+            final totalPages = (totalItems / _studentRowsPerPage).ceil();
+            if (_studentCurrentPage >= totalPages && totalPages > 0) {
+              _studentCurrentPage = totalPages - 1;
+            }
+            final pageStart = _studentCurrentPage * _studentRowsPerPage;
+            final pageEnd = (pageStart + _studentRowsPerPage < totalItems) ? pageStart + _studentRowsPerPage : totalItems;
+            final paginatedStudents = (pageStart < totalItems) ? filteredStudents.sublist(pageStart, pageEnd) : <Student>[];
 
             return Padding(
               padding: EdgeInsets.all(isDesktop ? 24.0 : 16.0),
@@ -1339,10 +1655,26 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton.icon(
+                              onPressed: () => _generateAllPasswords(schoolId, filteredStudents),
+                              icon: const Icon(Icons.vpn_key_rounded, size: 16),
+                              label: Text(
+                                'Generate Sandi Massal',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFF59E0B),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
                               onPressed: () => _showStudentForm(schoolId),
                               icon: const Icon(Icons.add_rounded, size: 18),
                               label: Text(
-                                'Tambah Murid',
+                               'Tambah Murid',
                                 style: GoogleFonts.inter(fontWeight: FontWeight.w700),
                               ),
                               style: ElevatedButton.styleFrom(
@@ -1417,6 +1749,19 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                                 border: Border.all(color: const Color(0xFFE2E8F0)),
                               ),
                               child: IconButton(
+                                icon: const Icon(Icons.vpn_key_rounded, color: Color(0xFFF59E0B), size: 20),
+                                onPressed: () => _generateAllPasswords(schoolId, filteredStudents),
+                                tooltip: 'Generate Sandi Massal',
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: IconButton(
                                 icon: const Icon(Icons.download_rounded, color: Color(0xFF06B6D4), size: 20),
                                 onPressed: () => _exportStudentsExcel(filteredStudents),
                                 tooltip: 'Ekspor ke Excel',
@@ -1457,7 +1802,10 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(vertical: 12),
                       ),
-                      onChanged: (val) => setState(() => _searchQuery = val),
+                      onChanged: (val) => setState(() {
+                        _searchQuery = val;
+                        _studentCurrentPage = 0; // Reset page on filter
+                      }),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -1467,9 +1815,20 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                     child: filteredStudents.isEmpty
                         ? const Center(child: Text('Tidak ada data murid.'))
                         : isDesktop
-                            ? _buildStudentsTable(schoolId, filteredStudents, studentClassMap)
-                            : _buildStudentsMobileList(schoolId, filteredStudents, studentClassMap),
+                            ? _buildStudentsTable(schoolId, paginatedStudents, studentClassMap)
+                            : _buildStudentsMobileList(schoolId, paginatedStudents, studentClassMap),
                   ),
+                  if (filteredStudents.isNotEmpty)
+                    _buildPaginationControls(
+                      currentPage: _studentCurrentPage,
+                      rowsPerPage: _studentRowsPerPage,
+                      totalItems: totalItems,
+                      onPageChanged: (page) => setState(() => _studentCurrentPage = page),
+                      onRowsPerPageChanged: (rows) => setState(() {
+                        _studentRowsPerPage = rows;
+                        _studentCurrentPage = 0;
+                      }),
+                    ),
                 ],
               ),
             );
@@ -1505,10 +1864,24 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               DataCell(Text(studentClassMap[s.id] ?? '-')),
               DataCell(Text(s.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
               DataCell(Text(s.angkatan)),
-              DataCell(SelectableText(
-                s.tempPassword ?? '-',
-                style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
-              )),
+               DataCell(s.tempPassword != null && s.tempPassword!.isNotEmpty
+                  ? SelectableText(
+                      s.tempPassword!,
+                      style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: () => _generateSinglePasswordDirectly(schoolId, s),
+                      icon: const Icon(Icons.vpn_key_rounded, size: 12),
+                      label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFF59E0B),
+                        side: const BorderSide(color: Color(0xFFF59E0B)),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                    )),
               DataCell(Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -1611,7 +1984,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                   'NIS: ${s.nis} • Kelas: ${studentClassMap[s.id] ?? "-"} • Angkatan: ${s.angkatan}',
                   style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
                 ),
-                if (s.tempPassword != null) ...[
+                if (s.tempPassword != null && s.tempPassword!.isNotEmpty) ...[
                   const SizedBox(height: 1),
                   Row(
                     children: [
@@ -1628,6 +2001,24 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                         ),
                       ),
                     ],
+                  ),
+                ] else ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _generateSinglePasswordDirectly(schoolId, s),
+                      icon: const Icon(Icons.vpn_key_rounded, size: 10),
+                      label: Text('Generate Sandi', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFF59E0B),
+                        side: const BorderSide(color: Color(0xFFF59E0B)),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                    ),
                   ),
                 ],
               ],
@@ -1787,20 +2178,22 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
-  void _showTeacherForm(String schoolId, {Teacher? teacher}) {
-    showDialog(
+  Future<void> _showTeacherForm(String schoolId, {Teacher? teacher}) async {
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => TeacherFormDialog(schoolId: schoolId, teacher: teacher),
     );
+    _refreshTeachers(schoolId);
   }
 
-  void _showStudentForm(String schoolId, {Student? student}) {
-    showDialog(
+  Future<void> _showStudentForm(String schoolId, {Student? student}) async {
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => StudentFormDialog(schoolId: schoolId, student: student),
     );
+    _refreshStudents(schoolId);
   }
 
   void _showSubjectForm(String schoolId, {Map<String, dynamic>? subject}) {
@@ -1811,20 +2204,22 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
-  void _showImportDialog(String schoolId) {
-    showDialog(
+  Future<void> _showImportDialog(String schoolId) async {
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => ImportStudentsDialog(schoolId: schoolId),
     );
+    _refreshStudents(schoolId);
   }
 
-  void _showImportTeachersDialog(String schoolId) {
-    showDialog(
+  Future<void> _showImportTeachersDialog(String schoolId) async {
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => ImportTeachersDialog(schoolId: schoolId),
     );
+    _refreshTeachers(schoolId);
   }
 
   Widget _buildSubjectsTab(String schoolId, bool isDesktop) {
