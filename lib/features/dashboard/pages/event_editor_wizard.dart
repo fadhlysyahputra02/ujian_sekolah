@@ -1,9 +1,11 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../../../core/services/event_exam_service.dart';
 import '../../../core/models/teacher.dart';
+import 'exam_pdf_generator.dart';
 
 class EventEditorWizard extends StatefulWidget {
   final String schoolId;
@@ -61,6 +63,14 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
   bool _avoidSameClassAdjacent = true;
   String _numberDelimiter = '-';
   int _seatPadding = 3;
+
+  // Step 6: Schedule Grid
+  // Key: 'day_$dayIndex_session_$sessionIdx' -> subjectId assigned
+  final Map<String, String> _scheduleGrid = {};
+
+  // Step 7: Proctor Grid
+  // Key: 'day_$dayIndex_session_$sessionIdx' -> teacherId assigned
+  final Map<String, String> _proctorGrid = {};
 
   // Draft auto-save
   String? _draftId;
@@ -133,6 +143,18 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           }
         });
       }
+      _scheduleGrid.clear();
+      if (data['scheduleGrid'] is Map) {
+        (data['scheduleGrid'] as Map).forEach((k, v) {
+          _scheduleGrid[k as String] = v as String;
+        });
+      }
+      _proctorGrid.clear();
+      if (data['proctorGrid'] is Map) {
+        (data['proctorGrid'] as Map).forEach((k, v) {
+          _proctorGrid[k as String] = v as String;
+        });
+      }
     });
   }
 
@@ -152,6 +174,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
       'timetable': _timetable,
       'rooms': _rooms,
       'roomAssignments': _roomAssignments,
+      'scheduleGrid': _scheduleGrid,
+      'proctorGrid': _proctorGrid,
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
@@ -428,7 +452,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(6, (i) {
+                    children: List.generate(8, (i) {
                       final isActive = _currentStep == i;
                       final isCompleted = _currentStep > i;
                       return Row(
@@ -456,7 +480,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                     ),
                                   ),
                           ),
-                          if (i < 5)
+                          if (i < 7)
                             Container(
                               width: isDesktop ? 60 : 20,
                               height: 2,
@@ -529,7 +553,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                               setState(() => _currentStep++);
                               _autoSaveDraft();
                             }
-                          } else if (_currentStep == 5) {
+                          } else if (_currentStep == 7) {
                             _submit();
                           } else {
                             setState(() => _currentStep++);
@@ -542,7 +566,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
-                        child: Text(_currentStep == 5 ? 'Eksekusi & Simpan' : 'Selanjutnya'),
+                        child: Text(_currentStep == 7 ? 'Eksekusi & Simpan' : 'Selanjutnya'),
                       ),
                     ],
                   ),
@@ -566,6 +590,10 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         return _buildStep5();
       case 5:
         return _buildStep6();
+      case 6:
+        return _buildStep7();
+      case 7:
+        return _buildStep8();
       default:
         return const SizedBox();
     }
@@ -656,7 +684,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                 children: [
                   Text(
                     _startDate != null && _endDate != null
-                        ? 'Rentang: ${DateFormat('dd MMM yyyy').format(_startDate!)} - ${DateFormat('dd MMM yyyy').format(_endDate!)}'
+                        ? 'Rentang: ${ExamPdfGenerator.formatIndonesianDate(_startDate!, includeDayName: false)} - ${ExamPdfGenerator.formatIndonesianDate(_endDate!, includeDayName: false)}'
                         : 'Pilih Rentang Tanggal Ujian',
                     style: const TextStyle(fontSize: 15),
                   ),
@@ -737,6 +765,46 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     );
   }
 
+  // Helper: compact toggle button for seating arrangement mode
+  Widget _arrangeToggleBtn({
+    required String label,
+    required IconData icon,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? const Color(0xFF4F46E5) : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: active ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 13, color: active ? Colors.white : const Color(0xFF64748B)),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: active ? Colors.white : const Color(0xFF64748B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // Step 3: Timetable
   Widget _buildStep3() {
     return StreamBuilder<List<Map<String, dynamic>>>(
@@ -748,28 +816,34 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             return StreamBuilder<List<Teacher>>(
               stream: _adminUserService.streamTeachers(widget.schoolId),
               builder: (context, teachersSnap) {
+                // Wait until classes stream has real data before resolving class names
+                // This prevents class UIDs from flashing before stream loads
+                final bool classesReady = classesSnap.hasData;
                 final classes = classesSnap.data ?? [];
                 final subjects = subjectsSnap.data ?? [];
                 final teachers = teachersSnap.data ?? [];
 
-                 // Group timetable entries by subjectId
-                 final Map<String, Map<String, dynamic>> groupedTimetable = {};
-                 for (var entry in _timetable) {
-                   final subId = entry['subjectId'] as String;
-                   if (!groupedTimetable.containsKey(subId)) {
-                     groupedTimetable[subId] = {
-                       'subjectId': subId,
-                       'subjectName': entry['subjectName'],
-                       'teacherName': entry['teacherName'],
-                       'classes': <String>[],
-                     };
-                   }
-                   final cid = entry['classId'] as String;
-                   final classDoc = classes.firstWhere((c) => c['id'] == cid, orElse: () => {});
-                   final className = classDoc['name'] as String? ?? cid;
-                   groupedTimetable[subId]!['classes'].add(className);
-                 }
-                 final groupedList = groupedTimetable.values.toList();
+                // Group timetable entries by subjectId
+                // Only resolve class names when classes data is available
+                final Map<String, Map<String, dynamic>> groupedTimetable = {};
+                if (classesReady) {
+                  for (var entry in _timetable) {
+                    final subId = entry['subjectId'] as String;
+                    if (!groupedTimetable.containsKey(subId)) {
+                      groupedTimetable[subId] = {
+                        'subjectId': subId,
+                        'subjectName': entry['subjectName'],
+                        'teacherName': entry['teacherName'],
+                        'classes': <String>[],
+                      };
+                    }
+                    final cid = entry['classId'] as String;
+                    final classDoc = classes.firstWhere((c) => c['id'] == cid, orElse: () => {});
+                    final className = classDoc['name'] as String? ?? cid;
+                    groupedTimetable[subId]!['classes'].add(className);
+                  }
+                }
+                final groupedList = groupedTimetable.values.toList();
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1296,22 +1370,71 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                   final layoutState = _addState.putIfAbsent(
                     'layout_${selectedRoom['id']}',
                     // Defaults: 2 columns per group (Meja Rapat), 4 total columns (Total Kolom)
-                    () => {'deskPairs': 2, 'colsPerPair': 4},
+                    () => {'deskPairs': 2, 'colsPerPair': 4, 'arrange': 'normal'},
                   );
-                  final int deskPairs = layoutState['deskPairs'] as int; // Group size (e.g. 2 columns close)
-                  final int colsPerPair = layoutState['colsPerPair'] as int; // Total columns in the room
+                  layoutState.putIfAbsent('arrange', () => 'normal');
+                  final int deskPairs = layoutState['deskPairs'] as int;
+                  final int colsPerPair = layoutState['colsPerPair'] as int;
+                  final String arrangeMode = layoutState['arrange'] as String;
 
                   final int totalColumns = colsPerPair;
                   final int calculatedRows = (roomCapacity / totalColumns).ceil();
 
-                  // Build seats representation exactly matching room capacity to avoid showing empty/missing seats
-                  final seats = List<Color?>.filled(roomCapacity, null);
-                  int seatIdx = 0;
-                  for (int i = 0; i < assignments.length && seatIdx < roomCapacity; i++) {
+                  // Build flat list of colored tokens from assignments
+                  final List<Color?> classTokens = [];
+                  for (int i = 0; i < assignments.length; i++) {
                     final cnt = (assignments[i]['count'] as num?)?.toInt() ?? 0;
                     final color = classColors[i % classColors.length];
-                    for (int j = 0; j < cnt && seatIdx < roomCapacity; j++) {
-                      seats[seatIdx++] = color;
+                    for (int j = 0; j < cnt; j++) {
+                      classTokens.add(color);
+                    }
+                  }
+
+                  // Build seats based on arrangement mode
+                  final seats = List<Color?>.filled(roomCapacity, null);
+                  if (arrangeMode == 'acak') {
+                    // Shuffle randomly
+                    final shuffled = List<Color?>.from(classTokens)..shuffle();
+                    for (int i = 0; i < shuffled.length && i < roomCapacity; i++) {
+                      seats[i] = shuffled[i];
+                    }
+                  } else if (arrangeMode == 'zigzag') {
+                    // Zigzag: interleave students from each class column by column across rows
+                    // Build per-class queues
+                    final List<List<Color>> queues = [];
+                    for (int i = 0; i < assignments.length; i++) {
+                      final cnt = (assignments[i]['count'] as num?)?.toInt() ?? 0;
+                      final color = classColors[i % classColors.length];
+                      queues.add(List.filled(cnt, color));
+                    }
+                    // Flatten queues in round-robin per column
+                    // Each column gets one student per class cycle
+                    int qi = 0;
+                    final List<int> qIdx = List.filled(queues.length, 0);
+                    for (int seat = 0; seat < roomCapacity; seat++) {
+                      // Find next class with remaining students
+                      int tried = 0;
+                      while (tried < queues.length) {
+                        final q = qi % queues.length;
+                        if (qIdx[q] < queues[q].length) {
+                          seats[seat] = queues[q][qIdx[q]++];
+                          qi = q + 1;
+                          break;
+                        }
+                        qi++;
+                        tried++;
+                      }
+                      if (tried == queues.length) break; // all queues exhausted
+                    }
+                  } else {
+                    // Normal: sequential fill
+                    int seatIdx = 0;
+                    for (int i = 0; i < assignments.length && seatIdx < roomCapacity; i++) {
+                      final cnt = (assignments[i]['count'] as num?)?.toInt() ?? 0;
+                      final color = classColors[i % classColors.length];
+                      for (int j = 0; j < cnt && seatIdx < roomCapacity; j++) {
+                        seats[seatIdx++] = color;
+                      }
                     }
                   }
 
@@ -1390,9 +1513,35 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      // Arrangement Mode Toggle
+                      Row(
+                        children: [
+                          _arrangeToggleBtn(
+                            label: 'Normal',
+                            icon: Icons.format_list_numbered_rounded,
+                            active: arrangeMode == 'normal',
+                            onTap: () => setLocal(() => layoutState['arrange'] = 'normal'),
+                          ),
+                          const SizedBox(width: 6),
+                          _arrangeToggleBtn(
+                            label: 'Zigzag',
+                            icon: Icons.swap_horiz_rounded,
+                            active: arrangeMode == 'zigzag',
+                            onTap: () => setLocal(() => layoutState['arrange'] = 'zigzag'),
+                          ),
+                          const SizedBox(width: 6),
+                          _arrangeToggleBtn(
+                            label: 'Acak',
+                            icon: Icons.shuffle_rounded,
+                            active: arrangeMode == 'acak',
+                            onTap: () => setLocal(() => layoutState['arrange'] = 'acak'),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 6),
                       Text(
-                        'Pola Grid: $totalColumns Kolom  •  Baris: $calculatedRows',
+                        'Pola Grid: $totalColumns Kolom  •  Baris: $calculatedRows  •  Urutan: ${arrangeMode[0].toUpperCase()}${arrangeMode.substring(1)}',
                         style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 10),
@@ -1918,59 +2067,990 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         );
       }
 
-  // Step 6: Review
+  // ── Helpers for Step 6 ──────────────────────────────────────────────────
+
+  /// Returns a list of exam dates between _startDate and _endDate inclusive.
+  List<DateTime> _examDays() {
+    if (_startDate == null || _endDate == null) return [];
+    final days = <DateTime>[];
+    DateTime cur = DateTime(_startDate!.year, _startDate!.month, _startDate!.day);
+    final end = DateTime(_endDate!.year, _endDate!.month, _endDate!.day);
+    while (!cur.isAfter(end)) {
+      days.add(cur);
+      cur = cur.add(const Duration(days: 1));
+    }
+    return days;
+  }
+
+  /// Unique subjects from _timetable
+  List<Map<String, String>> _uniqueSubjects() {
+    final seen = <String>{};
+    final result = <Map<String, String>>[];
+    for (final t in _timetable) {
+      final sid = t['subjectId'] as String? ?? '';
+      if (seen.add(sid)) {
+        result.add({'id': sid, 'name': t['subjectName'] as String? ?? sid});
+      }
+    }
+    return result;
+  }
+
+  /// Auto-generate: scatter all subjects randomly across (day × session) slots
+  void _autoGenerateSchedule() {
+    final days = _examDays();
+    if (days.isEmpty || _sessions.isEmpty) return;
+    final subjects = _uniqueSubjects();
+    // Use a new Random each call so re-clicking always produces a different order
+    final rng = Random();
+    final subsCopy = List<Map<String, String>>.from(subjects)..shuffle(rng);
+    _scheduleGrid.clear();
+    int idx = 0;
+    outer:
+    for (int d = 0; d < days.length; d++) {
+      for (int s = 0; s < _sessions.length; s++) {
+        if (idx >= subsCopy.length) break outer;
+        _scheduleGrid['day_${d}_session_$s'] = subsCopy[idx]['id']!;
+        idx++;
+      }
+    }
+    setState(() {});
+    _autoSaveDraft();
+  }
+
+  // Step 6: Jadwal Mapel per Sesi per Hari
   Widget _buildStep6() {
+    final days = _examDays();
+    final subjects = _uniqueSubjects();
+    // Which subjectIds are already placed in schedule
+    final placedIds = _scheduleGrid.values.toSet();
+    final unplaced = subjects.where((s) => !placedIds.contains(s['id'])).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Langkah 6: Review & Finalisasi', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 20),
-        Expanded(
-          child: ListView(
-            children: [
-              ListTile(
-                title: const Text('Nama Event Ujian'),
-                subtitle: Text(_nameController.text),
+        Row(
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Langkah 6: Jadwal Ujian per Sesi', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 4),
+                  Text('Tentukan mapel yang diujikan di setiap sesi dan hari.', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                ],
               ),
-              ListTile(
-                title: const Text('Tipe Ujian'),
-                subtitle: Text(_examType == 'UTS' ? 'UTS (Ujian Tengah Semester)' : 'UAS (Ujian Akhir Semester)'),
+            ),
+            ElevatedButton.icon(
+              onPressed: subjects.isEmpty
+                  ? null
+                  : () {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Generate Otomatis?'),
+                          content: const Text(
+                            'Semua mapel akan diacak dan dimasukkan ke sesi secara otomatis. Jadwal yang sudah ada akan ditimpa.',
+                          ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), foregroundColor: Colors.white),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                _autoGenerateSchedule();
+                              },
+                              child: const Text('Generate'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+              icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+              label: const Text('Generate Otomatis', style: TextStyle(fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7C3AED),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                elevation: 0,
               ),
-              ListTile(
-                title: const Text('Rentang Waktu'),
-                subtitle: Text(_startDate != null && _endDate != null
-                    ? '${DateFormat('dd MMM yyyy').format(_startDate!)} - ${DateFormat('dd MMM yyyy').format(_endDate!)}'
-                    : '-'),
-              ),
-              ListTile(
-                title: const Text('Jumlah Sesi'),
-                subtitle: Text('${_sessions.length} Sesi Terdaftar'),
-              ),
-              ListTile(
-                title: const Text('Jumlah Jadwal Ujian Mapel'),
-                subtitle: Text('${_timetable.length} Jadwal terpetakan ke kelas'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.meeting_room_outlined, color: Color(0xFF4F46E5)),
-                title: const Text('Ruangan Ujian'),
-                subtitle: Text(
-                  _rooms.isEmpty
-                      ? 'Belum ada ruangan ditambahkan'
-                      : '${_rooms.length} ruangan  •  ${_rooms.fold<int>(0, (s, r) => s + ((r['capacity'] as num?)?.toInt() ?? 0))} kursi total',
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Unplaced mapel chips row
+        if (subjects.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF9C3),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFDE047)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFCA8A04)),
+                SizedBox(width: 8),
+                Expanded(child: Text('Belum ada mapel. Kembali ke Step 3 dan tambahkan jadwal mapel.', style: TextStyle(fontSize: 12, color: Color(0xFF92400E)))),
+              ],
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  unplaced.isEmpty ? '✅ Semua mapel sudah terjadwal' : '📚 Mapel belum dijadwalkan (${unplaced.length}):',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: unplaced.isEmpty ? const Color(0xFF059669) : const Color(0xFF475569),
+                  ),
                 ),
-              ),
-              ListTile(
-                title: const Text('Pola Alokasi Ruangan'),
-                subtitle: Text(_allocationMode.toUpperCase()),
-              ),
-              ListTile(
-                title: const Text('Format Nomor Ujian'),
-                subtitle: Text('[Angkatan]${_numberDelimiter.isEmpty ? "" : _numberDelimiter}[KodeRuang]${_numberDelimiter.isEmpty ? "" : _numberDelimiter}[Meja]'),
-              ),
-            ],
+                if (unplaced.isNotEmpty) ...
+                  [
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: unplaced.map((s) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: Text(s['name']!, style: const TextStyle(fontSize: 11, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w600)),
+                        );
+                      }).toList(),
+                    ),
+                  ]
+              ],
+            ),
           ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: days.isEmpty
+              ? const Center(child: Text('Belum ada tanggal pelaksanaan. Kembali ke Step 1.'))
+              : _sessions.isEmpty
+                  ? const Center(child: Text('Belum ada sesi. Kembali ke Step 2.'))
+                  : ListView.builder(
+                      itemCount: days.length,
+                      itemBuilder: (ctx, dayIdx) {
+                        final day = days[dayIdx];
+                        final dayLabel = ExamPdfGenerator.formatIndonesianDate(day);
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF4F46E5).withValues(alpha: 0.04),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Day header
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF4F46E5),
+                                  borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.calendar_today_rounded, size: 14, color: Colors.white70),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      dayLabel,
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Sessions rows
+                              ...List.generate(_sessions.length, (sIdx) {
+                                final session = _sessions[sIdx];
+                                final gridKey = 'day_${dayIdx}_session_$sIdx';
+                                final assignedId = _scheduleGrid[gridKey];
+                                final assignedSub = assignedId != null
+                                    ? subjects.firstWhere((s) => s['id'] == assignedId, orElse: () => {'id': '', 'name': '?'})
+                                    : null;
+                                // Available: all subjects NOT placed elsewhere except the one assigned here
+                                final availableSubs = subjects.where((s) {
+                                  if (s['id'] == assignedId) return true; // keep current
+                                  return !placedIds.contains(s['id']); // only unplaced
+                                }).toList();
+
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: sIdx < _sessions.length - 1
+                                          ? const BorderSide(color: Color(0xFFF1F5F9))
+                                          : BorderSide.none,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Session info
+                                      SizedBox(
+                                        width: 140,
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              session['name'] as String? ?? 'Sesi ${sIdx + 1}',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                            ),
+                                            Text(
+                                              '${session['startTime']} - ${session['endTime']}',
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Assigned subject chip or dropdown
+                                      Expanded(
+                                        child: assignedSub != null
+                                            ? Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFFECFDF5),
+                                                        borderRadius: BorderRadius.circular(6),
+                                                        border: Border.all(color: const Color(0xFF6EE7B7)),
+                                                      ),
+                                                      child: Text(
+                                                        assignedSub['name']!,
+                                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  GestureDetector(
+                                                    onTap: () {
+                                                      setState(() => _scheduleGrid.remove(gridKey));
+                                                      _autoSaveDraft();
+                                                    },
+                                                    child: Container(
+                                                      padding: const EdgeInsets.all(4),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFFFEE2E2),
+                                                        borderRadius: BorderRadius.circular(4),
+                                                      ),
+                                                      child: const Icon(Icons.close_rounded, size: 14, color: Color(0xFFDC2626)),
+                                                    ),
+                                                  ),
+                                                ],
+                                              )
+                                            : DropdownButtonHideUnderline(
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFF8FAFC),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                                                  ),
+                                                  child: DropdownButton<String>(
+                                                    value: null,
+                                                    isExpanded: true,
+                                                    hint: Row(
+                                                      children: [
+                                                        Icon(Icons.add_circle_outline_rounded, size: 14, color: availableSubs.isEmpty ? Colors.grey : const Color(0xFF4F46E5)),
+                                                        const SizedBox(width: 6),
+                                                        Text(
+                                                          availableSubs.isEmpty ? 'Semua mapel sudah terjadwal' : 'Pilih Mapel',
+                                                          style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: availableSubs.isEmpty ? Colors.grey : const Color(0xFF4F46E5),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    items: availableSubs.map((s) {
+                                                      return DropdownMenuItem<String>(
+                                                        value: s['id'],
+                                                        child: Text(s['name']!, style: const TextStyle(fontSize: 12)),
+                                                      );
+                                                    }).toList(),
+                                                    onChanged: availableSubs.isEmpty
+                                                        ? null
+                                                        : (val) {
+                                                            if (val != null) {
+                                                              setState(() => _scheduleGrid[gridKey] = val);
+                                                              _autoSaveDraft();
+                                                            }
+                                                          },
+                                                  ),
+                                                ),
+                                              ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
         ),
       ],
+    );
+  }
+
+  // Step 7: Pengawas Ruangan per Sesi per Hari
+  Widget _buildStep7() {
+    return StreamBuilder<List<Teacher>>(
+      stream: _adminUserService.streamTeachers(widget.schoolId),
+      builder: (context, teachersSnap) {
+        final teachers = teachersSnap.data ?? [];
+        final days = _examDays();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Langkah 7: Pengawas Ruangan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text('Tentukan pengawas untuk setiap sesi per hari.', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                    ],
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: teachers.isEmpty || days.isEmpty || _sessions.isEmpty
+                      ? null
+                      : () {
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Generate Otomatis?'),
+                              content: const Text(
+                                'Pengawas akan diacak dan ditugaskan ke setiap sesi secara otomatis. Penugasan yang sudah ada akan ditimpa.',
+                              ),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), foregroundColor: Colors.white),
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    _autoGenerateProctors(teachers);
+                                  },
+                                  child: const Text('Generate'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                  icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+                  label: const Text('Generate Otomatis', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 0,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Summary bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.supervisor_account_rounded, size: 16, color: Color(0xFF4F46E5)),
+                  const SizedBox(width: 8),
+                  Text(
+                    teachers.isEmpty
+                        ? 'Belum ada guru terdaftar.'
+                        : '${teachers.length} guru tersedia  •  ${_proctorGrid.length} sesi sudah ada pengawas  •  ${days.length * _sessions.length} total sesi',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: days.isEmpty
+                  ? const Center(child: Text('Belum ada tanggal pelaksanaan. Kembali ke Step 1.'))
+                  : _sessions.isEmpty
+                      ? const Center(child: Text('Belum ada sesi. Kembali ke Step 2.'))
+                      : teachers.isEmpty
+                          ? const Center(child: Text('Belum ada guru terdaftar di sekolah ini.'))
+                          : ListView.builder(
+                              itemCount: days.length,
+                              itemBuilder: (ctx, dayIdx) {
+                                final day = days[dayIdx];
+                                final dayLabel = ExamPdfGenerator.formatIndonesianDate(day);
+
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF7C3AED).withValues(alpha: 0.04),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Day header
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF7C3AED),
+                                          borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.calendar_today_rounded, size: 14, color: Colors.white70),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              dayLabel,
+                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Session rows
+                                      ...List.generate(_sessions.length, (sIdx) {
+                                        final session = _sessions[sIdx];
+                                        final gridKey = 'day_${dayIdx}_session_$sIdx';
+                                        final assignedTeacherId = _proctorGrid[gridKey];
+                                        final assignedTeacher = assignedTeacherId != null
+                                            ? teachers.firstWhere((t) => t.id == assignedTeacherId, orElse: () => Teacher(id: '', displayName: '?', subjects: [], schoolId: '', gender: 'M', nip: '', disabled: false, archived: false, createdAt: DateTime.now(), updatedAt: DateTime.now()))
+                                            : null;
+                                        // Subject scheduled for this slot (from step 6)
+                                        final scheduledSubjectId = _scheduleGrid[gridKey];
+                                        final scheduledSubjectName = scheduledSubjectId != null
+                                            ? (_timetable.firstWhere(
+                                                (t) => t['subjectId'] == scheduledSubjectId,
+                                                orElse: () => {'subjectName': scheduledSubjectId},
+                                              )['subjectName'] as String?)
+                                            : null;
+
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                          decoration: BoxDecoration(
+                                            border: Border(
+                                              bottom: sIdx < _sessions.length - 1
+                                                  ? const BorderSide(color: Color(0xFFF1F5F9))
+                                                  : BorderSide.none,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              // Session info
+                                              SizedBox(
+                                                width: 160,
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      session['name'] as String? ?? 'Sesi ${sIdx + 1}',
+                                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                                    ),
+                                                    Text(
+                                                      '${session['startTime']} - ${session['endTime']}',
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                                    ),
+                                                    if (scheduledSubjectName != null)
+                                                      Padding(
+                                                        padding: const EdgeInsets.only(top: 3),
+                                                        child: Text(
+                                                          '📖 $scheduledSubjectName',
+                                                          style: const TextStyle(fontSize: 10, color: Color(0xFF4F46E5), fontStyle: FontStyle.italic),
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              // Proctor assignment
+                                              Expanded(
+                                                child: assignedTeacher != null && assignedTeacher.id.isNotEmpty
+                                                    ? Row(
+                                                        children: [
+                                                          const Icon(Icons.person_rounded, size: 16, color: Color(0xFF7C3AED)),
+                                                          const SizedBox(width: 6),
+                                                          Expanded(
+                                                            child: Container(
+                                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                              decoration: BoxDecoration(
+                                                                color: const Color(0xFFF5F3FF),
+                                                                borderRadius: BorderRadius.circular(6),
+                                                                border: Border.all(color: const Color(0xFFC4B5FD)),
+                                                              ),
+                                                              child: Text(
+                                                                assignedTeacher.displayName,
+                                                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5B21B6)),
+                                                                overflow: TextOverflow.ellipsis,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 6),
+                                                          GestureDetector(
+                                                            onTap: () {
+                                                              setState(() => _proctorGrid.remove(gridKey));
+                                                              _autoSaveDraft();
+                                                            },
+                                                            child: Container(
+                                                              padding: const EdgeInsets.all(4),
+                                                              decoration: BoxDecoration(
+                                                                color: const Color(0xFFFEE2E2),
+                                                                borderRadius: BorderRadius.circular(4),
+                                                              ),
+                                                              child: const Icon(Icons.close_rounded, size: 14, color: Color(0xFFDC2626)),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      )
+                                                    : DropdownButtonHideUnderline(
+                                                        child: Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: const Color(0xFFF8FAFC),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                                                          ),
+                                                          child: DropdownButton<String>(
+                                                            value: null,
+                                                            isExpanded: true,
+                                                            hint: const Row(
+                                                              children: [
+                                                                Icon(Icons.person_add_rounded, size: 14, color: Color(0xFF7C3AED)),
+                                                                SizedBox(width: 6),
+                                                                Text('Pilih Pengawas', style: TextStyle(fontSize: 12, color: Color(0xFF7C3AED))),
+                                                              ],
+                                                            ),
+                                                            items: teachers.map((t) {
+                                                              return DropdownMenuItem<String>(
+                                                                value: t.id,
+                                                                child: Text(t.displayName, style: const TextStyle(fontSize: 12)),
+                                                              );
+                                                            }).toList(),
+                                                            onChanged: (val) {
+                                                              if (val != null) {
+                                                                setState(() => _proctorGrid[gridKey] = val);
+                                                                _autoSaveDraft();
+                                                              }
+                                                            },
+                                                          ),
+                                                        ),
+                                                      ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _autoGenerateProctors(List<Teacher> teachers) {
+    if (teachers.isEmpty) return;
+    final days = _examDays();
+    // Shuffle a copy of the teacher list with a fresh Random each call
+    final rng = Random();
+    final shuffled = List<Teacher>.from(teachers)..shuffle(rng);
+    _proctorGrid.clear();
+    int tIdx = 0;
+    for (int d = 0; d < days.length; d++) {
+      for (int s = 0; s < _sessions.length; s++) {
+        // Cycle through the shuffled list if there are more slots than teachers
+        _proctorGrid['day_${d}_session_$s'] = shuffled[tIdx % shuffled.length].id;
+        tIdx++;
+      }
+    }
+    setState(() {});
+    _autoSaveDraft();
+  }
+
+  // Step 8: Review & Finalisasi
+  Widget _buildStep8() {
+    return StreamBuilder<List<Teacher>>(
+      stream: _adminUserService.streamTeachers(widget.schoolId),
+      builder: (context, teachersSnap) {
+        final teachers = teachersSnap.data ?? [];
+        final days = _examDays();
+        final uniqueSubjects = _uniqueSubjects();
+
+        // PDF: convert teachers to simple map list
+        final teacherMaps = teachers.map((t) => {'id': t.id, 'displayName': t.displayName}).toList();
+
+        Widget _reviewCard({
+          required String title,
+          required IconData icon,
+          required Color iconColor,
+          required List<Widget> children,
+        }) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.08),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                    border: Border(bottom: BorderSide(color: iconColor.withValues(alpha: 0.2))),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 16, color: iconColor),
+                      const SizedBox(width: 8),
+                      Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: iconColor)),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+                ),
+              ],
+            ),
+          );
+        }
+
+        Widget _infoRow(String label, String value) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 160, child: Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
+                Expanded(child: Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)))),
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header + Download buttons
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Langkah 8: Review & Finalisasi', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text('Periksa semua pengaturan sebelum menyimpan event ujian.', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                    ],
+                  ),
+                ),
+                // Download buttons
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await ExamPdfGenerator.downloadSchedulePerClass(
+                          eventName: _nameController.text,
+                          examType: _examType,
+                          startDate: _startDate,
+                          endDate: _endDate,
+                          sessions: _sessions,
+                          timetable: _timetable,
+                          scheduleGrid: _scheduleGrid,
+                          rooms: _rooms,
+                          roomAssignments: _roomAssignments,
+                        );
+                      },
+                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                      label: const Text('Jadwal per Kelas', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF4F46E5),
+                        side: const BorderSide(color: Color(0xFF4F46E5)),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        await ExamPdfGenerator.downloadProctorSchedule(
+                          eventName: _nameController.text,
+                          examType: _examType,
+                          startDate: _startDate,
+                          endDate: _endDate,
+                          sessions: _sessions,
+                          timetable: _timetable,
+                          scheduleGrid: _scheduleGrid,
+                          proctorGrid: _proctorGrid,
+                          teachers: teacherMaps,
+                        );
+                      },
+                      icon: const Icon(Icons.supervisor_account_rounded, size: 16),
+                      label: const Text('Jadwal Pengawas', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF7C3AED),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Review cards
+            Expanded(
+              child: ListView(
+                children: [
+                  // Step 1: Info Dasar
+                  _reviewCard(
+                    title: 'Step 1 — Info Dasar Event',
+                    icon: Icons.info_outline_rounded,
+                    iconColor: const Color(0xFF4F46E5),
+                    children: [
+                      _infoRow('Nama Event', _nameController.text.isEmpty ? '-' : _nameController.text),
+                      _infoRow('Tipe Ujian', _examType == 'UTS' ? 'UTS (Ujian Tengah Semester)' : 'UAS (Ujian Akhir Semester)'),
+                      _infoRow('Tahun Ajaran', _academicYearController.text.isEmpty ? '-' : _academicYearController.text),
+                      _infoRow(
+                        'Rentang Tanggal',
+                        _startDate != null && _endDate != null
+                            ? '${ExamPdfGenerator.formatIndonesianDate(_startDate!, includeDayName: false)} – ${ExamPdfGenerator.formatIndonesianDate(_endDate!, includeDayName: false)}'
+                            : '-',
+                      ),
+                      _infoRow('Durasi', days.isEmpty ? '-' : '${days.length} hari'),
+                      if (_descController.text.isNotEmpty) _infoRow('Deskripsi', _descController.text),
+                    ],
+                  ),
+
+                  // Step 2: Sesi
+                  _reviewCard(
+                    title: 'Step 2 — Sesi Ujian (${_sessions.length} Sesi)',
+                    icon: Icons.schedule_rounded,
+                    iconColor: const Color(0xFF0891B2),
+                    children: _sessions.isEmpty
+                        ? [const Text('Belum ada sesi.', style: TextStyle(fontSize: 12, color: Colors.red))]
+                        : _sessions.map((s) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 6, height: 6,
+                                    decoration: const BoxDecoration(color: Color(0xFF0891B2), shape: BoxShape.circle),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${s['name']}  •  ${s['startTime']} – ${s['endTime']}',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                            )).toList(),
+                  ),
+
+                  // Step 3: Jadwal Mapel
+                  _reviewCard(
+                    title: 'Step 3 — Jadwal Mapel (${uniqueSubjects.length} Mapel, ${_timetable.length} Entri)',
+                    icon: Icons.menu_book_rounded,
+                    iconColor: const Color(0xFF059669),
+                    children: uniqueSubjects.isEmpty
+                        ? [const Text('Belum ada jadwal mapel.', style: TextStyle(fontSize: 12, color: Colors.red))]
+                        : uniqueSubjects.map((sub) {
+                            final classes = _timetable
+                                .where((t) => t['subjectId'] == sub['id'])
+                                .map((t) => t['className'] as String? ?? '-')
+                                .toSet()
+                                .toList()..sort();
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(width: 6, height: 6, margin: const EdgeInsets.only(top: 5),
+                                    decoration: const BoxDecoration(color: Color(0xFF059669), shape: BoxShape.circle)),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text(
+                                    '${sub['name']}  →  ${classes.join(', ')}',
+                                    style: const TextStyle(fontSize: 12),
+                                  )),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                  ),
+
+                  // Step 4: Ruangan
+                  _reviewCard(
+                    title: 'Step 4 — Ruangan Ujian (${_rooms.length} Ruangan)',
+                    icon: Icons.meeting_room_outlined,
+                    iconColor: const Color(0xFFD97706),
+                    children: _rooms.isEmpty
+                        ? [const Text('Belum ada ruangan.', style: TextStyle(fontSize: 12, color: Colors.red))]
+                        : [
+                            _infoRow('Total Ruangan', '${_rooms.length} ruangan'),
+                            _infoRow('Total Kapasitas', '${_rooms.fold<int>(0, (s, r) => s + ((r['capacity'] as num?)?.toInt() ?? 0))} kursi'),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: _rooms.map((r) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFFBEB),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: const Color(0xFFFDE68A)),
+                                ),
+                                child: Text(
+                                  '${r['name'] ?? '-'}  (${r['capacity'] ?? 0} kursi)',
+                                  style: const TextStyle(fontSize: 11, color: Color(0xFF92400E), fontWeight: FontWeight.w500),
+                                ),
+                              )).toList(),
+                            ),
+                          ],
+                  ),
+
+                  // Step 5: Alokasi Murid
+                  _reviewCard(
+                    title: 'Step 5 — Alokasi Murid ke Ruangan',
+                    icon: Icons.people_outline_rounded,
+                    iconColor: const Color(0xFFDC2626),
+                    children: _roomAssignments.isEmpty
+                        ? [const Text('Belum ada alokasi murid.', style: TextStyle(fontSize: 12, color: Colors.red))]
+                        : _roomAssignments.entries.map((e) {
+                            final room = _rooms.firstWhere((r) => r['id'] == e.key, orElse: () => {'name': e.key});
+                            final total = e.value.fold<int>(0, (s, a) => s + ((a['count'] as num?)?.toInt() ?? 0));
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                children: [
+                                  Container(width: 6, height: 6,
+                                    decoration: const BoxDecoration(color: Color(0xFFDC2626), shape: BoxShape.circle)),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text(
+                                    '${room['name'] ?? e.key}  →  $total murid  (${e.value.map((a) => '${a['className']}: ${a['count']}').join(', ')})',
+                                    style: const TextStyle(fontSize: 11),
+                                  )),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                  ),
+
+                  // Step 6: Jadwal per Sesi
+                  _reviewCard(
+                    title: 'Step 6 — Jadwal Ujian per Sesi (${_scheduleGrid.length} Slot)',
+                    icon: Icons.calendar_month_rounded,
+                    iconColor: const Color(0xFF4F46E5),
+                    children: days.isEmpty
+                        ? [const Text('Belum ada hari pelaksanaan.', style: TextStyle(fontSize: 12, color: Colors.red))]
+                        : days.asMap().entries.map((de) {
+                            final dayLabel = ExamPdfGenerator.formatIndonesianDate(de.value);
+                            final sessionTexts = List.generate(_sessions.length, (si) {
+                              final key = 'day_${de.key}_session_$si';
+                              final sid = _scheduleGrid[key];
+                              final subName = sid != null
+                                  ? (_timetable.firstWhere((t) => t['subjectId'] == sid, orElse: () => {'subjectName': sid})['subjectName'] as String? ?? sid)
+                                  : '—';
+                              return '${_sessions[si]['name']}: $subName';
+                            });
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(width: 140, child: Text(dayLabel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                                  Expanded(child: Text(sessionTexts.join('  |  '), style: const TextStyle(fontSize: 11))),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                  ),
+
+                  // Step 7: Pengawas
+                  _reviewCard(
+                    title: 'Step 7 — Pengawas Ruangan (${_proctorGrid.length} Penugasan)',
+                    icon: Icons.supervisor_account_rounded,
+                    iconColor: const Color(0xFF7C3AED),
+                    children: days.isEmpty || teachers.isEmpty
+                        ? [const Text('Belum ada pengawas ditugaskan.', style: TextStyle(fontSize: 12, color: Colors.red))]
+                        : days.asMap().entries.map((de) {
+                            final dayLabel = ExamPdfGenerator.formatIndonesianDate(de.value);
+                            final proctorTexts = List.generate(_sessions.length, (si) {
+                              final key = 'day_${de.key}_session_$si';
+                              final tid = _proctorGrid[key];
+                              final tname = tid != null
+                                  ? (teachers.firstWhere((t) => t.id == tid, orElse: () => Teacher(id: '', displayName: '?', subjects: [], schoolId: '', gender: 'M', nip: '', disabled: false, archived: false, createdAt: DateTime.now(), updatedAt: DateTime.now())).displayName)
+                                  : '—';
+                              return '${_sessions[si]['name']}: $tname';
+                            });
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(width: 140, child: Text(dayLabel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                                  Expanded(child: Text(proctorTexts.join('  |  '), style: const TextStyle(fontSize: 11))),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
