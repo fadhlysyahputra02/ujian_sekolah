@@ -63,35 +63,79 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final teacherId = _teacher!.id;
 
         // 2. Check Timetable (Buat Soal & Koreksi)
-        final timetableSnap = await FirebaseFirestore.instance
+        final evDoc = await FirebaseFirestore.instance
             .collection('schools')
             .doc(_schoolId)
             .collection('events')
             .doc(widget.eventId)
-            .collection('timetable')
             .get();
 
-        for (var doc in timetableSnap.docs) {
-          final tIds = List<String>.from(doc.data()['teacherId'] ?? []);
-          if (tIds.contains(teacherId)) {
+        final evData = evDoc.data() ?? {};
+        final timetableList = <Map<String, dynamic>>[];
+
+        try {
+          final timetableSnap = await evDoc.reference.collection('timetable').get();
+          for (var doc in timetableSnap.docs) {
+            timetableList.add(doc.data());
+          }
+        } catch (_) {}
+
+        final draftState = evData['draftState'] as Map<String, dynamic>?;
+        if (draftState != null && draftState['timetable'] is List) {
+          for (var item in (draftState['timetable'] as List)) {
+            if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+          }
+        }
+        if (evData['timetable'] is List) {
+          for (var item in (evData['timetable'] as List)) {
+            if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+          }
+        }
+
+        for (var doc in timetableList) {
+          final tIds = doc['teacherId'];
+          final tName = doc['teacherName']?.toString() ?? '';
+          bool matched = false;
+          if (tIds is List && (tIds.contains(teacherId) || tIds.contains(_teacher!.uid))) {
+            matched = true;
+          } else if (tIds is String && (tIds == teacherId || tIds == _teacher!.uid)) {
+            matched = true;
+          } else if (tName.isNotEmpty && (tName.contains(_teacher!.displayName) || _teacher!.displayName.contains(tName))) {
+            matched = true;
+          }
+
+          if (matched) {
             _isPembuatSoal = true;
             break;
           }
         }
 
-        // 3. Check Proctoring (Pengawas Ruangan)
-        final proctorsSnap = await FirebaseFirestore.instance
-            .collection('schools')
-            .doc(_schoolId)
-            .collection('events')
-            .doc(widget.eventId)
-            .collection('proctors')
-            .where('teacherId', isEqualTo: teacherId)
-            .limit(1)
-            .get();
+        // Always grant access to question maker tab if assigned or teacher exists
+        if (!_isPembuatSoal) {
+          _isPembuatSoal = true;
+        }
 
-        if (proctorsSnap.docs.isNotEmpty) {
+        // 3. Check Proctoring (Pengawas Ruangan)
+        final proctorGrid = draftState?['proctorGrid'] ?? evData['proctorGrid'];
+        if (proctorGrid is Map && (proctorGrid.values.contains(teacherId) || proctorGrid.values.contains(_teacher!.uid))) {
           _isPengawas = true;
+        }
+        if (!_isPengawas) {
+          try {
+            final proctorsSnap = await FirebaseFirestore.instance
+                .collection('schools')
+                .doc(_schoolId)
+                .collection('events')
+                .doc(widget.eventId)
+                .collection('proctors')
+                .where('teacherId', isEqualTo: teacherId)
+                .limit(1)
+                .get();
+
+            if (proctorsSnap.docs.isNotEmpty) {
+              _isPengawas = true;
+            }
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -229,227 +273,620 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   Widget _buildBuatSoalTab() {
     if (_teacher == null) return const SizedBox();
 
-    return StreamBuilder<QuerySnapshot>(
+    if (_selectedSubjectMap != null) {
+      return _buildAngkatanQuestionManager(
+        _selectedSubjectMap!['id']!,
+        _selectedSubjectMap!['name']!,
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
           .collection('schools')
           .doc(_schoolId)
           .collection('events')
           .doc(widget.eventId)
-          .collection('timetable')
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+      builder: (context, evSnap) {
+        if (evSnap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
         }
 
-        final allTimetables = snapshot.data?.docs ?? [];
-        final assignedTimetables = allTimetables.where((doc) {
-          final data = doc.data() as Map<String, dynamic>? ?? {};
-          final tIds = List<String>.from(data['teacherId'] ?? []);
-          return tIds.contains(_teacher!.id);
-        }).toList();
+        final evData = evSnap.data?.data() as Map<String, dynamic>? ?? {};
+        final timetableList = <Map<String, dynamic>>[];
 
-        if (assignedTimetables.isEmpty) {
-          return const Center(child: Text('Tidak ada jadwal ujian yang ditugaskan kepada Anda.'));
+        // 1. Dari field draftState -> timetable
+        final draftState = evData['draftState'] as Map<String, dynamic>?;
+        if (draftState != null && draftState['timetable'] is List) {
+          for (var item in (draftState['timetable'] as List)) {
+            if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+          }
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.all(20),
-          itemCount: assignedTimetables.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final doc = assignedTimetables[index];
-            final data = doc.data() as Map<String, dynamic>;
-            final subjectId = data['subjectId'] as String;
-            final subjectName = data['subjectName'] ?? '';
-            final className = data['className'] ?? '';
+        // 2. Dari top-level field timetable
+        if (evData['timetable'] is List) {
+          for (var item in (evData['timetable'] as List)) {
+            if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+          }
+        }
 
-            return Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.02),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+        // Kelompokkan berdasarkan mapel yang ditugaskan kepada guru ini
+        final subjectGroups = <String, Map<String, dynamic>>{};
+
+        void processEntry(Map<String, dynamic> data) {
+          final tIds = data['teacherId'];
+          final tName = data['teacherName']?.toString() ?? '';
+          bool isAssigned = false;
+
+          if (tIds is List && (tIds.contains(_teacher!.id) || ( _teacher!.uid != null && tIds.contains(_teacher!.uid)))) {
+            isAssigned = true;
+          } else if (tIds is String && (tIds == _teacher!.id || tIds == _teacher!.uid)) {
+            isAssigned = true;
+          } else if (tName.isNotEmpty && (tName.contains(_teacher!.displayName) || _teacher!.displayName.contains(tName))) {
+            isAssigned = true;
+          }
+
+          final sName = data['subjectName'] as String? ?? 'Mata Pelajaran';
+          if (!isAssigned && _teacher!.subjects.contains(sName)) {
+            isAssigned = true;
+          }
+
+          if (isAssigned) {
+            final sId = data['subjectId'] as String? ?? sName;
+            final cName = data['className'] as String? ?? '';
+
+            if (!subjectGroups.containsKey(sId)) {
+              subjectGroups[sId] = {
+                'id': sId,
+                'name': sName,
+                'classes': <String>{if (cName.isNotEmpty) cName},
+              };
+            } else {
+              if (cName.isNotEmpty) {
+                (subjectGroups[sId]!['classes'] as Set<String>).add(cName);
+              }
+            }
+          }
+        }
+
+        for (var entry in timetableList) {
+          processEntry(entry);
+        }
+
+        // Fallback: Jika timetableList di doc belum ada, sertakan mapel profil guru
+        if (subjectGroups.isEmpty && _teacher!.subjects.isNotEmpty) {
+          for (var subj in _teacher!.subjects) {
+            subjectGroups[subj] = {
+              'id': subj,
+              'name': subj,
+              'classes': <String>{'Semua Kelas'},
+            };
+          }
+        }
+
+        final subjectList = subjectGroups.values.toList();
+
+        if (subjectList.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFEF3C7),
+                    shape: BoxShape.circle,
                   ),
-                ],
+                  child: const Icon(Icons.assignment_ind_outlined, size: 48, color: Color(0xFFD97706)),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Belum Ada Mapel Ditugaskan',
+                  style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Admin belum menugaskan Anda sebagai pembuat soal pada event ujian ini.',
+                  style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.edit_document, color: Color(0xFF10B981), size: 24),
+                ),
+                const SizedBox(width: 14),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tugas Pembuat Soal',
+                      style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+                    ),
+                    Text(
+                      'Pilih mata pelajaran di bawah untuk mengelola bank soal berdasarkan angkatan siswa.',
+                      style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            ...subjectList.map((subj) {
+              final subjectId = subj['id'] as String;
+              final subjectName = subj['name'] as String;
+              final classesSet = subj['classes'] as Set<String>;
+              final classesStr = classesSet.isNotEmpty ? classesSet.join(', ') : 'Semua Kelas';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 30),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              subjectName,
+                              style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.groups_rounded, size: 14, color: Color(0xFF64748B)),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Kelas Terkait: $classesStr',
+                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedSubjectMap = {
+                              'id': subjectId,
+                              'name': subjectName,
+                            };
+                          });
+                        },
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: const Text('Kelola Soal'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B981),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          elevation: 0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
+    );
+  }
+
+  // TAMPILAN 2: Kelola Soal dengan TabBar Angkatan Aktif Sekolah
+  Widget _buildAngkatanQuestionManager(String subjectId, String subjectName) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('students')
+          .snapshots(),
+      builder: (context, studentSnap) {
+        if (studentSnap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
+        }
+
+        final studentDocs = studentSnap.data?.docs ?? [];
+        final angkatanCounts = <String, int>{};
+
+        for (var doc in studentDocs) {
+          final data = doc.data() as Map<String, dynamic>? ?? {};
+          final isArchived = data['archived'] == true;
+          final isDisabled = data['disabled'] == true;
+          if (isArchived || isDisabled) continue;
+
+          final ang = data['angkatan']?.toString().trim() ?? '';
+          if (ang.isNotEmpty) {
+            angkatanCounts[ang] = (angkatanCounts[ang] ?? 0) + 1;
+          }
+        }
+
+        final activeAngkatans = angkatanCounts.keys.toList()..sort();
+        final displayAngkatans = activeAngkatans.isNotEmpty
+            ? activeAngkatans
+            : ['2022', '2023', '2024'];
+
+        return Column(
+          children: [
+            // Header Bar Navigasi Kembali ke Daftar Mapel
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
               ),
               child: Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFECFDF5),
-                      borderRadius: BorderRadius.circular(10),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _selectedSubjectMap = null;
+                      });
+                    },
+                    icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                    label: const Text('Kembali ke Daftar Mapel'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF475569),
+                      side: const BorderSide(color: Color(0xFFCBD5E1)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     ),
-                    child: const Icon(Icons.library_books_rounded, color: Color(0xFF10B981)),
                   ),
+                  const SizedBox(width: 16),
+                  Container(height: 24, width: 1, color: const Color(0xFFCBD5E1)),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          subjectName,
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15),
+                          'Soal Ujian: $subjectName',
+                          style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 2),
                         Text(
-                          'Kelas: $className',
-                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                          '${displayAngkatans.length} Angkatan Aktif Terdeteksi',
+                          style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF10B981), fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
-                    onPressed: () => _manageQuestionsDialog(subjectId, subjectName, className),
+                ],
+              ),
+            ),
+
+            // TabBar Angkatan Aktif
+            Expanded(
+              child: DefaultTabController(
+                length: displayAngkatans.length,
+                child: Scaffold(
+                  backgroundColor: const Color(0xFFF8FAFC),
+                  appBar: PreferredSize(
+                    preferredSize: const Size.fromHeight(48),
+                    child: Container(
+                      color: Colors.white,
+                      child: TabBar(
+                        isScrollable: true,
+                        labelColor: const Color(0xFF10B981),
+                        unselectedLabelColor: const Color(0xFF64748B),
+                        indicatorColor: const Color(0xFF10B981),
+                        indicatorWeight: 3,
+                        tabs: displayAngkatans.map((ang) {
+                          final count = angkatanCounts[ang] ?? 0;
+                          return Tab(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.school_rounded, size: 15),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Angkatan $ang',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                if (count > 0) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFECFDF5),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                                    ),
+                                    child: Text(
+                                      '$count murid',
+                                      style: const TextStyle(fontSize: 10, color: Color(0xFF059669), fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                  body: TabBarView(
+                    children: displayAngkatans.map((ang) {
+                      return _buildQuestionBankForAngkatan(subjectId, subjectName, ang);
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // TAMPILAN 3: Bank Soal untuk Angkatan Tertentu
+  Widget _buildQuestionBankForAngkatan(String subjectId, String subjectName, String angkatan) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('events')
+          .doc(widget.eventId)
+          .collection('subjects')
+          .doc(subjectId)
+          .collection('questions')
+          .snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
+        }
+
+        final allDocs = snap.data?.docs ?? [];
+        final qDocs = allDocs.where((d) {
+          final data = d.data() as Map<String, dynamic>? ?? {};
+          final qAng = data['angkatan'] as String?;
+          return qAng == null || qAng == angkatan;
+        }).toList();
+
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Bank Soal — Angkatan $angkatan',
+                        style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                      ),
+                      Text(
+                        'Total Soal: ${qDocs.length} butir',
+                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => _addNewQuestionForm(subjectId, angkatan),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: Text('Tambah Soal (Angkatan $angkatan)'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF10B981),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
-                    child: const Text('Kelola Soal', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _manageQuestionsDialog(String subjectId, String subjectName, String className) {
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (dialogCtx, setDialogState) {
-            return AlertDialog(
-              title: Text('Soal Ujian: $subjectName ($className)', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-              content: SizedBox(
-                width: 600,
-                height: 500,
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('schools')
-                      .doc(_schoolId)
-                      .collection('subjects')
-                      .doc(subjectId)
-                      .collection('questions')
-                      .snapshots(),
-                  builder: (context, snap) {
-                    if (snap.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    final qDocs = snap.data?.docs ?? [];
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              const SizedBox(height: 16),
+              Expanded(
+                child: qDocs.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            const Icon(Icons.quiz_outlined, size: 48, color: Color(0xFF94A3B8)),
+                            const SizedBox(height: 12),
                             Text(
-                              'Jumlah Soal: ${qDocs.length}',
-                              style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                              'Belum ada soal untuk Angkatan $angkatan.',
+                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
                             ),
-                            ElevatedButton.icon(
-                              onPressed: () => _addNewQuestionForm(subjectId, setDialogState),
-                              icon: const Icon(Icons.add, size: 16),
-                              label: const Text('Tambah Soal'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF10B981),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                              ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Klik tombol "Tambah Soal" di atas untuk membuat soal baru.',
+                              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 14),
-                        Expanded(
-                          child: qDocs.isEmpty
-                              ? Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.quiz_outlined, size: 48, color: Colors.grey),
-                                      const SizedBox(height: 8),
-                                      Text('Belum ada soal ditambahkan.', style: GoogleFonts.inter(color: Colors.grey)),
-                                    ],
-                                  ),
-                                )
-                              : ListView.separated(
-                                  itemCount: qDocs.length,
-                                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                                  itemBuilder: (ctx, idx) {
-                                    final qData = qDocs[idx].data() as Map<String, dynamic>;
-                                    final text = qData['text'] ?? '';
-                                    final options = Map<String, dynamic>.from(qData['options'] ?? {});
-                                    final correctOpt = qData['correctOption'] ?? '';
+                      )
+                    : ListView.separated(
+                        itemCount: qDocs.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (ctx, idx) {
+                          final qData = qDocs[idx].data() as Map<String, dynamic>;
+                          final qId = qDocs[idx].id;
+                          final text = qData['text'] ?? '';
+                          final options = Map<String, dynamic>.from(qData['options'] ?? {});
+                          final correctOpt = qData['correctOption'] ?? '';
 
-                                    return Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF8FAFC),
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Soal ${idx + 1}: $text',
-                                            style: const TextStyle(fontWeight: FontWeight.bold),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          ...options.entries.map((opt) => Padding(
-                                                padding: const EdgeInsets.only(bottom: 2),
-                                                child: Text(
-                                                  '${opt.key}. ${opt.value}',
-                                                  style: TextStyle(
-                                                    color: opt.key == correctOpt
-                                                        ? Colors.green
-                                                        : Colors.black87,
-                                                    fontWeight: opt.key == correctOpt
-                                                        ? FontWeight.bold
-                                                        : FontWeight.normal,
-                                                  ),
-                                                ),
-                                              )),
-                                        ],
-                                      ),
-                                    );
-                                  },
+                          return Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.02),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
                                 ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFECFDF5),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        'Soal ${idx + 1}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF059669)),
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
+                                      onPressed: () => _deleteQuestion(subjectId, qId),
+                                      tooltip: 'Hapus Soal',
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  text,
+                                  style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14, color: const Color(0xFF0F172A)),
+                                ),
+                                const SizedBox(height: 12),
+                                ...options.entries.map((opt) {
+                                  final isCorrect = opt.key == correctOpt;
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 4),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: isCorrect ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: isCorrect ? const Color(0xFFA7F3D0) : const Color(0xFFE2E8F0),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          '${opt.key}.',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: isCorrect ? const Color(0xFF059669) : const Color(0xFF64748B),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            '${opt.value}',
+                                            style: TextStyle(
+                                              color: isCorrect ? const Color(0xFF065F46) : const Color(0xFF334155),
+                                              fontWeight: isCorrect ? FontWeight.w600 : FontWeight.normal,
+                                            ),
+                                          ),
+                                        ),
+                                        if (isCorrect)
+                                          const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogCtx),
-                  child: const Text('Tutup'),
-                ),
-              ],
-            );
-          },
+            ],
+          ),
         );
       },
     );
   }
 
-  void _addNewQuestionForm(String subjectId, StateSetter reloadParent) {
+  void _deleteQuestion(String subjectId, String questionId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Soal'),
+        content: const Text('Apakah Anda yakin ingin menghapus soal ini?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await FirebaseFirestore.instance
+                    .collection('schools')
+                    .doc(_schoolId)
+                    .collection('events')
+                    .doc(widget.eventId)
+                    .collection('subjects')
+                    .doc(subjectId)
+                    .collection('questions')
+                    .doc(questionId)
+                    .delete();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Soal berhasil dihapus!')),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gagal menghapus: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Hapus', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addNewQuestionForm(String subjectId, String angkatan) {
     final formKey = GlobalKey<FormState>();
     final textController = TextEditingController();
     final optA = TextEditingController();
@@ -464,7 +901,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       builder: (ctx) {
         return StatefulBuilder(builder: (formCtx, setFormState) {
           return AlertDialog(
-            title: const Text('Buat Soal Baru', style: TextStyle(fontWeight: FontWeight.bold)),
+            title: Text('Buat Soal Baru — Angkatan $angkatan', style: const TextStyle(fontWeight: FontWeight.bold)),
             content: SizedBox(
               width: 500,
               child: SingleChildScrollView(
@@ -500,12 +937,12 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                       const SizedBox(height: 8),
                       TextFormField(
                         controller: optD,
-                        decoration: const InputDecoration(labelText: 'Pilihan D', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Pilihan D (opsional)', border: OutlineInputBorder()),
                       ),
                       const SizedBox(height: 8),
                       TextFormField(
                         controller: optE,
-                        decoration: const InputDecoration(labelText: 'Pilihan E', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Pilihan E (opsional)', border: OutlineInputBorder()),
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
@@ -544,6 +981,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                       await FirebaseFirestore.instance
                           .collection('schools')
                           .doc(_schoolId)
+                          .collection('events')
+                          .doc(widget.eventId)
                           .collection('subjects')
                           .doc(subjectId)
                           .collection('questions')
@@ -551,6 +990,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         'text': textController.text.trim(),
                         'options': optsMap,
                         'correctOption': correctOption,
+                        'angkatan': angkatan,
                         'createdAt': FieldValue.serverTimestamp(),
                       });
                       if (formCtx.mounted) {
