@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.createEvent = exports.importTeachersBulk = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
+exports.changeOwnPassword = exports.resetSchoolAdminPassword = exports.deleteSchool = exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.deleteEvent = exports.createEvent = exports.importTeachersBulk = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const firestore_1 = require("firebase-admin/firestore");
@@ -18,6 +18,34 @@ function verifySchoolAdmin(request, schoolId) {
     if (!isSuper && !isSchoolAdmin) {
         throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin atau Admin Sekolah terkait yang dapat melakukan operasi ini.');
     }
+}
+/**
+ * Helper to generate custom Document ID for teachers and students:
+ * Last two words of displayName joined + 4 random lowercase alphanumeric characters.
+ */
+function generateCustomId(displayName) {
+    const cleaned = displayName.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+    const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+    let base = '';
+    if (words.length >= 2) {
+        base = words[words.length - 2] + words[words.length - 1];
+    }
+    else if (words.length === 1) {
+        base = words[0];
+    }
+    else {
+        base = 'user';
+    }
+    base = base.replace(/[^a-zA-Z0-9]/g, '');
+    if (base.length > 30) {
+        base = base.substring(0, 30);
+    }
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let suffix = '';
+    for (let i = 0; i < 4; i++) {
+        suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return `${base}${suffix}`;
 }
 /**
  * Helper to write audit logs.
@@ -88,9 +116,23 @@ exports.createSchool = functions.https.onCall(async (request) => {
     }
     try {
         const db = admin.firestore();
-        // 1. Create a school document with an auto-generated ID
-        const schoolRef = db.collection('schools').doc();
-        const schoolId = schoolRef.id;
+        // 1. Generate customized School ID: <school_name>_<School_Code>_<4_random_chars>
+        const sanitizedName = name
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-_]/g, '')
+            .trim()
+            .replace(/\s+/g, '_');
+        const sanitizedCode = code
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]/g, '');
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let randomSuffix = '';
+        for (let i = 0; i < 4; i++) {
+            randomSuffix += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        const schoolId = `${sanitizedName}_${sanitizedCode}_${randomSuffix}`;
+        const schoolRef = db.collection('schools').doc(schoolId);
         // 2. Create the school admin user in Firebase Auth
         const userRecord = await admin.auth().createUser({
             email: adminEmail,
@@ -191,7 +233,16 @@ exports.createTeacher = functions.https.onCall(async (request) => {
             if (!querySnap.empty) {
                 throw new functions.https.HttpsError('already-exists', `Guru dengan NIP ${nip} sudah terdaftar di sekolah ini.`);
             }
-            const newDocRef = teachersRef.doc();
+            let docId = generateCustomId(displayName);
+            let newDocRef = teachersRef.doc(docId);
+            let docSnap = await transaction.get(newDocRef);
+            let attempts = 0;
+            while (docSnap.exists && attempts < 5) {
+                docId = generateCustomId(displayName);
+                newDocRef = teachersRef.doc(docId);
+                docSnap = await transaction.get(newDocRef);
+                attempts++;
+            }
             transaction.set(newDocRef, {
                 uid,
                 displayName,
@@ -273,7 +324,16 @@ exports.createStudent = functions.https.onCall(async (request) => {
             if (!querySnap.empty) {
                 throw new functions.https.HttpsError('already-exists', `Murid dengan NIS ${nis} sudah terdaftar di sekolah ini.`);
             }
-            const newDocRef = studentsRef.doc();
+            let docId = generateCustomId(displayName);
+            let newDocRef = studentsRef.doc(docId);
+            let docSnap = await transaction.get(newDocRef);
+            let attempts = 0;
+            while (docSnap.exists && attempts < 5) {
+                docId = generateCustomId(displayName);
+                newDocRef = studentsRef.doc(docId);
+                docSnap = await transaction.get(newDocRef);
+                attempts++;
+            }
             transaction.set(newDocRef, {
                 uid,
                 displayName,
@@ -769,7 +829,16 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
                     await admin.auth().setCustomUserClaims(userRecord.uid, { role: 'student', schoolId });
                     uid = userRecord.uid;
                 }
-                const newDocRef = studentsRef.doc();
+                let docId = generateCustomId(cleanName);
+                let newDocRef = studentsRef.doc(docId);
+                let docSnap = await newDocRef.get();
+                let attempts = 0;
+                while (docSnap.exists && attempts < 5) {
+                    docId = generateCustomId(cleanName);
+                    newDocRef = studentsRef.doc(docId);
+                    docSnap = await newDocRef.get();
+                    attempts++;
+                }
                 await newDocRef.set({
                     uid,
                     displayName: cleanName,
@@ -919,7 +988,16 @@ exports.importTeachersBulk = functions.https.onCall(async (request) => {
                     await admin.auth().setCustomUserClaims(userRecord.uid, { role: 'teacher', schoolId });
                     uid = userRecord.uid;
                 }
-                const newDocRef = teachersRef.doc();
+                let docId = generateCustomId(cleanName);
+                let newDocRef = teachersRef.doc(docId);
+                let docSnap = await newDocRef.get();
+                let attempts = 0;
+                while (docSnap.exists && attempts < 5) {
+                    docId = generateCustomId(cleanName);
+                    newDocRef = teachersRef.doc(docId);
+                    docSnap = await newDocRef.get();
+                    attempts++;
+                }
                 await newDocRef.set({
                     uid,
                     displayName: cleanName,
@@ -1086,20 +1164,38 @@ async function fetchActiveRooms(db, schoolId) {
     });
 }
 exports.createEvent = functions.https.onCall(async (request) => {
-    const { schoolId, eventInfo, sessions, timetable } = request.data || {};
+    const { schoolId, eventInfo, sessions, timetable, eventId } = request.data || {};
     if (!schoolId || !eventInfo) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
-    const eventRef = db.collection('schools').doc(schoolId).collection('events').doc();
-    const eventId = eventRef.id;
+    const isEditMode = typeof eventId === 'string' && eventId.trim().length > 0;
+    const eventRef = isEditMode
+        ? db.collection('schools').doc(schoolId).collection('events').doc(eventId)
+        : db.collection('schools').doc(schoolId).collection('events').doc();
+    const actualEventId = eventRef.id;
+    if (isEditMode) {
+        // Clean up old allocations, proctors, sessions, timetable to rewrite them
+        const sessionsQuery = await eventRef.collection('sessions').get();
+        const timetableQuery = await eventRef.collection('timetable').get();
+        const proctorsQuery = await eventRef.collection('proctors').get();
+        const allocationsQuery = await eventRef.collection('allocations').get();
+        const participantsQuery = await eventRef.collection('participants').get();
+        const batch = db.batch();
+        sessionsQuery.forEach(doc => batch.delete(doc.ref));
+        timetableQuery.forEach(doc => batch.delete(doc.ref));
+        proctorsQuery.forEach(doc => batch.delete(doc.ref));
+        allocationsQuery.forEach(doc => batch.delete(doc.ref));
+        participantsQuery.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+    }
     await db.runTransaction(async (transaction) => {
         transaction.set(eventRef, {
             name: eventInfo.name,
             academicYear: eventInfo.academicYear,
-            startDate: eventInfo.startDate,
-            endDate: eventInfo.endDate,
+            startDate: new Date(eventInfo.startDate),
+            endDate: new Date(eventInfo.endDate),
             description: eventInfo.description || '',
             status: 'draft',
             createdBy: request.auth?.uid,
@@ -1108,8 +1204,9 @@ exports.createEvent = functions.https.onCall(async (request) => {
             config: {
                 participantNumberFormat: eventInfo.participantNumberFormat || '[angkatan][roomCode][seatNumber]',
                 seatNumberPadding: eventInfo.seatNumberPadding || 3
-            }
-        });
+            },
+            draftState: eventInfo.draftState || null
+        }, { merge: true });
         const sessionMap = new Map();
         if (sessions && Array.isArray(sessions)) {
             sessions.forEach((s) => {
@@ -1135,10 +1232,12 @@ exports.createEvent = functions.https.onCall(async (request) => {
                 const mappedSessionId = t.sessionId ? (sessionMap.get(t.sessionId) || t.sessionId) : null;
                 transaction.set(tRef, {
                     classId: t.classId,
+                    className: t.className || '',
                     subjectId: t.subjectId,
                     subjectName: t.subjectName,
                     sessionId: mappedSessionId,
                     teacherId: t.teacherId,
+                    teacherName: t.teacherName || '',
                     status: 'scheduled',
                     createdAt: firestore_1.FieldValue.serverTimestamp()
                 });
@@ -1146,8 +1245,43 @@ exports.createEvent = functions.https.onCall(async (request) => {
         }
     });
     const actorUid = request.auth?.uid || 'system';
-    await writeAuditLog(db, schoolId, actorUid, 'CREATE_EVENT', `Membuat event ujian "${eventInfo.name}"`);
-    return { eventId };
+    await writeAuditLog(db, schoolId, actorUid, 'CREATE_EVENT', `Membuat/memperbarui event ujian "${eventInfo.name}"`);
+    return { eventId: actualEventId };
+});
+exports.deleteEvent = functions.https.onCall(async (request) => {
+    const { schoolId, eventId } = request.data || {};
+    if (!schoolId || !eventId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    const eventRef = db.collection('schools').doc(schoolId).collection('events').doc(eventId);
+    // Delete all subcollections
+    const subcollections = ['sessions', 'timetable', 'proctors', 'participants'];
+    for (const sub of subcollections) {
+        const snap = await eventRef.collection(sub).get();
+        if (!snap.empty) {
+            const batch = db.batch();
+            snap.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+        }
+    }
+    // Delete allocations and their nested seats
+    const allocationsSnap = await eventRef.collection('allocations').get();
+    for (const allocDoc of allocationsSnap.docs) {
+        const seatsSnap = await allocDoc.ref.collection('seats').get();
+        if (!seatsSnap.empty) {
+            const batch = db.batch();
+            seatsSnap.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+        }
+        await allocDoc.ref.delete();
+    }
+    // Delete the event document itself
+    await eventRef.delete();
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'DELETE_EVENT', `Menghapus event ujian ${eventId}`);
+    return { success: true };
 });
 exports.previewAllocation = functions.https.onCall(async (request) => {
     const { schoolId, eventId, mode, options } = request.data || {};
@@ -1386,5 +1520,135 @@ exports.rollbackAllocation = functions.https.onCall(async (request) => {
     const actorUid = request.auth?.uid || 'system';
     await writeAuditLog(db, schoolId, actorUid, 'ROLLBACK_ALLOCATION', `Membatalkan alokasi ${allocationId}`);
     return { success: true };
+});
+/**
+ * Deletes a school and all associated users from Auth and sets deleted status on Firestore.
+ * Must be called by a Super Admin.
+ */
+exports.deleteSchool = functions.https.onCall(async (request) => {
+    // Check auth and role
+    if (!request.auth || request.auth.token.role !== 'super_admin') {
+        throw new functions.https.HttpsError('failed-precondition', 'Fungsi ini harus dipanggil oleh super admin yang terautentikasi.');
+    }
+    const { schoolId } = request.data || {};
+    if (!schoolId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter schoolId diperlukan.');
+    }
+    try {
+        const db = admin.firestore();
+        // 1. Dapatkan semua pengguna yang berasosiasi dengan sekolah ini di koleksi users global
+        const usersSnapshot = await db.collection('users').where('schoolId', '==', schoolId).get();
+        const uids = usersSnapshot.docs.map(doc => doc.id);
+        // 2. Hapus semua pengguna tersebut dari Firebase Authentication
+        if (uids.length > 0) {
+            for (let i = 0; i < uids.length; i += 1000) {
+                const chunk = uids.slice(i, i + 1000);
+                await admin.auth().deleteUsers(chunk);
+            }
+        }
+        // 3. Hapus dokumen pengguna dari koleksi /users global
+        if (usersSnapshot.docs.length > 0) {
+            const docs = usersSnapshot.docs;
+            for (let i = 0; i < docs.length; i += 500) {
+                const chunk = docs.slice(i, i + 500);
+                const batch = db.batch();
+                chunk.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+            }
+        }
+        // 4. Update status sekolah di Firestore menjadi deleted: true
+        await db.collection('schools').doc(schoolId).update({
+            deleted: true,
+            updatedAt: firestore_1.FieldValue.serverTimestamp()
+        });
+        // 5. Catat audit log
+        const actorUid = request.auth.uid;
+        await writeAuditLog(db, schoolId, actorUid, 'DELETE_SCHOOL', `Menghapus sekolah ID: ${schoolId} beserta seluruh penggunanya.`);
+        return { success: true, message: `Sekolah dan ${uids.length} akun pengguna berhasil dihapus.` };
+    }
+    catch (err) {
+        throw new functions.https.HttpsError('internal', err.message || 'Gagal menghapus sekolah.');
+    }
+});
+/**
+ * Resets a school admin password.
+ * Must be called by a Super Admin.
+ */
+exports.resetSchoolAdminPassword = functions.https.onCall(async (request) => {
+    // Check auth and role
+    if (!request.auth || request.auth.token.role !== 'super_admin') {
+        throw new functions.https.HttpsError('failed-precondition', 'The function must be called by an authenticated super admin.');
+    }
+    const { schoolId, newPassword } = request.data || {};
+    if (!schoolId || !newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 6) {
+        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with schoolId and newPassword (min 6 chars).');
+    }
+    try {
+        const db = admin.firestore();
+        // 1. Find admin user in Firestore users collection
+        const usersSnap = await db.collection('users')
+            .where('schoolId', '==', schoolId)
+            .where('role', '==', 'school_admin')
+            .limit(1)
+            .get();
+        let adminUid = null;
+        if (!usersSnap.empty) {
+            adminUid = usersSnap.docs[0].id;
+        }
+        else {
+            // Fallback: look up by adminEmail from school doc
+            const schoolDoc = await db.collection('schools').doc(schoolId).get();
+            if (schoolDoc.exists) {
+                const email = schoolDoc.data()?.adminEmail;
+                if (email) {
+                    try {
+                        const userRec = await admin.auth().getUserByEmail(email);
+                        adminUid = userRec.uid;
+                    }
+                    catch (_) { }
+                }
+            }
+        }
+        if (!adminUid) {
+            throw new functions.https.HttpsError('not-found', 'Akun admin sekolah tidak ditemukan.');
+        }
+        // 2. Update Auth password
+        await admin.auth().updateUser(adminUid, {
+            password: newPassword,
+        });
+        // 3. Log audit log
+        const actorUid = request.auth.uid;
+        await writeAuditLog(db, schoolId, actorUid, 'RESET_ADMIN_PASSWORD', `Super Admin mereset password admin sekolah.`);
+        return { success: true, message: 'Password admin sekolah berhasil direset.' };
+    }
+    catch (err) {
+        throw new functions.https.HttpsError('internal', err.message || 'Gagal mereset password admin sekolah.');
+    }
+});
+/**
+ * Changes own password.
+ * Must be called by any authenticated user.
+ */
+exports.changeOwnPassword = functions.https.onCall(async (request) => {
+    if (!request.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'The function must be called by an authenticated user.');
+    }
+    const { newPassword } = request.data || {};
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 6) {
+        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with a valid newPassword (min 6 characters).');
+    }
+    try {
+        const uid = request.auth.uid;
+        await admin.auth().updateUser(uid, {
+            password: newPassword,
+        });
+        const db = admin.firestore();
+        const schoolId = request.auth.token.schoolId || 'superadmin';
+        await writeAuditLog(db, schoolId, uid, 'CHANGE_OWN_PASSWORD', `User mengubah kata sandi sendiri.`);
+        return { success: true, message: 'Kata sandi Anda berhasil diperbarui.' };
+    }
+    catch (err) {
+        throw new functions.https.HttpsError('internal', err.message || 'Gagal mengubah kata sandi.');
+    }
 });
 //# sourceMappingURL=index.js.map

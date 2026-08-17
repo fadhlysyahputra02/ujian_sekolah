@@ -204,7 +204,10 @@ class _AllocationDashboardState extends State<AllocationDashboard> {
                               value: _selectedAllocationId,
                               decoration: const InputDecoration(labelText: 'Run Alokasi', border: OutlineInputBorder()),
                               items: allocations.map((a) {
-                                final time = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                                final cData = a['createdAt'];
+                                final time = cData is Timestamp
+                                    ? cData.toDate()
+                                    : (cData is String ? (DateTime.tryParse(cData) ?? DateTime.now()) : DateTime.now());
                                 final label = 'Mode: ${a['mode'].toString().toUpperCase()} (${time.hour}:${time.minute})';
                                 return DropdownMenuItem(value: a['id'] as String, child: Text(label));
                               }).toList(),

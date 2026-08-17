@@ -54,6 +54,21 @@ class SchoolService {
     }
   }
 
+  /// Triggers the deleteSchool Cloud Function to delete a school and its associated users.
+  Future<void> deleteSchool({
+    required String schoolId,
+  }) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('deleteSchool');
+      await callable.call({
+        'schoolId': schoolId,
+      });
+    } catch (e) {
+      debugPrint("Error in deleteSchool: $e");
+      rethrow;
+    }
+  }
+
   /// Runs the initial seeding script to register the sadmin@sesicermat.com / 11081987 account
   Future<void> seedSuperAdmin() async {
     try {
@@ -61,6 +76,23 @@ class SchoolService {
       await callable.call();
     } catch (e) {
       debugPrint("Error in seedSuperAdmin: $e");
+      rethrow;
+    }
+  }
+
+  /// Mereset password admin sekolah via Cloud Function
+  Future<void> resetSchoolAdminPassword({
+    required String schoolId,
+    required String newPassword,
+  }) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('resetSchoolAdminPassword');
+      await callable.call({
+        'schoolId': schoolId,
+        'newPassword': newPassword,
+      });
+    } catch (e) {
+      debugPrint("Error in resetSchoolAdminPassword: $e");
       rethrow;
     }
   }

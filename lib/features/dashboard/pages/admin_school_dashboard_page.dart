@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:excel/excel.dart' as ex;
 import '../../../core/models/student.dart';
 import '../../../core/models/teacher.dart';
@@ -20,20 +21,61 @@ import 'class_detail_screen.dart';
 import 'event_list_screen.dart';
 
 class AdminSchoolDashboardPage extends StatefulWidget {
-  const AdminSchoolDashboardPage({super.key});
+  final String? tabName;
+  const AdminSchoolDashboardPage({super.key, this.tabName});
 
   @override
   State<AdminSchoolDashboardPage> createState() => _AdminSchoolDashboardPageState();
 }
 
 class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
-  int _currentTab = 0; // 0: Overview, 1: Guru, 2: Murid
+  int _currentTab = 0; // 0: Overview, 1: Guru, 2: Murid, 3: Mapel, 4: Kelas, 5: Event, 6: Pengaturan
+  
+  @override
+  void initState() {
+    super.initState();
+    _updateTabFromWidget();
+  }
+
+  @override
+  void didUpdateWidget(AdminSchoolDashboardPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.tabName != oldWidget.tabName) {
+      _updateTabFromWidget();
+    }
+  }
+
+  void _updateTabFromWidget() {
+    setState(() {
+      switch (widget.tabName) {
+        case 'ringkasan': _currentTab = 0; break;
+        case 'guru': _currentTab = 1; break;
+        case 'murid': _currentTab = 2; break;
+        case 'mapel': _currentTab = 3; break;
+        case 'kelas': _currentTab = 4; break;
+        case 'eventujian': _currentTab = 5; break;
+        case 'pengaturan': _currentTab = 6; break;
+        default: _currentTab = 0;
+      }
+    });
+  }
+
+  void _navigateToTab(int index) {
+    String path;
+    switch (index) {
+      case 0: path = 'ringkasan'; break;
+      case 1: path = 'guru'; break;
+      case 2: path = 'murid'; break;
+      case 3: path = 'mapel'; break;
+      case 4: path = 'kelas'; break;
+      case 5: path = 'eventujian'; break;
+      case 6: path = 'pengaturan'; break;
+      default: path = 'ringkasan';
+    }
+    context.go('/admin/$path');
+  }
   
   final AdminUserService _adminUserService = AdminUserService();
-
-  // Futures for one-time fetch
-  Future<List<Teacher>>? _teachersFuture;
-  Future<List<Student>>? _studentsFuture;
 
   // Pagination states
   int _teacherRowsPerPage = 10;
@@ -42,17 +84,9 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   int _studentRowsPerPage = 10;
   int _studentCurrentPage = 0;
 
-  void _initFutures(String schoolId) {
-    if (schoolId.isNotEmpty) {
-      _teachersFuture ??= _adminUserService.getTeachersOnce(schoolId);
-      _studentsFuture ??= _adminUserService.getStudentsOnce(schoolId);
-    }
-  }
-
   void _refreshTeachers(String schoolId) {
     if (schoolId.isNotEmpty) {
       setState(() {
-        _teachersFuture = _adminUserService.getTeachersOnce(schoolId);
         _teacherCurrentPage = 0;
       });
     }
@@ -61,7 +95,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   void _refreshStudents(String schoolId) {
     if (schoolId.isNotEmpty) {
       setState(() {
-        _studentsFuture = _adminUserService.getStudentsOnce(schoolId);
         _studentCurrentPage = 0;
       });
     }
@@ -321,18 +354,60 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       );
       return;
     }
-
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Generate Sandi Massal'),
-        content: Text('Apakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} murid yang belum memilikinya?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 24),
+            ),
+            const SizedBox(width: 14),
+            Text(
+              'Generate Sandi Massal',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Apakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} murid yang belum memilikinya?',
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            color: const Color(0xFF475569),
+            height: 1.5,
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+            ),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF59E0B)),
-            child: const Text('Mulai Generate'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD97706),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            child: Text(
+              'Mulai Generate',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -360,41 +435,111 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             final pctInt = (pct * 100).toInt();
 
             return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Text('Generate Sandi Massal', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              contentPadding: const EdgeInsets.all(24),
               content: SizedBox(
-                width: 320,
+                width: 340,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      'Memproses $processed dari ${targets.length} murid...',
-                      style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF0F172A), fontWeight: FontWeight.bold),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706), size: 24),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Generate Sandi Massal',
+                                style: GoogleFonts.inter(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Mohon tunggu sebentar...',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    if (name.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        name,
-                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontStyle: FontStyle.italic),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Memproses $processed dari ${targets.length} murid...',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: const Color(0xFF475569),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '$pctInt%',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFFD97706),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(10),
                       child: LinearProgressIndicator(
                         value: pct,
-                        backgroundColor: const Color(0xFFE2E8F0),
-                        color: const Color(0xFFF59E0B),
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        color: const Color(0xFFD97706),
                         minHeight: 8,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '$pctInt%',
-                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFFF59E0B)),
-                    ),
+                    if (name.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.person_rounded, size: 16, color: Color(0xFF64748B)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: const Color(0xFF334155),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -474,6 +619,291 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     }
   }
 
+  Future<void> _generateAllTeacherPasswords(String schoolId, List<Teacher> teachers) async {
+    final targets = teachers.where((t) => t.tempPassword == null || t.tempPassword!.isEmpty).toList();
+
+    if (targets.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Informasi'),
+          content: const Text('Semua guru dalam list ini sudah memiliki kata sandi.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Tutup'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 24),
+            ),
+            const SizedBox(width: 14),
+            Text(
+              'Generate Sandi Massal',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Apakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} guru yang belum memilikinya?',
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            color: const Color(0xFF475569),
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD97706),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            child: Text(
+              'Mulai Generate',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    if (!mounted) return;
+
+    final progressNotifier = ValueNotifier<Map<String, dynamic>>({
+      'pct': 0.0,
+      'name': '',
+      'processed': 0,
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return ValueListenableBuilder<Map<String, dynamic>>(
+          valueListenable: progressNotifier,
+          builder: (context, val, child) {
+            final pct = val['pct'] as double;
+            final processed = val['processed'] as int;
+            final name = val['name'] as String;
+            final pctInt = (pct * 100).toInt();
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              contentPadding: const EdgeInsets.all(24),
+              content: SizedBox(
+                width: 340,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.vpn_key_rounded, color: Color(0xFFD97706), size: 24),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Generate Sandi Massal',
+                                style: GoogleFonts.inter(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Mohon tunggu sebentar...',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Memproses $processed dari ${targets.length} guru...',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: const Color(0xFF475569),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '$pctInt%',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFFD97706),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: pct,
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        color: const Color(0xFFD97706),
+                        minHeight: 8,
+                      ),
+                    ),
+                    if (name.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.person_rounded, size: 16, color: Color(0xFF64748B)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: const Color(0xFF334155),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    try {
+      for (int i = 0; i < targets.length; i++) {
+        final t = targets[i];
+        if (!mounted) break;
+
+        progressNotifier.value = {
+          'pct': i / targets.length,
+          'name': t.displayName,
+          'processed': i,
+        };
+
+        await _adminUserService.generateTempPassword(
+          schoolId: schoolId,
+          collectionType: 'teachers',
+          docId: t.id,
+        );
+      }
+
+      progressNotifier.value = {
+        'pct': 1.0,
+        'name': 'Selesai!',
+        'processed': targets.length,
+      };
+
+      await Future.delayed(const Duration(milliseconds: 600));
+    } catch (e) {
+      debugPrint('Error mass generating password: $e');
+    } finally {
+      if (mounted) {
+        Navigator.of(context).pop();
+        _refreshTeachers(schoolId);
+      }
+    }
+  }
+
+  Future<void> _generateSingleTeacherPasswordDirectly(String schoolId, Teacher t) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final tempPassword = await _adminUserService.generateTempPassword(
+        schoolId: schoolId,
+        collectionType: 'teachers',
+        docId: t.id,
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        _refreshTeachers(schoolId);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Kata sandi berhasil dibuat untuk ${t.displayName}: $tempPassword'),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuat kata sandi: $e'), backgroundColor: const Color(0xFFEF4444)),
+        );
+      }
+    }
+  }
+
   Future<void> _deleteUser(String schoolId, String collectionType, String docId, String name, String identifier) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -521,8 +951,24 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    final role = authService.role;
+    if (role != 'school_admin' && role != 'super_admin') {
+      return const Scaffold(
+        body: Center(
+          child: Text('Akses Ditolak: Anda tidak memiliki wewenang administrator.'),
+        ),
+      );
+    }
     final schoolId = authService.schoolId ?? '';
-    _initFutures(schoolId);
+    if (schoolId.isEmpty) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4F46E5)),
+          ),
+        ),
+      );
+    }
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 900;
 
@@ -533,6 +979,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       const BottomNavigationBarItem(icon: Icon(Icons.book_outlined), activeIcon: Icon(Icons.book_rounded), label: 'Mapel'),
       const BottomNavigationBarItem(icon: Icon(Icons.class_outlined), activeIcon: Icon(Icons.class_rounded), label: 'Kelas'),
       const BottomNavigationBarItem(icon: Icon(Icons.event_note_outlined), activeIcon: Icon(Icons.event_note_rounded), label: 'Ujian'),
+      const BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings_rounded), label: 'Pengaturan'),
     ];
 
     final backgroundGradient = const BoxDecoration(
@@ -609,6 +1056,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                         _buildSidebarItem(4, Icons.class_outlined, Icons.class_rounded, 'Manajemen Kelas', size.width > 1150),
                         const SizedBox(height: 8),
                         _buildSidebarItem(5, Icons.event_note_outlined, Icons.event_note_rounded, 'Event Ujian', size.width > 1150),
+                        const SizedBox(height: 8),
+                        _buildSidebarItem(6, Icons.settings_outlined, Icons.settings_rounded, 'Pengaturan', size.width > 1150),
                       ],
                     ),
                   ),
@@ -649,7 +1098,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             Expanded(
               child: Container(
                 decoration: backgroundGradient,
-                child: _buildTabContent(schoolId, isDesktop),
+                child: _buildTabContent(schoolId, isDesktop, authService),
               ),
             )
           ],
@@ -673,7 +1122,9 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             ? 'Mata Pelajaran'
                             : _currentTab == 4
                                 ? 'Manajemen Kelas'
-                                : 'Event Ujian',
+                                : _currentTab == 5
+                                    ? 'Event Ujian'
+                                    : 'Pengaturan Akun',
             style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
           ),
           actions: [
@@ -692,7 +1143,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             currentIndex: _currentTab,
             onTap: (idx) {
               _clearFilters();
-              setState(() => _currentTab = idx);
+              _navigateToTab(idx);
             },
             backgroundColor: const Color(0xFF0F172A), // Slate 900 (Biru Gelap)
             selectedItemColor: const Color(0xFF818CF8),
@@ -706,7 +1157,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         ),
         body: Container(
           decoration: backgroundGradient,
-          child: _buildTabContent(schoolId, isDesktop),
+          child: _buildTabContent(schoolId, isDesktop, authService),
         ),
       );
     }
@@ -717,7 +1168,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     return InkWell(
       onTap: () {
         _clearFilters();
-        setState(() => _currentTab = tabIndex);
+        _navigateToTab(tabIndex);
       },
       borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
@@ -754,7 +1205,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
-  Widget _buildTabContent(String schoolId, bool isDesktop) {
+  Widget _buildTabContent(String schoolId, bool isDesktop, AuthService authService) {
     switch (_currentTab) {
       case 0:
         return _buildOverviewTab(schoolId);
@@ -768,6 +1219,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         return _buildClassesTab(schoolId, isDesktop);
       case 5:
         return EventListScreen(schoolId: schoolId);
+      case 6:
+        return _buildSettingsTab(authService);
       default:
         return const Center(child: Text('Konten Tidak Ditemukan'));
     }
@@ -1117,13 +1570,13 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                 runSpacing: 12,
                 children: [
                   _buildQuickActionBtn('Tambah Guru', Icons.person_add_alt_1_rounded, () {
-                    setState(() => _currentTab = 1);
+                    _navigateToTab(1);
                   }),
                   _buildQuickActionBtn('Tambah Murid', Icons.group_add_rounded, () {
-                    setState(() => _currentTab = 2);
+                    _navigateToTab(2);
                   }),
                   _buildQuickActionBtn('Kelola Mapel', Icons.book_rounded, () {
-                    setState(() => _currentTab = 3);
+                    _navigateToTab(3);
                   }),
                   _buildQuickActionBtn('Impor Siswa Massal', Icons.cloud_upload_rounded, () {
                     _showImportDialog(schoolId);
@@ -1138,8 +1591,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Widget _buildTeachersTab(String schoolId, bool isDesktop) {
-    return FutureBuilder<List<Teacher>>(
-      future: _teachersFuture,
+    return StreamBuilder<List<Teacher>>(
+      stream: _adminUserService.streamTeachers(schoolId),
       builder: (context, snapshot) {
         if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
@@ -1196,10 +1649,27 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                           onPressed: () => _showImportTeachersDialog(schoolId),
                           tooltip: 'Impor Guru dari Excel',
                         ),
+                        const SizedBox(width: 8),
                         IconButton(
                           icon: const Icon(Icons.download_rounded, color: Color(0xFF06B6D4)),
                           onPressed: () => _exportTeachersExcel(filteredTeachers),
                           tooltip: 'Ekspor ke Excel',
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => _generateAllTeacherPasswords(schoolId, filteredTeachers),
+                          icon: const Icon(Icons.vpn_key_rounded, size: 16),
+                          label: Text(
+                            'Generate Sandi Massal',
+                            style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFF59E0B),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
                         ),
                         const SizedBox(width: 8),
                         ElevatedButton.icon(
@@ -1258,6 +1728,19 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.password_rounded, color: Color(0xFFF59E0B), size: 20),
+                            onPressed: () => _generateAllTeacherPasswords(schoolId, filteredTeachers),
+                            tooltip: 'Generate Sandi Massal',
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -1362,8 +1845,10 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       elevation: 1,
       child: SingleChildScrollView(
         scrollDirection: Axis.vertical,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
           columns: const [
             DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('NIP', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -1379,10 +1864,24 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               DataCell(Text(t.nip)),
               DataCell(Text(t.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
               DataCell(Text(t.subjects.isEmpty ? '-' : t.subjects.join(', '))),
-              DataCell(SelectableText(
-                t.tempPassword ?? '-',
-                style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
-              )),
+              DataCell(t.tempPassword != null && t.tempPassword!.isNotEmpty
+                  ? SelectableText(
+                      t.tempPassword!,
+                      style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: () => _generateSingleTeacherPasswordDirectly(schoolId, t),
+                      icon: const Icon(Icons.vpn_key_rounded, size: 12),
+                      label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFF59E0B),
+                        side: const BorderSide(color: Color(0xFFF59E0B)),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                    )),
               DataCell(Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -1416,6 +1915,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               )),
             ]);
           }).toList(),
+        ),
         ),
       ),
     );
@@ -1521,14 +2021,29 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                       'Sandi Sementara: ',
                       style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
                     ),
-                    SelectableText(
-                      t.tempPassword ?? "-",
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFFD97706),
+                    if (t.tempPassword != null && t.tempPassword!.isNotEmpty)
+                      SelectableText(
+                        t.tempPassword!,
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFFD97706),
+                        ),
+                      )
+                    else
+                      OutlinedButton.icon(
+                        onPressed: () => _generateSingleTeacherPasswordDirectly(schoolId, t),
+                        icon: const Icon(Icons.vpn_key_rounded, size: 10),
+                        label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFF59E0B),
+                          side: const BorderSide(color: Color(0xFFF59E0B)),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        ),
                       ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1589,8 +2104,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           }
         }
 
-        return FutureBuilder<List<Student>>(
-          future: _studentsFuture,
+        return StreamBuilder<List<Student>>(
+          stream: _adminUserService.streamStudents(schoolId),
           builder: (context, snapshot) {
             if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
             if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
@@ -1845,8 +2360,10 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       elevation: 1,
       child: SingleChildScrollView(
         scrollDirection: Axis.vertical,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
           columns: const [
             DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('NIS', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -1915,6 +2432,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               )),
             ]);
           }).toList(),
+        ),
         ),
       ),
     );
@@ -2544,5 +3062,428 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         );
       }
     }
+  }
+
+  Widget _buildSettingsTab(AuthService authService) {
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool obscurePassword = true;
+    bool obscureConfirm = true;
+    bool isSaving = false;
+
+    final userEmail = authService.user?.email ?? '';
+    final initialLetter = userEmail.isNotEmpty ? userEmail[0].toUpperCase() : 'A';
+
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Section
+              Text(
+                'Pengaturan Akun',
+                style: GoogleFonts.inter(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF0F172A),
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Kelola detail profil dan keamanan kata sandi akun Anda.',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: const Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 28),
+
+              // Responsive Layout Grid
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth > 850;
+                  
+                  final profileCard = Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  initialLetter,
+                                  style: GoogleFonts.inter(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    userEmail,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF0F172A),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEEF2FF),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: const Color(0xFFE0E7FF)),
+                                    ),
+                                    child: Text(
+                                      'Admin Sekolah',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: const Color(0xFF4F46E5),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        const Divider(color: Color(0xFFF1F5F9)),
+                        const SizedBox(height: 16),
+                        _buildInfoRow(
+                          Icons.verified_user_rounded,
+                          'Status Akun',
+                          'Aktif',
+                          const Color(0xFF10B981),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildInfoRow(
+                          Icons.security_rounded,
+                          'Keamanan Sesi',
+                          'Tinggi',
+                          const Color(0xFF3B82F6),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildInfoRow(
+                          Icons.calendar_today_rounded,
+                          'Tanggal Akses',
+                          DateTime.now().toString().split(' ')[0],
+                          const Color(0xFF64748B),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  final changePasswordCard = Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Form(
+                      key: formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF5F3FF),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.lock_rounded,
+                                  color: Color(0xFF7C3AED),
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                'Ubah Kata Sandi',
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF0F172A),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          TextFormField(
+                            controller: passwordController,
+                            obscureText: obscurePassword,
+                            style: GoogleFonts.inter(fontSize: 14),
+                            decoration: InputDecoration(
+                              labelText: 'Kata Sandi Baru',
+                              labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                              hintText: 'Minimal 6 karakter',
+                              hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                              ),
+                              prefixIcon: const Icon(Icons.vpn_key_outlined, size: 20, color: Color(0xFF94A3B8)),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                  size: 20,
+                                  color: const Color(0xFF64748B),
+                                ),
+                                onPressed: () => setState(() => obscurePassword = !obscurePassword),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Kata sandi baru tidak boleh kosong';
+                              }
+                              if (value.trim().length < 6) {
+                                return 'Kata sandi minimal 6 karakter';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          TextFormField(
+                            controller: confirmController,
+                            obscureText: obscureConfirm,
+                            style: GoogleFonts.inter(fontSize: 14),
+                            decoration: InputDecoration(
+                              labelText: 'Konfirmasi Kata Sandi Baru',
+                              labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                              hintText: 'Ulangi kata sandi baru',
+                              hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                              ),
+                              prefixIcon: const Icon(Icons.check_circle_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                  size: 20,
+                                  color: const Color(0xFF64748B),
+                                ),
+                                onPressed: () => setState(() => obscureConfirm = !obscureConfirm),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Konfirmasi kata sandi tidak boleh kosong';
+                              }
+                              if (value != passwordController.text) {
+                                return 'Konfirmasi kata sandi tidak cocok';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: isSaving
+                                  ? null
+                                  : () async {
+                                      if (formKey.currentState!.validate()) {
+                                        setState(() => isSaving = true);
+                                        try {
+                                          await authService.changeOwnPassword(
+                                            passwordController.text.trim(),
+                                          );
+                                          passwordController.clear();
+                                          confirmController.clear();
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Row(
+                                                  children: [
+                                                    const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      'Kata sandi berhasil diperbarui.',
+                                                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                                                    ),
+                                                  ],
+                                                ),
+                                                backgroundColor: const Color(0xFF10B981),
+                                                behavior: SnackBarBehavior.floating,
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                              ),
+                                            );
+                                          }
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Row(
+                                                  children: [
+                                                    const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      'Gagal mengubah kata sandi: $e',
+                                                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                                                    ),
+                                                  ],
+                                                ),
+                                                backgroundColor: const Color(0xFFEF4444),
+                                                behavior: SnackBarBehavior.floating,
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                              ),
+                                            );
+                                          }
+                                        } finally {
+                                          setState(() => isSaving = false);
+                                        }
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF4F46E5),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                elevation: 0,
+                              ),
+                              child: isSaving
+                                  ? const SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                    )
+                                  : Text(
+                                      'Simpan Perubahan',
+                                      style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+
+                  if (isWide) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 3, child: profileCard),
+                        const SizedBox(width: 24),
+                        Expanded(flex: 4, child: changePasswordCard),
+                      ],
+                    );
+                  } else {
+                    return Column(
+                      children: [
+                        profileCard,
+                        const SizedBox(height: 24),
+                        changePasswordCard,
+                      ],
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value, Color badgeColor) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF94A3B8)),
+        const SizedBox(width: 10),
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: const Color(0xFF64748B),
+          ),
+        ),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: badgeColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            value,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: badgeColor,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

@@ -109,7 +109,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           .get();
       if (mounted) {
         setState(() {
-          _schools = snapshot.docs.map((doc) => {
+          _schools = snapshot.docs
+              .where((doc) => doc.data()['deleted'] != true)
+              .map((doc) => {
             'id': doc.id,
             'name': doc.data()['name'],
             'adminEmail': doc.data()['adminEmail'],

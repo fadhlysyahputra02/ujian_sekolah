@@ -333,9 +333,11 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
     final size = MediaQuery.of(context).size;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        width: 700,
-        height: size.height * 0.82,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        width: _isLoading ? 420 : 700,
+        height: _isLoading ? 320 : (size.height * 0.82),
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), color: Colors.white),
         child: _isLoading
@@ -351,44 +353,82 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
 
   Widget _buildLoadingView() {
     final pct = (_progressValue * 100).toInt();
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(Icons.cloud_upload_outlined, size: 72, color: Color(0xFF4F46E5)),
-        const SizedBox(height: 24),
-        Text(
-          'Mengimpor Data...',
-          style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Harap jangan menutup jendela ini atau me-refresh halaman.',
-          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-        ),
-        const SizedBox(height: 32),
-        Container(
-          width: 320,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: LinearProgressIndicator(
-                  value: _progressValue,
-                  backgroundColor: const Color(0xFFE2E8F0),
-                  color: const Color(0xFF4F46E5),
-                  minHeight: 10,
-                ),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFEEF2FF),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: 12),
-              Text(
-                '$pct%',
-                style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF4F46E5)),
+              child: const Icon(Icons.cloud_upload_rounded, size: 48, color: Color(0xFF4F46E5)),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Mengimpor Data...',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF0F172A),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Harap jangan menutup jendela ini atau me-refresh halaman.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: 320,
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Mengimpor...',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+                      Text(
+                        '$pct%',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF4F46E5),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: _progressValue,
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      color: const Color(0xFF4F46E5),
+                      minHeight: 8,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 

@@ -7,6 +7,7 @@ class EventExamService {
 
   /// Stream daftar event ujian di sekolah
   Stream<List<Map<String, dynamic>>> streamEvents(String schoolId) {
+    if (schoolId.isEmpty) return Stream.value([]);
     return _firestore
         .collection('schools')
         .doc(schoolId)
@@ -111,6 +112,7 @@ class EventExamService {
     required Map<String, dynamic> eventInfo,
     required List<Map<String, dynamic>> sessions,
     required List<Map<String, dynamic>> timetable,
+    String? eventId,
   }) async {
     final callable = _functions.httpsCallable('createEvent');
     final response = await callable.call({
@@ -118,8 +120,21 @@ class EventExamService {
       'eventInfo': eventInfo,
       'sessions': sessions,
       'timetable': timetable,
+      'eventId': eventId,
     });
     return response.data['eventId'] as String;
+  }
+
+  /// Menghapus Event Ujian beserta seluruh subkoleksinya via Cloud Function
+  Future<void> deleteEvent({
+    required String schoolId,
+    required String eventId,
+  }) async {
+    final callable = _functions.httpsCallable('deleteEvent');
+    await callable.call({
+      'schoolId': schoolId,
+      'eventId': eventId,
+    });
   }
 
   /// Simulasi preview alokasi tempat duduk

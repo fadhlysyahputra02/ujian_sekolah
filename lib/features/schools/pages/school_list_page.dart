@@ -41,6 +41,218 @@ class _SchoolListPageState extends State<SchoolListPage> {
     }
   }
 
+  Future<void> _deleteSchool(String schoolId, String schoolName) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 28),
+            const SizedBox(width: 10),
+            Text(
+              'Hapus Sekolah',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Text(
+          'Apakah Anda yakin ingin menghapus sekolah "$schoolName"?\n\nAksi ini akan menghapus semua hak login admin sekolah, guru, dan murid dari sekolah ini secara permanen. Tindakan ini tidak dapat dibatalkan.',
+          style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text(
+              'Hapus Permanen',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4F46E5)),
+        ),
+      ),
+    );
+
+    try {
+      await _schoolService.deleteSchool(schoolId: schoolId);
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading dialog
+        _showSnackBar(
+          'Sekolah "$schoolName" berhasil dihapus beserta seluruh akun penggunanya',
+          const Color(0xFFDC2626),
+          Icons.delete_forever_rounded,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading dialog
+        _showSnackBar(
+          'Gagal menghapus sekolah: $e',
+          const Color(0xFFEF4444),
+          Icons.error_outline_rounded,
+        );
+      }
+    }
+  }
+
+  Future<void> _showResetPasswordDialog(String schoolId, String schoolName) async {
+    final passwordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool obscureText = true;
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 24),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Reset Password Admin',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 18),
+                    ),
+                  ),
+                ],
+              ),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Masukkan password baru untuk admin sekolah "$schoolName".',
+                      style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: passwordController,
+                      obscureText: obscureText,
+                      style: GoogleFonts.inter(fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'Password Baru',
+                        labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                        hintText: 'Minimal 6 karakter',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            size: 20,
+                            color: const Color(0xFF64748B),
+                          ),
+                          onPressed: () {
+                            setDialogState(() {
+                              obscureText = !obscureText;
+                            });
+                          },
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Password tidak boleh kosong';
+                        }
+                        if (value.trim().length < 6) {
+                          return 'Password minimal 6 karakter';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    'Batal',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (formKey.currentState!.validate()) {
+                      final newPassword = passwordController.text.trim();
+                      Navigator.pop(context); // close reset dialog
+
+                      // show loading dialog
+                      showDialog(
+                        context: this.context,
+                        barrierDismissible: false,
+                        builder: (ctx) => const Center(child: CircularProgressIndicator(color: Color(0xFF4F46E5))),
+                      );
+
+                      try {
+                        await _schoolService.resetSchoolAdminPassword(
+                          schoolId: schoolId,
+                          newPassword: newPassword,
+                        );
+                        if (mounted) {
+                          Navigator.pop(this.context); // close loading dialog
+                          _showSnackBar(
+                            'Password admin sekolah "$schoolName" berhasil direset.',
+                            const Color(0xFF10B981),
+                            Icons.check_circle_rounded,
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          Navigator.pop(this.context); // close loading dialog
+                          _showSnackBar(
+                            'Gagal mereset password: $e',
+                            const Color(0xFFEF4444),
+                            Icons.error_outline_rounded,
+                          );
+                        }
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text(
+                    'Simpan',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showSnackBar(String message, Color color, IconData icon) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -201,14 +413,17 @@ class _SchoolListPageState extends State<SchoolListPage> {
 
                 var schools = snapshot.data?.docs ?? [];
 
-                // Apply search filter
-                if (_searchQuery.isNotEmpty) {
-                  schools = schools.where((s) {
-                    final name = (s.data()['name'] ?? '').toString().toLowerCase();
-                    final code = (s.data()['code'] ?? '').toString().toLowerCase();
+                // Apply search and deleted filters
+                schools = schools.where((s) {
+                  final data = s.data();
+                  if (data['deleted'] == true) return false;
+                  if (_searchQuery.isNotEmpty) {
+                    final name = (data['name'] ?? '').toString().toLowerCase();
+                    final code = (data['code'] ?? '').toString().toLowerCase();
                     return name.contains(_searchQuery) || code.contains(_searchQuery);
-                  }).toList();
-                }
+                  }
+                  return true;
+                }).toList();
 
                 if (schools.isEmpty && _searchQuery.isEmpty) {
                   return _buildEmptyState();
@@ -266,7 +481,7 @@ class _SchoolListPageState extends State<SchoolListPage> {
                   _buildTableHeader('Admin Email', flex: 3),
                   _buildTableHeader('Pengguna', flex: 2),
                   _buildTableHeader('Status', flex: 2),
-                  _buildTableHeader('Kontrol', flex: 1),
+                  _buildTableHeader('Kontrol', flex: 2),
                 ],
               ),
             ),
@@ -386,11 +601,27 @@ class _SchoolListPageState extends State<SchoolListPage> {
                       child: _buildStatusBadge(disabled),
                     ),
                     Expanded(
-                      flex: 1,
-                      child: Switch.adaptive(
-                        value: !disabled,
-                        activeTrackColor: const Color(0xFF10B981),
-                        onChanged: (_) => _toggleSchoolStatus(doc.id, disabled),
+                      flex: 2,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          Switch.adaptive(
+                            value: !disabled,
+                            activeTrackColor: const Color(0xFF10B981),
+                            onChanged: (_) => _toggleSchoolStatus(doc.id, disabled),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 20),
+                            tooltip: 'Reset Password Admin',
+                            onPressed: () => _showResetPasswordDialog(doc.id, name),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                            tooltip: 'Hapus Sekolah',
+                            onPressed: () => _deleteSchool(doc.id, name),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -635,6 +866,32 @@ class _SchoolListPageState extends State<SchoolListPage> {
                                 onChanged: (_) => _toggleSchoolStatus(doc.id, disabled),
                               ),
                             ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 20),
+                          onPressed: () => _showResetPasswordDialog(doc.id, name),
+                          style: IconButton.styleFrom(
+                            padding: const EdgeInsets.all(8),
+                            backgroundColor: const Color(0xFFFFFBEB),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: const BorderSide(color: Color(0xFFFDE68A)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                          onPressed: () => _deleteSchool(doc.id, name),
+                          style: IconButton.styleFrom(
+                            padding: const EdgeInsets.all(8),
+                            backgroundColor: const Color(0xFFFEF2F2),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: const BorderSide(color: Color(0xFFFECACA)),
+                            ),
                           ),
                         ),
                       ],

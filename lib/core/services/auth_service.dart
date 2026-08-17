@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -122,5 +123,18 @@ class AuthService extends ChangeNotifier {
   /// Sign out helper
   Future<void> signOut() async {
     await _auth.signOut();
+  }
+
+  /// Mengubah password pengguna saat ini via Cloud Function
+  Future<void> changeOwnPassword(String newPassword) async {
+    try {
+      final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('changeOwnPassword');
+      await callable.call({
+        'newPassword': newPassword,
+      });
+    } catch (e) {
+      debugPrint("Error in changeOwnPassword: $e");
+      rethrow;
+    }
   }
 }

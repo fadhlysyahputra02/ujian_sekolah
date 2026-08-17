@@ -34,22 +34,37 @@ class Teacher {
   });
 
   factory Teacher.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+    
+    DateTime parseDate(dynamic val) {
+      if (val == null) return DateTime.now();
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
+      return DateTime.now();
+    }
+    
+    DateTime? parseNullableDate(dynamic val) {
+      if (val == null) return null;
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val);
+      return null;
+    }
+
     return Teacher(
       id: doc.id,
-      uid: data['uid'] as String?,
-      displayName: data['displayName'] ?? '',
-      email: data['email'] as String?,
-      gender: data['gender'] ?? 'M',
-      nip: data['nip'] ?? '',
-      subjects: List<String>.from(data['subjects'] ?? []),
-      schoolId: data['schoolId'] ?? '',
-      disabled: data['disabled'] ?? false,
-      archived: data['archived'] ?? false,
-      tempPassword: data['tempPassword'] as String?,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      deletedAt: (data['deletedAt'] as Timestamp?)?.toDate(),
+      uid: data['uid']?.toString(),
+      displayName: (data['displayName'] ?? '').toString(),
+      email: data['email']?.toString(),
+      gender: (data['gender'] ?? 'M').toString(),
+      nip: (data['nip'] ?? '').toString(),
+      subjects: List<String>.from((data['subjects'] as Iterable?)?.map((e) => e.toString()) ?? []),
+      schoolId: (data['schoolId'] ?? '').toString(),
+      disabled: data['disabled'] == true,
+      archived: data['archived'] == true,
+      tempPassword: data['tempPassword']?.toString(),
+      createdAt: parseDate(data['createdAt']),
+      updatedAt: parseDate(data['updatedAt']),
+      deletedAt: parseNullableDate(data['deletedAt']),
     );
   }
 

@@ -3,8 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/services/event_exam_service.dart';
 import 'event_editor_wizard.dart';
-import 'allocation_dashboard.dart';
-import 'proctor_assignment_screen.dart';
 
 class EventListScreen extends StatefulWidget {
   final String schoolId;
@@ -52,6 +50,43 @@ class _EventListScreenState extends State<EventListScreen> {
         .delete();
   }
 
+  Future<void> _deleteEvent(String eventId, String eventName) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text('Hapus Event?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text('Event "$eventName" beserta seluruh data sesi, jadwal, alokasi, dan pengawasnya akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white),
+            child: const Text('Ya, Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await _eventService.deleteEvent(
+        schoolId: widget.schoolId,
+        eventId: eventId,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Event ujian berhasil dihapus.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menghapus event: $e'), backgroundColor: const Color(0xFFEF4444)),
+        );
+      }
+    }
+  }
+
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'published':
@@ -63,6 +98,17 @@ class _EventListScreenState extends State<EventListScreen> {
     }
   }
 
+  Color _getStatusBgColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'published':
+        return const Color(0xFFD1FAE5); // Emerald 100
+      case 'closed':
+        return const Color(0xFFF1F5F9); // Slate 100
+      default:
+        return const Color(0xFFFEF3C7); // Amber 100
+    }
+  }
+
   String _getStatusText(String status) {
     switch (status.toLowerCase()) {
       case 'published':
@@ -70,7 +116,7 @@ class _EventListScreenState extends State<EventListScreen> {
       case 'closed':
         return 'Selesai / Closed';
       default:
-        return 'Draft';
+        return 'Siap Publish';
     }
   }
 
@@ -84,23 +130,25 @@ class _EventListScreenState extends State<EventListScreen> {
       newStatus = 'closed';
       confirmMsg = 'Tutup event ini? Event ujian akan ditandai selesai.';
     } else {
-      return;
+      newStatus = 'draft';
+      confirmMsg = 'Ubah status event ini kembali ke draf?';
     }
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(newStatus == 'published' ? 'Publish Event' : 'Tutup Event'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text('Konfirmasi Status', style: TextStyle(fontWeight: FontWeight.bold)),
         content: Text(confirmMsg),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
           ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: newStatus == 'published' ? const Color(0xFF10B981) : const Color(0xFF0F172A),
               foregroundColor: Colors.white,
             ),
-            child: Text(newStatus == 'published' ? 'Publish' : 'Tutup'),
+            child: const Text('Ya, Lanjutkan'),
           ),
         ],
       ),
@@ -109,7 +157,15 @@ class _EventListScreenState extends State<EventListScreen> {
     if (confirm != true) return;
 
     try {
-      await _eventService.updateEventStatus(widget.schoolId, eventId, newStatus);
+      await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(widget.schoolId)
+          .collection('events')
+          .doc(eventId)
+          .update({
+        'status': newStatus,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Status event berhasil diubah menjadi ${_getStatusText(newStatus)}!')),
@@ -126,6 +182,12 @@ class _EventListScreenState extends State<EventListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.schoolId.isEmpty) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
     final dateFormat = DateFormat('dd MMM yyyy');
 
     return Scaffold(
@@ -141,7 +203,7 @@ class _EventListScreenState extends State<EventListScreen> {
           final events = snapshot.data ?? [];
 
           return Padding(
-            padding: const EdgeInsets.all(28.0),
+            padding: const EdgeInsets.all(24.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -149,19 +211,21 @@ class _EventListScreenState extends State<EventListScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Event Ujian Semester',
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), letterSpacing: -0.5),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Buat event ujian, atur sesi, alokasikan meja, dan kelola pengawas.',
-                          style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-                        ),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Event Ujian Semester',
+                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Buat event ujian, atur sesi, alokasikan meja, dan kelola pengawas.',
+                            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          ),
+                        ],
+                      ),
                     ),
                     ElevatedButton.icon(
                       onPressed: () {
@@ -171,7 +235,7 @@ class _EventListScreenState extends State<EventListScreen> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.add_rounded, size: 18),
+                      icon: const Icon(Icons.add, size: 18),
                       label: const Text('Buat Event Ujian'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4F46E5),
@@ -192,101 +256,109 @@ class _EventListScreenState extends State<EventListScreen> {
                       .doc(widget.schoolId)
                       .collection('eventDrafts')
                       .orderBy('updatedAt', descending: true)
-                      .limit(1)
                       .snapshots(),
                   builder: (context, draftSnap) {
                     if (!draftSnap.hasData || draftSnap.data!.docs.isEmpty) {
                       return const SizedBox.shrink();
                     }
-                    final draftDoc = draftSnap.data!.docs.first;
-                    final draftData = draftDoc.data() as Map<String, dynamic>;
-                    final draftName = draftData['eventName'] as String? ?? '';
-                    final updatedAt = (draftData['updatedAt'] as Timestamp?)?.toDate();
-                    final agoLabel = updatedAt != null ? _timeAgoLabel(updatedAt) : 'beberapa saat lalu';
-                    final draftStep = (draftData['step'] as num?)?.toInt() ?? 0;
-                    const stepLabels = ['Info Dasar', 'Sesi', 'Jadwal Mapel', 'Ruangan', 'Review'];
-                    final stepLabel = stepLabels[draftStep.clamp(0, stepLabels.length - 1)];
+                    final draftDocs = draftSnap.data!.docs;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: draftDocs.map((draftDoc) {
+                        final draftData = draftDoc.data() as Map<String, dynamic>;
+                        final draftName = draftData['eventName'] as String? ?? '';
+                        final rawUpdated = draftData['updatedAt'];
+                        final updatedAt = rawUpdated is Timestamp
+                            ? rawUpdated.toDate()
+                            : (rawUpdated is String ? DateTime.tryParse(rawUpdated) : null);
+                        final agoLabel = updatedAt != null ? _timeAgoLabel(updatedAt) : 'beberapa saat lalu';
+                        final draftStep = (draftData['step'] as num?)?.toInt() ?? 0;
+                        const stepLabels = ['Info Dasar', 'Sesi', 'Jadwal Mapel', 'Ruangan', 'Review'];
+                        final stepLabel = stepLabels[draftStep.clamp(0, stepLabels.length - 1)];
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 20),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFFBEB),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFFCD34D), width: 1.5),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(9),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFEF3C7),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(Icons.edit_note_rounded, color: Color(0xFFD97706), size: 22),
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFFCD34D), width: 1.5),
                           ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(9),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(Icons.edit_note_rounded, color: Color(0xFFD97706), size: 22),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Draft tersimpan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF92400E))),
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFCD34D),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text('Step: $stepLabel', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF78350F))),
+                                    Row(
+                                      children: [
+                                        const Text('Draft tersimpan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF92400E))),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFCD34D),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text('Step: $stepLabel', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF78350F))),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '${draftName.isNotEmpty ? '"$draftName"' : 'Tanpa Nama'}  •  Terakhir disimpan $agoLabel',
+                                      style: const TextStyle(fontSize: 12, color: Color(0xFFB45309)),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  '${draftName.isNotEmpty ? '"$draftName"' : 'Tanpa Nama'}  •  Terakhir disimpan $agoLabel',
-                                  style: const TextStyle(fontSize: 12, color: Color(0xFFB45309)),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => EventEditorWizard(
+                                        schoolId: widget.schoolId,
+                                        draftId: draftDoc.id,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.restore_rounded, size: 16),
+                                label: const Text('Lanjutkan Draft'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFD97706),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFB45309), size: 20),
+                                tooltip: 'Hapus Draft',
+                                onPressed: () => _deleteDraft(draftDoc.id),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => EventEditorWizard(
-                                    schoolId: widget.schoolId,
-                                    draftId: draftDoc.id,
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.restore_rounded, size: 16),
-                            label: const Text('Lanjutkan Draft'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFD97706),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFB45309), size: 20),
-                            tooltip: 'Hapus Draft',
-                            onPressed: () => _deleteDraft(draftDoc.id),
-                          ),
-                        ],
-                      ),
+                        );
+                      }).toList(),
                     );
                   },
                 ),
+                const SizedBox(height: 20),
 
-                // ── Content ──
+                // ── Event Cards ──
                 if (events.isEmpty)
                   Expanded(
                     child: Center(
@@ -318,10 +390,12 @@ class _EventListScreenState extends State<EventListScreen> {
                         DateTime? start;
                         DateTime? end;
                         if (e['startDate'] != null) {
-                          start = (e['startDate'] as Timestamp).toDate();
+                          final sd = e['startDate'];
+                          start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
                         }
                         if (e['endDate'] != null) {
-                          end = (e['endDate'] as Timestamp).toDate();
+                          final ed = e['endDate'];
+                          end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
                         }
 
                         final dateRangeStr = (start != null && end != null)
@@ -333,25 +407,21 @@ class _EventListScreenState extends State<EventListScreen> {
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: const [
-                              BoxShadow(color: Color(0x02000000), blurRadius: 12, offset: Offset(0, 4)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
                             ],
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF4F46E5).withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(Icons.event_rounded, color: Color(0xFF4F46E5), size: 20),
-                                  ),
-                                  const SizedBox(width: 14),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -360,19 +430,19 @@ class _EventListScreenState extends State<EventListScreen> {
                                           name,
                                           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                                         ),
-                                        const SizedBox(height: 2),
+                                        const SizedBox(height: 4),
                                         Text(
-                                          'Tahun Ajaran: $academicYear  •  Rentang Tanggal: $dateRangeStr',
+                                          'Tahun Ajaran: $academicYear  •  Jadwal: $dateRangeStr',
                                           style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                                         ),
                                       ],
                                     ),
                                   ),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                     decoration: BoxDecoration(
-                                      color: _getStatusColor(status).withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(6),
+                                      color: _getStatusBgColor(status),
+                                      borderRadius: BorderRadius.circular(20),
                                     ),
                                     child: Text(
                                       _getStatusText(status),
@@ -381,6 +451,88 @@ class _EventListScreenState extends State<EventListScreen> {
                                   ),
                                 ],
                               ),
+                              StreamBuilder<List<Map<String, dynamic>>>(
+                                stream: _eventService.streamTimetable(widget.schoolId, e['id']),
+                                builder: (context, timetableSnap) {
+                                  if (!timetableSnap.hasData || timetableSnap.data!.isEmpty) {
+                                    return const SizedBox.shrink();
+                                  }
+
+                                  // Group teachers by subject
+                                  final Map<String, Set<String>> subjectToTeachers = {};
+                                  for (final entry in timetableSnap.data!) {
+                                    final subName = entry['subjectName'] as String? ?? '-';
+                                    final tName = entry['teacherName'] as String? ?? '-';
+
+                                    if (!subjectToTeachers.containsKey(subName)) {
+                                      subjectToTeachers[subName] = {};
+                                    }
+                                    if (tName.isNotEmpty && tName != '-') {
+                                      for (final t in tName.split(',')) {
+                                        if (t.trim().isNotEmpty) {
+                                          subjectToTeachers[subName]!.add(t.trim());
+                                        }
+                                      }
+                                    }
+                                  }
+
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const SizedBox(height: 16),
+                                      const Text(
+                                        'Mata Pelajaran & Pembuat Soal:',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF475569),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      ...subjectToTeachers.entries.map((entry) {
+                                        final teachersList = entry.value.isNotEmpty
+                                            ? entry.value.join(', ')
+                                            : 'Belum ditentukan';
+                                        return Padding(
+                                          padding: const EdgeInsets.symmetric(vertical: 3),
+                                          child: Row(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Container(
+                                                width: 5,
+                                                height: 5,
+                                                margin: const EdgeInsets.only(top: 6),
+                                                decoration: const BoxDecoration(
+                                                  color: Color(0xFF94A3B8),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: RichText(
+                                                  text: TextSpan(
+                                                    style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                                                    children: [
+                                                      TextSpan(
+                                                        text: '${entry.key}: ',
+                                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                                      ),
+                                                      TextSpan(
+                                                        text: teachersList,
+                                                        style: const TextStyle(color: Color(0xFF64748B)),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    ],
+                                  );
+                                },
+                              ),
                               const SizedBox(height: 18),
                               const Divider(height: 1, color: Color(0xFFE2E8F0)),
                               const SizedBox(height: 18),
@@ -388,36 +540,27 @@ class _EventListScreenState extends State<EventListScreen> {
                                 spacing: 12,
                                 runSpacing: 12,
                                 children: [
-                                  OutlinedButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => AllocationDashboard(schoolId: widget.schoolId, eventId: e['id'], eventName: name),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.grid_on_rounded, size: 16),
-                                    label: const Text('Alokasi Tempat Duduk'),
-                                    style: OutlinedButton.styleFrom(
-                                      side: const BorderSide(color: Color(0xFFCBD5E1)),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  if (status == 'draft')
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => EventEditorWizard(
+                                              schoolId: widget.schoolId,
+                                              eventId: e['id'],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.edit_rounded, size: 16),
+                                      label: const Text('Edit Event'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(0xFF4F46E5),
+                                        side: const BorderSide(color: Color(0xFF4F46E5)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
                                     ),
-                                  ),
-                                  OutlinedButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => ProctorAssignmentScreen(schoolId: widget.schoolId, eventId: e['id'], eventName: name),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.assignment_ind_outlined, size: 16),
-                                    label: const Text('Atur Pengawas Ujian'),
-                                    style: OutlinedButton.styleFrom(
-                                      side: const BorderSide(color: Color(0xFFCBD5E1)),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                    ),
-                                  ),
                                   if (status != 'closed')
                                     ElevatedButton.icon(
                                       onPressed: () => _updateStatus(e['id'], status),
@@ -427,9 +570,21 @@ class _EventListScreenState extends State<EventListScreen> {
                                         backgroundColor: status == 'draft' ? const Color(0xFF10B981) : const Color(0xFF0F172A),
                                         foregroundColor: Colors.white,
                                         elevation: 0,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                       ),
                                     ),
+                                  OutlinedButton.icon(
+                                    onPressed: () => _deleteEvent(e['id'], e['name'] ?? 'Tanpa Nama'),
+                                    icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                                    label: const Text('Hapus'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFFEF4444),
+                                      side: const BorderSide(color: Color(0xFFEF4444)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],
