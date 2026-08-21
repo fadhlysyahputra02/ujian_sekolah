@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -158,6 +159,27 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       final schoolId = _selectedSchool!['id'] as String;
 
+      // 1. Cek langsung ke Firestore pada Web apakah password terdaftar milik siswa di sekolah ini
+      if (kIsWeb) {
+        try {
+          final studentSnap = await FirebaseFirestore.instance
+              .collection('schools')
+              .doc(schoolId)
+              .collection('students')
+              .where('tempPassword', isEqualTo: password)
+              .limit(1)
+              .get();
+
+          if (studentSnap.docs.isNotEmpty) {
+            setState(() {
+              _isLoggingIn = false;
+              _errorMessage = 'Akun Siswa tidak diperbolehkan login via Web Browser! Harap gunakan Aplikasi CBT Exambro di HP/Tablet.';
+            });
+            return;
+          }
+        } catch (_) {}
+      }
+
       try {
         final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('resolveEmailByPassword');
         final response = await callable.call({
@@ -170,6 +192,17 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
         if (success) {
           final resolvedEmail = resData?['email'] as String?;
+          final resolvedRole = resData?['role'] as String?;
+
+          // Penolakan siswa jika masuk dari Web / Browser
+          if (kIsWeb && resolvedRole == 'student') {
+            setState(() {
+              _isLoggingIn = false;
+              _errorMessage = 'Akun Siswa tidak diperbolehkan login via Web Browser! Harap gunakan Aplikasi CBT Exambro di HP/Tablet.';
+            });
+            return;
+          }
+
           if (resolvedEmail != null && resolvedEmail.isNotEmpty) {
             emailOrUsername = resolvedEmail;
           } else {
@@ -193,6 +226,35 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     try {
       await authService.signIn(emailOrUsername, password);
+
+      // 2. Pengecekan menyeluruh setelah signIn di Web: Cek apakah user login adalah siswa
+      if (kIsWeb && authService.user != null) {
+        bool isStudentUser = authService.role == 'student';
+        if (!isStudentUser) {
+          try {
+            final stdCheck = await FirebaseFirestore.instance
+                .collectionGroup('students')
+                .where('email', isEqualTo: authService.user!.email)
+                .limit(1)
+                .get();
+            if (stdCheck.docs.isNotEmpty) {
+              isStudentUser = true;
+            }
+          } catch (_) {}
+        }
+
+        if (isStudentUser) {
+          await authService.signOut();
+          if (mounted) {
+            setState(() {
+              _isLoggingIn = false;
+              _errorMessage = 'Akun Siswa tidak diperbolehkan login via Web Browser! Harap gunakan Aplikasi CBT Exambro di HP/Tablet.';
+            });
+          }
+          return;
+        }
+      }
+
       if (mounted) {
         setState(() {
           _isLoggingIn = false;

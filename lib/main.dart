@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -6,12 +7,13 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/services/auth_service.dart';
 import 'firebase_options.dart';
-import 'features/auth/pages/login_page.dart';
-import 'features/dashboard/pages/admin_school_dashboard_page.dart';
-import 'features/dashboard/pages/dashboard_page.dart';
-import 'features/dashboard/pages/teacher_dashboard_page.dart';
-import 'features/dashboard/pages/teacher_event_detail_page.dart';
-import 'features/subscription/pages/subscription_blocked_page.dart';
+import 'modules/auth/views/login_page.dart';
+import 'modules/super_admin/views/dashboard_page.dart';
+import 'modules/admin/views/admin_school_dashboard_page.dart';
+import 'modules/teacher/views/teacher_dashboard_page.dart';
+import 'modules/teacher/views/teacher_event_detail_page.dart';
+import 'modules/student/views/student_dashboard_page.dart';
+import 'modules/subscription/views/subscription_blocked_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -98,6 +100,11 @@ class _MyAppState extends State<MyApp> {
             return '/teacher';
           }
         } else if (role == 'student') {
+          // Student TIDAK diizinkan mengakses via Web Browser
+          if (kIsWeb) {
+            _authService.signOut();
+            return '/login';
+          }
           // Student HANYA boleh mengakses rute /student
           if (!loc.startsWith('/student')) {
             return '/placeholder';
@@ -151,6 +158,10 @@ class _MyAppState extends State<MyApp> {
             final eventName = state.uri.queryParameters['name'] ?? 'Event Ujian';
             return TeacherEventDetailPage(eventId: eventId, eventName: eventName);
           },
+        ),
+        GoRoute(
+          path: '/student',
+          builder: (context, state) => const StudentDashboardPage(),
         ),
         GoRoute(
           path: '/placeholder',

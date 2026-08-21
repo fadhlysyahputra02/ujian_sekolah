@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/school_service.dart';
-import '../../schools/pages/school_list_page.dart';
+import 'school_list_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});

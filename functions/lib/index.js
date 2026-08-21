@@ -48,6 +48,31 @@ function generateCustomId(displayName) {
     return `${base}${suffix}`;
 }
 /**
+ * Helper to generate automatic login email based on user's name, NIP/NIS, and school code.
+ */
+async function generateAutoEmail(db, schoolId, displayName, nipOrNis) {
+    const schoolDoc = await db.collection('schools').doc(schoolId).get();
+    const schoolCode = (schoolDoc.data()?.code || schoolId).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleaned = displayName.replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase();
+    const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+    let prefix = '';
+    if (words.length >= 3) {
+        prefix = words[1] + words[2];
+    }
+    else if (words.length === 2) {
+        prefix = words[0] + words[1];
+    }
+    else if (words.length === 1) {
+        prefix = words[0];
+    }
+    else {
+        prefix = 'user';
+    }
+    prefix = prefix.replace(/[^a-z0-9]/g, '');
+    const cleanNipOrNis = nipOrNis.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    return `${prefix}${cleanNipOrNis}@${schoolCode}.com`;
+}
+/**
  * Helper to write audit logs.
  */
 async function writeAuditLog(db, schoolId, actorUid, action, message) {
@@ -210,7 +235,7 @@ exports.createTeacher = functions.https.onCall(async (request) => {
     let uid = null;
     let tempPassword = '';
     try {
-        const loginEmail = email ? email.trim() : (createAuth ? `t_${nip}_${schoolId}@sesicermat.com` : null);
+        const loginEmail = email ? email.trim() : (createAuth ? await generateAutoEmail(db, schoolId, displayName, nip) : null);
         // 1. Create Firebase Auth user if requested
         if (createAuth && loginEmail) {
             const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
@@ -303,7 +328,7 @@ exports.createStudent = functions.https.onCall(async (request) => {
     let uid = null;
     let tempPassword = '';
     try {
-        const loginEmail = email ? email.trim() : (createAuth ? `s_${nis}_${schoolId}@sesicermat.com` : null);
+        const loginEmail = email ? email.trim() : (createAuth ? await generateAutoEmail(db, schoolId, displayName, nis) : null);
         if (createAuth && loginEmail) {
             const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
             for (let i = 0; i < 10; i++) {
@@ -815,7 +840,7 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
             try {
                 let uid = null;
                 let tempPassword = '';
-                const loginEmail = cleanEmail || (createAuth ? `s_${cleanNis}_${schoolId}@sesicermat.com` : null);
+                const loginEmail = cleanEmail || (createAuth ? await generateAutoEmail(db, schoolId, cleanName, cleanNis) : null);
                 if (createAuth && loginEmail) {
                     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
                     for (let j = 0; j < 10; j++) {
@@ -909,7 +934,7 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
             .get();
         if (!teachersQuery.empty) {
             const teacherData = teachersQuery.docs[0].data();
-            return { success: true, email: teacherData.email };
+            return { success: true, email: teacherData.email, role: 'teacher' };
         }
         // 2. Search in students NIS/TempPassword
         const studentsQuery = await db.collection('schools')
@@ -920,7 +945,7 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
             .get();
         if (!studentsQuery.empty) {
             const studentData = studentsQuery.docs[0].data();
-            return { success: true, email: studentData.email };
+            return { success: true, email: studentData.email, role: 'student' };
         }
         return { success: false };
     }
@@ -974,7 +999,7 @@ exports.importTeachersBulk = functions.https.onCall(async (request) => {
             try {
                 let uid = null;
                 let tempPassword = '';
-                const loginEmail = cleanEmail || (createAuth ? `t_${cleanNip}_${schoolId}@sesicermat.com` : null);
+                const loginEmail = cleanEmail || (createAuth ? await generateAutoEmail(db, schoolId, cleanName, cleanNip) : null);
                 if (createAuth && loginEmail) {
                     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
                     for (let j = 0; j < 10; j++) {

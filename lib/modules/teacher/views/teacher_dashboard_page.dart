@@ -236,22 +236,28 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 800;
 
-        final pages = [
-          _buildOverviewTab(authService, currentTeacher, schoolId),
-          _buildEventUjianTab(schoolId),
-        ];
+    final pages = [
+      _buildOverviewTab(authService, currentTeacher, schoolId),
+      _buildEventUjianTab(schoolId),
+    ];
 
-        final backgroundGradient = const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Color(0xFFF8FAFC),
-              Color(0xFFEFF6FF),
-              Color(0xFFE2E8F0),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        );
+    final backgroundGradient = const BoxDecoration(
+      gradient: LinearGradient(
+        colors: [
+          Color(0xFFF8FAFC),
+          Color(0xFFEFF6FF),
+          Color(0xFFE2E8F0),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    );
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
+      builder: (context, schoolSnapshot) {
+        final schoolData = schoolSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+        final schoolName = schoolData['name'] as String? ?? 'SesiCermat';
 
         if (isDesktop) {
           return Scaffold(
@@ -273,8 +279,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
         }
 
         return Scaffold(
-          appBar: _buildMobileAppBar(currentTeacher),
-          drawer: _buildDrawer(authService, currentTeacher),
+          appBar: _buildMobileAppBar(authService, schoolName),
           body: Container(
             decoration: backgroundGradient,
             child: FadeTransition(
@@ -284,6 +289,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           ),
           bottomNavigationBar: _buildBottomNav(),
         );
+      },
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -530,26 +537,64 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   // ─────────────────────────────────────────────────────────────────────────
   // MOBILE APP BAR & DRAWER
   // ─────────────────────────────────────────────────────────────────────────
-  AppBar _buildMobileAppBar(Teacher? teacher) {
+  AppBar _buildMobileAppBar(AuthService authService, String schoolName) {
     return AppBar(
-      leading: Builder(
-        builder: (context) => IconButton(
-          icon: const Icon(Icons.menu_rounded),
-          onPressed: () => Scaffold.of(context).openDrawer(),
-        ),
-      ),
-      title: Text(
-        _selectedIndex == 0 ? 'Dashboard Guru' : 'Event Ujian Semester',
-        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 17),
-      ),
-      backgroundColor: Colors.white,
-      foregroundColor: const Color(0xFF0F172A),
+      backgroundColor: const Color(0xFF0F172A), // Slate 900 (Biru Gelap)
       elevation: 0,
-      surfaceTintColor: Colors.transparent,
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(height: 1, color: const Color(0xFFE2E8F0)),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            schoolName,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _selectedIndex == 0 ? 'Dashboard Guru' : 'Event Ujian Semester',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.indigo[200],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+          child: InkWell(
+            onTap: () => authService.signOut(),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 16),
+                  SizedBox(width: 6),
+                  Text(
+                    'Keluar',
+                    style: TextStyle(
+                      color: Color(0xFFF87171),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -638,47 +683,29 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   Widget _buildBottomNav() {
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 10,
-            offset: Offset(0, -2),
-          ),
-        ],
+        border: Border(top: BorderSide(color: Color(0xFF1E293B))),
       ),
       child: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (idx) => setState(() => _selectedIndex = idx),
-        selectedItemColor: const Color(0xFF059669),
+        backgroundColor: const Color(0xFF0F172A), // Slate 900 (Biru Gelap)
+        selectedItemColor: const Color(0xFF818CF8),
         unselectedItemColor: const Color(0xFF94A3B8),
-        backgroundColor: Colors.white,
         elevation: 0,
         selectedLabelStyle:
             GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 11),
         unselectedLabelStyle:
             GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 11),
+        type: BottomNavigationBarType.fixed,
         items: [
           BottomNavigationBarItem(
-            icon: Container(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: const Icon(Icons.dashboard_outlined),
-            ),
-            activeIcon: Container(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: const Icon(Icons.dashboard_rounded),
-            ),
+            icon: const Icon(Icons.dashboard_outlined),
+            activeIcon: const Icon(Icons.dashboard_rounded),
             label: 'Ringkasan',
           ),
           BottomNavigationBarItem(
-            icon: Container(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: const Icon(Icons.event_note_outlined),
-            ),
-            activeIcon: Container(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: const Icon(Icons.event_note_rounded),
-            ),
+            icon: const Icon(Icons.event_note_outlined),
+            activeIcon: const Icon(Icons.event_note_rounded),
             label: 'Event Ujian',
           ),
         ],
@@ -990,8 +1017,21 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
             final data = doc.data() as Map<String, dynamic>;
             final eventId = doc.id;
             final eventName = data['name'] ?? 'Event Ujian';
-            final startDate = data['startDate'] ?? '';
-            final endDate = data['endDate'] ?? '';
+
+            final sd = data['startDate'];
+            final ed = data['endDate'];
+            DateTime? start;
+            DateTime? end;
+            if (sd != null) {
+              start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
+            }
+            if (ed != null) {
+              end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
+            }
+            final dateFormat = DateFormat('dd MMM yyyy');
+            final dateStr = (start != null && end != null)
+                ? '${dateFormat.format(start)} s/d ${dateFormat.format(end)}'
+                : 'Tanggal belum diatur';
 
             return FutureBuilder<Map<String, bool>>(
               future: _checkTeacherAssignments(schoolId, eventId, teacherId),
@@ -1053,7 +1093,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    '$startDate  s/d  $endDate',
+                                    dateStr,
                                     style: GoogleFonts.inter(
                                       fontSize: 11,
                                       color: const Color(0xFF64748B),
@@ -1327,22 +1367,24 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                   child: const Icon(Icons.event_available_rounded, color: Color(0xFF10B981), size: 24),
                 ),
                 const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Daftar Event Ujian Semester',
-                      style: GoogleFonts.inter(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: const Color(0xFF0F172A),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Daftar Event Ujian Semester',
+                        style: GoogleFonts.inter(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF0F172A),
+                        ),
                       ),
-                    ),
-                    Text(
-                      'Pilih event ujian untuk melihat jadwal, mengedit/membuat soal, atau koreksi.',
-                      style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                    ),
-                  ],
+                      Text(
+                        'Pilih event ujian untuk melihat jadwal, mengedit/membuat soal, atau koreksi.',
+                        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1379,6 +1421,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                 statusLabel = 'Draft Admin';
               }
 
+              final isDesktopWidth = MediaQuery.of(context).size.width > 600;
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
@@ -1394,90 +1438,189 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                   ],
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.assignment_outlined, color: Color(0xFF4F46E5), size: 28),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
+                  padding: EdgeInsets.all(isDesktopWidth ? 20 : 16),
+                  child: isDesktopWidth
+                      ? Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.assignment_outlined, color: Color(0xFF4F46E5), size: 28),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          name,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: const Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Text(
+                                          statusLabel,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: statusColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF64748B)),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        dateStr,
+                                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      const Icon(Icons.school_rounded, size: 14, color: Color(0xFF64748B)),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'T.A $academicYear',
+                                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                context.go('/teacher/event/$eventId?name=${Uri.encodeComponent(name)}');
+                              },
+                              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                              label: const Text('Buka Event'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                elevation: 0,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    name,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: const Color(0xFF0F172A),
-                                    ),
-                                  ),
-                                ),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: statusColor.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: Text(
-                                    statusLabel,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: statusColor,
-                                    ),
+                                  child: const Icon(Icons.assignment_outlined, color: Color(0xFF4F46E5), size: 24),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.bold,
+                                          color: const Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Text(
+                                          statusLabel,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: statusColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 6),
-                            Row(
+                            const SizedBox(height: 14),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 6,
                               children: [
-                                const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF64748B)),
-                                const SizedBox(width: 6),
-                                Text(
-                                  dateStr,
-                                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF64748B)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      dateStr,
+                                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 16),
-                                const Icon(Icons.school_rounded, size: 14, color: Color(0xFF64748B)),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'T.A $academicYear',
-                                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.school_rounded, size: 12, color: Color(0xFF64748B)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'T.A $academicYear',
+                                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                                    ),
+                                  ],
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: 14),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  context.go('/teacher/event/$eventId?name=${Uri.encodeComponent(name)}');
+                                },
+                                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                                label: const Text('Buka Event'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  elevation: 0,
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          context.go('/teacher/event/$eventId?name=${Uri.encodeComponent(name)}');
-                        },
-                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                        label: const Text('Buka Event'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 0,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               );
             }),

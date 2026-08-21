@@ -164,11 +164,17 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.teacher != null;
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double gridAspectRatio = screenWidth > 600 ? 3.2 : 2.2;
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       clipBehavior: Clip.antiAlias,
       child: Container(
         width: 550,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).viewInsets.bottom - 40,
+        ),
         decoration: const BoxDecoration(
           color: Colors.white,
         ),
@@ -259,93 +265,92 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
                       const SizedBox(height: 18),
 
                       // Gender Select (Segmented custom buttons)
-                      Row(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
                             'Jenis Kelamin:',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF334155)),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: () => setState(() => _selectedGender = 'M'),
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Container(
-                                      height: 42,
-                                      decoration: BoxDecoration(
-                                        color: _selectedGender == 'M' ? const Color(0xFFEEF2FF) : Colors.white,
-                                        border: Border.all(
-                                          color: _selectedGender == 'M' ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
-                                          width: _selectedGender == 'M' ? 1.5 : 1.0,
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () => setState(() => _selectedGender = 'M'),
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: _selectedGender == 'M' ? const Color(0xFFEEF2FF) : Colors.white,
+                                      border: Border.all(
+                                        color: _selectedGender == 'M' ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                                        width: _selectedGender == 'M' ? 1.5 : 1.0,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.male_rounded,
+                                          color: _selectedGender == 'M' ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                                          size: 18,
                                         ),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            Icons.male_rounded,
-                                            color: _selectedGender == 'M' ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
-                                            size: 18,
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Laki-laki (M)',
+                                          style: TextStyle(
+                                            fontWeight: _selectedGender == 'M' ? FontWeight.bold : FontWeight.normal,
+                                            color: _selectedGender == 'M' ? const Color(0xFF312E81) : const Color(0xFF1E293B),
+                                            fontSize: 13,
                                           ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'Laki-laki (M)',
-                                            style: TextStyle(
-                                              fontWeight: _selectedGender == 'M' ? FontWeight.bold : FontWeight.normal,
-                                              color: _selectedGender == 'M' ? const Color(0xFF312E81) : const Color(0xFF1E293B),
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: () => setState(() => _selectedGender = 'F'),
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Container(
-                                      height: 42,
-                                      decoration: BoxDecoration(
-                                        color: _selectedGender == 'F' ? const Color(0xFFFDF2F8) : Colors.white,
-                                        border: Border.all(
-                                          color: _selectedGender == 'F' ? const Color(0xFFEC4899) : const Color(0xFFE2E8F0),
-                                          width: _selectedGender == 'F' ? 1.5 : 1.0,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () => setState(() => _selectedGender = 'F'),
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: _selectedGender == 'F' ? const Color(0xFFFDF2F8) : Colors.white,
+                                      border: Border.all(
+                                        color: _selectedGender == 'F' ? const Color(0xFFEC4899) : const Color(0xFFE2E8F0),
+                                        width: _selectedGender == 'F' ? 1.5 : 1.0,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.female_rounded,
+                                          color: _selectedGender == 'F' ? const Color(0xFFEC4899) : const Color(0xFF64748B),
+                                          size: 18,
                                         ),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            Icons.female_rounded,
-                                            color: _selectedGender == 'F' ? const Color(0xFFEC4899) : const Color(0xFF64748B),
-                                            size: 18,
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Perempuan (F)',
+                                          style: TextStyle(
+                                            fontWeight: _selectedGender == 'F' ? FontWeight.bold : FontWeight.normal,
+                                            color: _selectedGender == 'F' ? const Color(0xFF9D174D) : const Color(0xFF1E293B),
+                                            fontSize: 13,
                                           ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'Perempuan (F)',
-                                            style: TextStyle(
-                                              fontWeight: _selectedGender == 'F' ? FontWeight.bold : FontWeight.normal,
-                                              color: _selectedGender == 'F' ? const Color(0xFF9D174D) : const Color(0xFF1E293B),
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -423,11 +428,11 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
                             thickness: 4,
                             child: GridView.builder(
                               padding: const EdgeInsets.all(12),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
                                 crossAxisSpacing: 8,
                                 mainAxisSpacing: 8,
-                                childAspectRatio: 3.2,
+                                childAspectRatio: gridAspectRatio,
                               ),
                               itemCount: _schoolSubjects.length,
                               itemBuilder: (context, idx) {

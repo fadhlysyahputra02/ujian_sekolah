@@ -116,6 +116,16 @@ service cloud.firestore {
           allow read: if request.auth != null;
           allow write: if isSchoolAdmin(schoolId);
         }
+
+        match /subjects/{subjectId} {
+          allow read: if request.auth != null;
+          allow write: if isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+
+          match /questions/{questionId} {
+            allow read: if request.auth != null;
+            allow write: if isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+          }
+        }
       }
 
       // Sub-collection for event drafts (wizard auto-save)

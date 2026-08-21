@@ -71,6 +71,39 @@ class AuthService extends ChangeNotifier {
         return;
       }
 
+      // Fallback: Jika custom claim role tidak ada, cek dokumen koleksi teachers dan students di Firestore
+      if (_role == null && user.email != null) {
+        try {
+          final studentQuery = await _firestore
+              .collectionGroup('students')
+              .where('email', isEqualTo: user.email)
+              .limit(1)
+              .get();
+          if (studentQuery.docs.isNotEmpty) {
+            _role = 'student';
+            final pathSegments = studentQuery.docs.first.reference.path.split('/');
+            if (pathSegments.length >= 2 && pathSegments[0] == 'schools') {
+              _schoolId ??= pathSegments[1];
+            }
+          } else {
+            final teacherQuery = await _firestore
+                .collectionGroup('teachers')
+                .where('email', isEqualTo: user.email)
+                .limit(1)
+                .get();
+            if (teacherQuery.docs.isNotEmpty) {
+              _role = 'teacher';
+              final pathSegments = teacherQuery.docs.first.reference.path.split('/');
+              if (pathSegments.length >= 2 && pathSegments[0] == 'schools') {
+                _schoolId ??= pathSegments[1];
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint("Error resolving fallback role: $e");
+        }
+      }
+
       // 2. If it's a school-related user, check and listen to school status in real-time
       if (_schoolId != null) {
         _schoolSubscription = _firestore
