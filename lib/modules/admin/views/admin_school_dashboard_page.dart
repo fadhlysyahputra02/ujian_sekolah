@@ -1662,9 +1662,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Widget _buildOverviewTab(String schoolId) {
-    final size = MediaQuery.of(context).size;
-    final isDesktopWidth = size.width > 600;
-
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
       builder: (context, snapshot) {
@@ -1672,7 +1669,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator(color: Color(0xFF4F46E5)));
         }
 
         final schoolData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
@@ -1687,232 +1684,565 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           _syncStats(schoolId, meta);
         });
 
-        return SingleChildScrollView(
-          padding: EdgeInsets.all(isDesktopWidth ? 32.0 : 16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (isDesktopWidth) ...[
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isDesktop = constraints.maxWidth > 768;
+
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Container(
+                width: double.infinity,
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                padding: EdgeInsets.all(isDesktop ? 28.0 : 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 1. HERO HEADER BANNER
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(isDesktop ? 28 : 20),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF312E81)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF1E1B4B).withValues(alpha: 0.25),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF818CF8).withValues(alpha: 0.18),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(
+                                      Icons.school_rounded,
+                                      color: Color(0xFF818CF8),
+                                      size: 18,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'PORTAL MANAJEMEN SEKOLAH',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF818CF8),
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF10B981),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Sistem Aktif',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF34D399),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            schoolName,
+                            style: GoogleFonts.inter(
+                              fontSize: isDesktop ? 26 : 20,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              _buildHeaderChip(Icons.key_rounded, 'Kode: $schoolCode'),
+                              _buildHeaderChip(Icons.admin_panel_settings_rounded, 'Admin: $adminEmail'),
+                              _buildHeaderChip(Icons.verified_user_rounded, 'Engine CBT Exambro v2.4'),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+
+                    // 2. RINGKASAN KPI CARDS
+                    _buildSectionHeader('Ringkasan Statistik', 'Statistik real-time pengguna dan data sekolah.'),
+                    const SizedBox(height: 14),
+                    LayoutBuilder(
+                      builder: (context, gridConstraints) {
+                        final gridWidth = gridConstraints.maxWidth;
+                        final crossCount = gridWidth > 1100 ? 4 : (gridWidth > 600 ? 2 : 1);
+
+                        return GridView.count(
+                          crossAxisCount: crossCount,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          childAspectRatio: gridWidth > 1100 ? 1.3 : (gridWidth > 600 ? 1.45 : 2.5),
+                          children: [
+                            _buildEleganceKpiCard(
+                              title: 'Total Guru',
+                              count: '$teacherCount',
+                              subtitle: 'Tenaga Pengajar Aktif',
+                              icon: Icons.assignment_ind_rounded,
+                              color: const Color(0xFF4F46E5),
+                              onTap: () => _navigateToTab(1),
+                            ),
+                            _buildEleganceKpiCard(
+                              title: 'Total Murid',
+                              count: '$studentCount',
+                              subtitle: 'Siswa Terdaftar CBT',
+                              icon: Icons.school_rounded,
+                              color: const Color(0xFF06B6D4),
+                              onTap: () => _navigateToTab(2),
+                            ),
+                            _buildEleganceKpiCard(
+                              title: 'Mata Pelajaran',
+                              count: '${(schoolData['subjects'] as List?)?.length ?? 0}',
+                              subtitle: 'Mapel Kurikulum',
+                              icon: Icons.menu_book_rounded,
+                              color: const Color(0xFF10B981),
+                              onTap: () => _navigateToTab(3),
+                            ),
+                            _buildEleganceKpiCard(
+                              title: 'Manajemen Kelas',
+                              count: '${(schoolData['classes'] as List?)?.length ?? 0}',
+                              subtitle: 'Rombongan Belajar',
+                              icon: Icons.class_rounded,
+                              color: const Color(0xFF8B5CF6),
+                              onTap: () => _navigateToTab(4),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 28),
+
+                    // 3. AKTIVITAS CEPAT (QUICK ACTIONS)
+                    _buildSectionHeader('Aktivitas Cepat', 'Akses instan ke menu pengolahan data utama.'),
+                    const SizedBox(height: 14),
+                    LayoutBuilder(
+                      builder: (context, actConstraints) {
+                        final actWidth = actConstraints.maxWidth;
+                        final actCrossCount = actWidth > 900 ? 4 : (actWidth > 550 ? 2 : 1);
+
+                        return GridView.count(
+                          crossAxisCount: actCrossCount,
+                          crossAxisSpacing: 14,
+                          mainAxisSpacing: 14,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          childAspectRatio: actWidth > 900 ? 1.55 : 2.5,
+                          children: [
+                            _buildEleganceActionCard(
+                              title: 'Tambah Guru Baru',
+                              desc: 'Registrasi pengajar',
+                              icon: Icons.person_add_alt_1_rounded,
+                              color: const Color(0xFF4F46E5),
+                              onTap: () => _navigateToTab(1),
+                            ),
+                            _buildEleganceActionCard(
+                              title: 'Tambah Murid Baru',
+                              desc: 'Input data siswa',
+                              icon: Icons.group_add_rounded,
+                              color: const Color(0xFF06B6D4),
+                              onTap: () => _navigateToTab(2),
+                            ),
+                            _buildEleganceActionCard(
+                              title: 'Kelola Mapel',
+                              desc: 'Atur mata pelajaran',
+                              icon: Icons.menu_book_rounded,
+                              color: const Color(0xFF10B981),
+                              onTap: () => _navigateToTab(3),
+                            ),
+                            _buildEleganceActionCard(
+                              title: 'Impor Massal',
+                              desc: 'Unggah berkas Excel',
+                              icon: Icons.cloud_upload_rounded,
+                              color: const Color(0xFF8B5CF6),
+                              onTap: () => _showImportDialog(schoolId),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 28),
+
+                    // 4. BANNER PUSAT EVENT UJIAN SEMESTER
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: isDesktop
+                          ? Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: const Icon(Icons.event_note_rounded, color: Colors.white, size: 32),
+                                ),
+                                const SizedBox(width: 20),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Pusat Pembuatan & Pelaksanaan Event Ujian',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.w800,
+                                          color: const Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Kelola jadwal ujian, denah alokasi tempat duduk murid, dan penugasan pengawas dalam wizard 7-langkah.',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          color: const Color(0xFF64748B),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 20),
+                                ElevatedButton.icon(
+                                  onPressed: () => _navigateToTab(5),
+                                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                                  label: const Text('Kelola Event Ujian'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF4F46E5),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    elevation: 0,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(Icons.event_note_rounded, color: Colors.white, size: 24),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Pusat Event Ujian Semester',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w800,
+                                          color: const Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Kelola jadwal ujian, denah tempat duduk, dan pengawas ruangan.',
+                                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                ),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _navigateToTab(5),
+                                    icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                                    label: const Text('Kelola Event Ujian'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF4F46E5),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      elevation: 0,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildHeaderChip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: const Color(0xFF94A3B8)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFFE2E8F0),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.inter(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF0F172A),
+            letterSpacing: -0.3,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: const Color(0xFF64748B),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEleganceKpiCard({
+    required String title,
+    required String count,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.06),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: color, size: 24),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.08),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.arrow_forward_rounded, color: color, size: 14),
+                ),
+              ],
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  'Ringkasan Portal',
-                  style: TextStyle(
-                    fontSize: 24,
+                  count,
+                  style: GoogleFonts.inter(
+                    fontSize: 28,
                     fontWeight: FontWeight.bold,
                     color: const Color(0xFF0F172A),
                     letterSpacing: -0.5,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 2),
                 Text(
-                  '$schoolName • Kode: $schoolCode • Admin: $adminEmail',
-                  style: TextStyle(
-                    fontSize: isDesktopWidth ? 13 : 11,
-                    color: const Color(0xFF64748B),
-                    fontWeight: FontWeight.w500,
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF334155),
                   ),
                 ),
-              ] else ...[
-                // Premium Banner for Mobile
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.15),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF818CF8).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(
-                              Icons.school_rounded,
-                              color: Color(0xFF818CF8),
-                              size: 16,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'PORTAL SEKOLAH',
-                            style: GoogleFonts.inter(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: const Color(0xFF818CF8),
-                              letterSpacing: 1.0,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        schoolName,
-                        style: GoogleFonts.inter(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.key_rounded, size: 12, color: Color(0xFF94A3B8)),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Kode: $schoolCode',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.admin_panel_settings_rounded, size: 12, color: Color(0xFF94A3B8)),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(
-                                    adminEmail,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: const Color(0xFFE2E8F0),
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                Text(
+                  subtitle,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: const Color(0xFF94A3B8),
                   ),
                 ),
               ],
-              const SizedBox(height: 24),
-              
-              if (isDesktopWidth)
-                Row(
-                  children: [
-                    Expanded(child: _buildDashboardCard('Total Guru', '$teacherCount', Icons.assignment_ind_rounded, const Color(0xFF4F46E5), true)),
-                    const SizedBox(width: 16),
-                    Expanded(child: _buildDashboardCard('Total Murid', '$studentCount', Icons.school_rounded, const Color(0xFF06B6D4), true)),
-                  ],
-                )
-              else
-                Row(
-                  children: [
-                    Expanded(child: _buildDashboardCard('Total Guru', '$teacherCount', Icons.assignment_ind_rounded, const Color(0xFF4F46E5), false)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildDashboardCard('Total Murid', '$studentCount', Icons.school_rounded, const Color(0xFF06B6D4), false)),
-                  ],
-                ),
-              const SizedBox(height: 28),
-              Text(
-                'Aktivitas Cepat',
-                style: TextStyle(
-                  fontSize: isDesktopWidth ? 16 : 14,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1E293B),
-                ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEleganceActionCard({
+    required String title,
+    required String desc,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 12),
-              if (isDesktopWidth)
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _buildQuickActionBtn('Tambah Guru', Icons.person_add_alt_1_rounded, () => _navigateToTab(1)),
-                    _buildQuickActionBtn('Tambah Murid', Icons.group_add_rounded, () => _navigateToTab(2)),
-                    _buildQuickActionBtn('Kelola Mapel', Icons.book_rounded, () => _navigateToTab(3)),
-                    _buildQuickActionBtn('Impor Siswa Massal', Icons.cloud_upload_rounded, () => _showImportDialog(schoolId)),
-                  ],
-                )
-              else
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 1.15,
-                  children: [
-                    _buildQuickActionCard(
-                      label: 'Tambah Guru',
-                      description: 'Registrasi guru',
-                      icon: Icons.person_add_alt_1_rounded,
-                      color: const Color(0xFF4F46E5),
-                      onTap: () => _navigateToTab(1),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0F172A),
                     ),
-                    _buildQuickActionCard(
-                      label: 'Tambah Murid',
-                      description: 'Registrasi murid',
-                      icon: Icons.group_add_rounded,
-                      color: const Color(0xFF06B6D4),
-                      onTap: () => _navigateToTab(2),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    desc,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: const Color(0xFF64748B),
                     ),
-                    _buildQuickActionCard(
-                      label: 'Kelola Mapel',
-                      description: 'Daftar pelajaran',
-                      icon: Icons.book_rounded,
-                      color: const Color(0xFFF59E0B),
-                      onTap: () => _navigateToTab(3),
-                    ),
-                    _buildQuickActionCard(
-                      label: 'Impor Siswa',
-                      description: 'Unggah dari Excel',
-                      icon: Icons.cloud_upload_rounded,
-                      color: const Color(0xFF10B981),
-                      onTap: () => _showImportDialog(schoolId),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        );
-      },
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFFCBD5E1), size: 20),
+          ],
+        ),
+      ),
     );
   }
 

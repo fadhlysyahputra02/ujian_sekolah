@@ -266,6 +266,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                 _buildSidebar(authService, currentTeacher, size),
                 Expanded(
                   child: Container(
+                    width: double.infinity,
+                    height: double.infinity,
                     decoration: backgroundGradient,
                     child: FadeTransition(
                       opacity: _fadeAnim,
@@ -724,22 +726,31 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildTeacherWelcomeBanner(teacher),
-          const SizedBox(height: 24),
-          _buildSectionLabel('Tugas & Statistik Anda'),
-          const SizedBox(height: 12),
-          _buildStatsGrid(schoolId, teacher.id),
-          const SizedBox(height: 28),
-          _buildSectionLabel('Daftar Event Ujian Semester'),
-          const SizedBox(height: 12),
-          _buildEventsList(schoolId, teacher.id),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Container(
+            width: double.infinity,
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTeacherWelcomeBanner(teacher),
+                const SizedBox(height: 24),
+                _buildSectionLabel('Tugas & Statistik Anda'),
+                const SizedBox(height: 12),
+                _buildStatsGrid(schoolId, teacher.id),
+                const SizedBox(height: 28),
+                _buildSectionLabel('Daftar Event Ujian Semester'),
+                const SizedBox(height: 12),
+                _buildEventsList(schoolId, teacher.id),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

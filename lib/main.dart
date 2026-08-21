@@ -12,6 +12,7 @@ import 'modules/super_admin/views/dashboard_page.dart';
 import 'modules/admin/views/admin_school_dashboard_page.dart';
 import 'modules/teacher/views/teacher_dashboard_page.dart';
 import 'modules/teacher/views/teacher_event_detail_page.dart';
+import 'modules/teacher/views/teacher_proctor_room_page.dart';
 import 'modules/student/views/student_dashboard_page.dart';
 import 'modules/subscription/views/subscription_blocked_page.dart';
 
@@ -157,6 +158,23 @@ class _MyAppState extends State<MyApp> {
             final eventId = state.pathParameters['eventId']!;
             final eventName = state.uri.queryParameters['name'] ?? 'Event Ujian';
             return TeacherEventDetailPage(eventId: eventId, eventName: eventName);
+          },
+        ),
+        GoRoute(
+          path: '/teacher/event/:eventId/proctor-room/:roomId',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final roomId = state.pathParameters['roomId']!;
+            final dayIndex = int.tryParse(state.uri.queryParameters['dayIndex'] ?? '0') ?? 0;
+            final sessionIndex = int.tryParse(state.uri.queryParameters['sessionIndex'] ?? '0') ?? 0;
+            final docId = state.uri.queryParameters['docId'] ?? '';
+            return TeacherProctorRoomPage(
+              eventId: eventId,
+              roomId: roomId,
+              dayIndex: dayIndex,
+              sessionIndex: sessionIndex,
+              docId: docId,
+            );
           },
         ),
         GoRoute(

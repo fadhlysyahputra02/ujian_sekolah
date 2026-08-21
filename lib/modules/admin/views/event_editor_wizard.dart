@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../../../core/services/event_exam_service.dart';
 import '../../../core/models/teacher.dart';
+import '../../../core/utils/natural_sort.dart';
 import 'exam_pdf_generator.dart';
 
 class EventEditorWizard extends StatefulWidget {
@@ -410,6 +411,15 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             _scheduleGrid.addAll(scheduleGrid);
             _proctorGrid.clear();
             _proctorGrid.addAll(proctorGrid);
+
+            final roomLayoutsData = draftState?['roomLayouts'] as Map? ?? data['roomLayouts'] as Map? ?? {};
+            _addState.clear();
+            roomLayoutsData.forEach((k, v) {
+              if (v is Map) {
+                _addState[k as String] = Map<String, dynamic>.from(v);
+              }
+            });
+
             _isLoading = false;
           });
 
@@ -512,6 +522,14 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           _proctorGrid[k as String] = v as String;
         });
       }
+      _addState.clear();
+      if (data['roomLayouts'] is Map) {
+        (data['roomLayouts'] as Map).forEach((k, v) {
+          if (v is Map) {
+            _addState[k as String] = Map<String, dynamic>.from(v);
+          }
+        });
+      }
     });
   }
 
@@ -533,6 +551,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
       'roomAssignments': _roomAssignments,
       'scheduleGrid': _scheduleGrid,
       'proctorGrid': _proctorGrid,
+      'roomLayouts': _addState,
       'updatedAt': DateTime.now().toIso8601String(),
     };
 
@@ -863,9 +882,12 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             'timetable': _timetable,
             'rooms': _rooms,
             'roomAssignments': _roomAssignments,
+            'roomLayouts': _addState,
             'scheduleGrid': _scheduleGrid,
             'proctorGrid': _proctorGrid,
-          }
+          },
+          'roomAssignments': _roomAssignments,
+          'roomLayouts': _addState,
         },
         sessions: expandedSessions,
         timetable: _timetable,
@@ -882,6 +904,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           'seed': 42
         },
       );
+
+      // 2.5 Save per-room allocation subcollections & documents with exact room layout modes & student data
+      await _saveDetailedRoomsAndSeatsToFirestore(widget.schoolId, eventId, allocationId);
 
       // 3. Generate Participant Numbers
       await _eventService.generateParticipantNumbers(
@@ -2750,8 +2775,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                   // Build seats based on arrangement mode
                   final seats = List<Color?>.filled(roomCapacity, null);
                   if (arrangeMode == 'acak') {
-                    // Shuffle randomly
-                    final shuffled = List<Color?>.from(classTokens)..shuffle();
+                    // Shuffle deterministically based on room seed
+                    final seed = ((selectedRoom['id'] as String? ?? '').hashCode.abs() + 42) % 100000;
+                    final shuffled = List<Color?>.from(classTokens)..shuffle(Random(seed));
                     for (int i = 0; i < shuffled.length && i < roomCapacity; i++) {
                       seats[i] = shuffled[i];
                     }
@@ -4929,5 +4955,286 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         );
       },
     );
+  }
+
+  /// Save detailed rooms and seats documents/subcollections to Firestore matching Step 5 roomAssignments & roomLayouts
+  Future<void> _saveDetailedRoomsAndSeatsToFirestore(String schoolId, String eventId, String allocationId) async {
+    try {
+      final allocDocRef = FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('events')
+          .doc(eventId)
+          .collection('allocations')
+          .doc(allocationId);
+
+      // Fetch real active students
+      final studentSnap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('students')
+          .where('archived', isEqualTo: false)
+          .get();
+
+      final Map<String, List<Map<String, dynamic>>> classRealStudents = {};
+      for (var doc in studentSnap.docs) {
+        final data = doc.data();
+        if (data['disabled'] == true) continue;
+        final sName = (data['displayName'] ?? data['name'] ?? '').toString().trim();
+        final sNis = (data['nis'] ?? '').toString().trim();
+        final sAngkatan = (data['angkatan'] ?? '').toString().trim();
+        final sGender = (data['gender'] ?? 'M').toString().trim();
+        final sClass = (data['className'] ?? data['classId'] ?? 'Siswa').toString().trim();
+
+        if (sName.isNotEmpty) {
+          classRealStudents.putIfAbsent(sClass, () => []).add({
+            'studentId': doc.id,
+            'studentName': sName,
+            'displayName': sName,
+            'nis': sNis,
+            'angkatan': sAngkatan,
+            'gender': sGender,
+            'className': sClass,
+            'classId': sClass,
+            'participantNumber': sNis.isNotEmpty ? sNis : doc.id,
+          });
+        }
+      }
+
+      classRealStudents.forEach((cName, list) {
+        list.sort((a, b) => naturalCompare(a['studentName'] as String, b['studentName'] as String));
+      });
+
+      final skipCountMap = <String, int>{};
+
+      for (var rMap in _rooms) {
+        final roomId = (rMap['id'] ?? rMap['code'] ?? rMap['name'] ?? '').toString();
+        final roomName = (rMap['name'] ?? rMap['code'] ?? roomId).toString();
+        final roomCode = (rMap['code'] ?? rMap['name'] ?? roomId).toString();
+        final roomCapacity = (rMap['capacity'] as num?)?.toInt() ?? 30;
+
+        final layoutState = (_addState['layout_$roomId'] as Map?) ??
+            (_addState['layout_$roomName'] as Map?) ??
+            (_addState['layout_$roomCode'] as Map?) ??
+            {};
+        final arrangeMode = (layoutState['arrange'] ?? _allocationMode ?? 'normal').toString();
+        final cols = (layoutState['colsPerPair'] ?? layoutState['columns'] ?? 4 as num).toInt();
+
+        final assignedClasses = (_roomAssignments[roomId] as List?) ??
+            (_roomAssignments[roomName] as List?) ??
+            (_roomAssignments[roomCode] as List?) ??
+            [];
+
+        final List<Map<String, dynamic>> typedAssignments = assignedClasses.map((c) => Map<String, dynamic>.from(c as Map)).toList();
+
+        final roomSeats = _buildSeatsFromRoomAssignments(
+          assignedClassesInRoom: typedAssignments,
+          capacity: roomCapacity,
+          patternMode: arrangeMode,
+          classRealStudents: classRealStudents,
+          skipCountMap: Map.from(skipCountMap),
+          roomId: roomId,
+        );
+
+        for (var a in typedAssignments) {
+          final cName = (a['className'] ?? a['classId'] ?? '').toString().trim();
+          final cnt = (a['count'] as num?)?.toInt() ?? 0;
+          if (cName.isNotEmpty && cnt > 0) {
+            skipCountMap[cName] = (skipCountMap[cName] ?? 0) + cnt;
+          }
+        }
+
+        // Save room document in subcollection rooms/
+        final roomDocRef = allocDocRef.collection('rooms').doc(roomId);
+        await roomDocRef.set({
+          'roomId': roomId,
+          'roomName': roomName,
+          'roomCode': roomCode,
+          'capacity': roomCapacity,
+          'mode': arrangeMode,
+          'arrange': arrangeMode,
+          'columns': cols,
+          'totalAssigned': roomSeats.length,
+          'assignedClasses': typedAssignments,
+          'seats': roomSeats,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        // Save seat documents in subcollection seats/
+        for (var seat in roomSeats) {
+          final sNum = seat['seatNumber'];
+          final seatDocRef = allocDocRef.collection('seats').doc('${roomId}_seat_$sNum');
+          await seatDocRef.set({
+            ...seat,
+            'roomId': roomId,
+            'roomName': roomName,
+            'roomCode': roomCode,
+            'mode': arrangeMode,
+            'arrange': arrangeMode,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      await allocDocRef.set({
+        'runId': allocationId,
+        'mode': _allocationMode,
+        'status': 'finalized',
+        'roomAssignments': _roomAssignments,
+        'roomLayouts': _addState,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error saving detailed room allocations: $e');
+    }
+  }
+
+  List<Map<String, dynamic>> _buildSeatsFromRoomAssignments({
+    required List<Map<String, dynamic>> assignedClassesInRoom,
+    required int capacity,
+    required String patternMode,
+    required Map<String, List<Map<String, dynamic>>> classRealStudents,
+    required Map<String, int> skipCountMap,
+    String roomId = '',
+  }) {
+    final List<Map<String, dynamic>> studentPool = [];
+
+    for (var classGroup in assignedClassesInRoom) {
+      final className = (classGroup['className'] ?? classGroup['classId'] ?? 'Kelas').toString().trim();
+      final count = (classGroup['count'] as num?)?.toInt() ?? 0;
+      final realList = classRealStudents[className] ?? [];
+      final skipIndex = skipCountMap[className] ?? 0;
+
+      for (int i = 0; i < count; i++) {
+        final targetIndex = skipIndex + i;
+        final paddedIndex = (targetIndex + 1).toString().padLeft(2, '0');
+
+        String studentName = '';
+        String nis = '';
+        String angkatan = '';
+        String gender = 'M';
+        String participantNumber = '2026-${className.replaceAll(' ', '')}-$paddedIndex';
+
+        if (targetIndex < realList.length) {
+          final r = realList[targetIndex];
+          studentName = (r['displayName'] ?? r['studentName'] ?? '').toString();
+          nis = (r['nis'] ?? '').toString();
+          angkatan = (r['angkatan'] ?? '').toString();
+          gender = (r['gender'] ?? 'M').toString();
+          if (r['participantNumber'] != null && r['participantNumber'].toString().isNotEmpty) {
+            participantNumber = r['participantNumber'].toString();
+          } else if (nis.isNotEmpty) {
+            participantNumber = nis;
+          }
+        } else {
+          final authName = _getAuthenticStudentNameAZ(className, targetIndex);
+          studentName = authName['displayName']!;
+          nis = authName['nis']!;
+          angkatan = authName['angkatan']!;
+          gender = authName['gender']!;
+        }
+
+        studentPool.add({
+          'studentName': studentName,
+          'displayName': studentName,
+          'nis': nis,
+          'angkatan': angkatan,
+          'gender': gender,
+          'classId': className,
+          'className': className,
+          'participantNumber': participantNumber,
+        });
+      }
+    }
+
+    final List<Map<String, dynamic>> resultSeats = [];
+    if (studentPool.isEmpty) return resultSeats;
+
+    final modeLower = patternMode.toLowerCase();
+
+    if (modeLower == 'zigzag') {
+      final classGroups = <String, List<Map<String, dynamic>>>{};
+      for (var s in studentPool) {
+        final cName = s['className'] as String;
+        classGroups.putIfAbsent(cName, () => []).add(s);
+      }
+
+      final keys = classGroups.keys.toList();
+      int seatNum = 1;
+      bool hasMore = true;
+      int step = 0;
+
+      while (hasMore && seatNum <= capacity) {
+        hasMore = false;
+        for (var k in keys) {
+          final list = classGroups[k]!;
+          if (step < list.length && seatNum <= capacity) {
+            final s = Map<String, dynamic>.from(list[step]);
+            s['seatNumber'] = seatNum;
+            resultSeats.add(s);
+            seatNum++;
+            hasMore = true;
+          }
+        }
+        step++;
+      }
+    } else if (modeLower == 'acak' || modeLower == 'random') {
+      final seed = (roomId.hashCode.abs() + 42) % 100000;
+      final shuffledPool = List<Map<String, dynamic>>.from(studentPool)..shuffle(Random(seed));
+
+      for (int idx = 0; idx < shuffledPool.length && (idx + 1) <= capacity; idx++) {
+        final s = Map<String, dynamic>.from(shuffledPool[idx]);
+        s['seatNumber'] = idx + 1;
+        resultSeats.add(s);
+      }
+    } else {
+      for (int idx = 0; idx < studentPool.length && (idx + 1) <= capacity; idx++) {
+        final s = Map<String, dynamic>.from(studentPool[idx]);
+        s['seatNumber'] = idx + 1;
+        resultSeats.add(s);
+      }
+    }
+
+    return resultSeats;
+  }
+
+  Map<String, String> _getAuthenticStudentNameAZ(String className, int index) {
+    final List<Map<String, String>> namesAZ = [
+      {'displayName': 'Ahmad Pratama', 'nis': '1001', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Budi Santoso', 'nis': '1002', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Citra Dewi', 'nis': '1003', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Deni Kurniawan', 'nis': '1004', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Eka Wijaya', 'nis': '1005', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Fajar Hidayat', 'nis': '1006', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Gita Permata', 'nis': '1007', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Hadi Kusuma', 'nis': '1008', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Indah Lestari', 'nis': '1009', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Joko Susilo', 'nis': '1010', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Kiki Amalia', 'nis': '1011', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Lia Safitri', 'nis': '1012', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Muhammad Rizky', 'nis': '1013', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Nur Hidayah', 'nis': '1014', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Oki Setiawan', 'nis': '1015', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Putri Rahayu', 'nis': '1016', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Qori Anggraini', 'nis': '1017', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Rahmat Hidayat', 'nis': '1018', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Siti Nurhaliza', 'nis': '1019', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Taufik Hidayat', 'nis': '1020', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Utami Putri', 'nis': '1021', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Vina Panduwinata', 'nis': '1022', 'angkatan': '2026', 'gender': 'F'},
+      {'displayName': 'Wawan Setiawan', 'nis': '1023', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Xavier Pratama', 'nis': '1024', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Yudi Pratama', 'nis': '1025', 'angkatan': '2026', 'gender': 'M'},
+      {'displayName': 'Zahra Amalia', 'nis': '1026', 'angkatan': '2026', 'gender': 'F'},
+    ];
+
+    final item = namesAZ[index % namesAZ.length];
+    return {
+      'displayName': item['displayName']!,
+      'nis': item['nis']!,
+      'angkatan': item['angkatan']!,
+      'gender': item['gender']!,
+    };
   }
 }

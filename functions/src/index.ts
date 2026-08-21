@@ -1322,9 +1322,9 @@ function runAllocationAlgorithm(students: Student[], rooms: Room[], mode: string
     pool.sort(() => rng() - 0.5);
   } else {
     if (options.respectAngkatan) {
-      pool.sort((a, b) => a.angkatan.localeCompare(b.angkatan) || a.classId.localeCompare(b.classId) || a.displayName.localeCompare(b.displayName));
+      pool.sort((a, b) => a.angkatan.localeCompare(b.angkatan, undefined, { numeric: true, sensitivity: 'base' }) || a.classId.localeCompare(b.classId, undefined, { numeric: true, sensitivity: 'base' }) || a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }));
     } else {
-      pool.sort((a, b) => a.classId.localeCompare(b.classId) || a.displayName.localeCompare(b.displayName));
+      pool.sort((a, b) => a.classId.localeCompare(b.classId, undefined, { numeric: true, sensitivity: 'base' }) || a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }));
     }
 
     if (options.avoidSameClassAdjacent) {

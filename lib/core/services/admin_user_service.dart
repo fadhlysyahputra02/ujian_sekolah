@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../models/student.dart';
 import '../models/teacher.dart';
+import '../utils/natural_sort.dart';
 
 class AdminUserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -17,7 +18,7 @@ class AdminUserService {
         .snapshots()
         .map((snapshot) {
       final list = snapshot.docs.map((doc) => Teacher.fromFirestore(doc)).toList();
-      list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      list.sort((a, b) => naturalCompare(a.displayName, b.displayName));
       return list;
     });
   }
@@ -32,7 +33,7 @@ class AdminUserService {
         .snapshots()
         .map((snapshot) {
       final list = snapshot.docs.map((doc) => Student.fromFirestore(doc)).toList();
-      list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      list.sort((a, b) => naturalCompare(a.displayName, b.displayName));
       return list;
     });
   }
@@ -46,7 +47,7 @@ class AdminUserService {
         .where('archived', isEqualTo: false)
         .get();
     final list = snapshot.docs.map((doc) => Teacher.fromFirestore(doc)).toList();
-    list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+    list.sort((a, b) => naturalCompare(a.displayName, b.displayName));
     return list;
   }
 
@@ -59,7 +60,7 @@ class AdminUserService {
         .where('archived', isEqualTo: false)
         .get();
     final list = snapshot.docs.map((doc) => Student.fromFirestore(doc)).toList();
-    list.sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+    list.sort((a, b) => naturalCompare(a.displayName, b.displayName));
     return list;
   }
 
