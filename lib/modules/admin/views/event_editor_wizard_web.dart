@@ -153,7 +153,7 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Column(
         children: [
           Row(
@@ -161,25 +161,25 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
             children: [
               Text(
                 'Langkah ${self._currentStep + 1}/8: ${stepsMeta[self._currentStep]['title']}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
               ),
               Text(
                 '${(progress * 100).toInt()}%',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 12),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
               value: progress,
-              minHeight: 3,
+              minHeight: 6,
               backgroundColor: const Color(0xFFE2E8F0),
               valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4F46E5)),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -190,17 +190,17 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
 
                 return InkWell(
                   onTap: isClickable ? () => _setStep(i) : null,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    margin: const EdgeInsets.symmetric(horizontal: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
                       color: isActive
                           ? const Color(0xFF4F46E5)
                           : isCompleted
                               ? const Color(0xFFECFDF5)
                               : const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isActive
                             ? const Color(0xFF4F46E5)
@@ -213,8 +213,8 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
-                          width: 14,
-                          height: 14,
+                          width: 24,
+                          height: 24,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: isActive
@@ -225,21 +225,21 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
                           ),
                           alignment: Alignment.center,
                           child: isCompleted
-                              ? const Icon(Icons.check, size: 8, color: Colors.white)
+                              ? const Icon(Icons.check, size: 14, color: Colors.white)
                               : Text(
                                   '${i + 1}',
                                   style: TextStyle(
-                                    fontSize: 8,
+                                    fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     color: isActive ? Colors.white : const Color(0xFF475569),
                                   ),
                                 ),
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 8),
                         Text(
                           stepsMeta[i]['title'] as String,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 14,
                             fontWeight: isActive || isCompleted ? FontWeight.bold : FontWeight.w500,
                             color: isActive
                                 ? Colors.white

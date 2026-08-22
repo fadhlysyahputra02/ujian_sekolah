@@ -171,10 +171,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               .get();
 
           if (studentSnap.docs.isNotEmpty) {
-            setState(() {
-              _isLoggingIn = false;
-              _errorMessage = 'Akun Siswa tidak diperbolehkan login via Web Browser! Harap gunakan Aplikasi CBT Exambro di HP/Tablet.';
-            });
+            if (mounted) {
+              setState(() => _isLoggingIn = false);
+              await _showStudentWebBlockedDialog();
+            }
             return;
           }
         } catch (_) {}
@@ -196,10 +196,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
           // Penolakan siswa jika masuk dari Web / Browser
           if (kIsWeb && resolvedRole == 'student') {
-            setState(() {
-              _isLoggingIn = false;
-              _errorMessage = 'Akun Siswa tidak diperbolehkan login via Web Browser! Harap gunakan Aplikasi CBT Exambro di HP/Tablet.';
-            });
+            if (mounted) {
+              setState(() => _isLoggingIn = false);
+              await _showStudentWebBlockedDialog();
+            }
             return;
           }
 
@@ -244,12 +244,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         }
 
         if (isStudentUser) {
+          // Sign out TERLEBIH DAHULU sebelum menampilkan dialog,
+          // agar GoRouter tidak redirect ke halaman siswa saat dialog sedang terbuka.
           await authService.signOut();
           if (mounted) {
-            setState(() {
-              _isLoggingIn = false;
-              _errorMessage = 'Akun Siswa tidak diperbolehkan login via Web Browser! Harap gunakan Aplikasi CBT Exambro di HP/Tablet.';
-            });
+            setState(() => _isLoggingIn = false);
+            await _showStudentWebBlockedDialog();
           }
           return;
         }
@@ -301,8 +301,144 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
+  /// Menampilkan dialog peringatan bahwa akun siswa tidak boleh login via browser.
+  /// Menggunakan [showDialog] (Navigator-level) agar tetap tampil meskipun
+  /// GoRouter mencoba menavigasi halaman (dialog muncul di atas route manapun).
+  Future<void> _showStudentWebBlockedDialog() async {
+    if (!mounted) return;
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            width: 380,
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header merah
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.smartphone_rounded,
+                          color: Colors.white,
+                          size: 36,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Akses Ditolak',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Login Siswa via Browser',
+                        style: GoogleFonts.inter(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Body
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Akun siswa tidak dapat digunakan untuk login melalui Web Browser.',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: const Color(0xFF0F172A),
+                          fontWeight: FontWeight.w600,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFED7AA)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.info_outline_rounded, color: Color(0xFFF97316), size: 18),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Gunakan Aplikasi CBT Exambro yang tersedia di smartphone atau tablet untuk mengikuti ujian.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12.5,
+                                  color: const Color(0xFF9A3412),
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF4444),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: Text(
+                            'Mengerti',
+                            style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 900;
 
