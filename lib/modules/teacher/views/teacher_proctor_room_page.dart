@@ -33,6 +33,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   bool _isResolvingSchool = true;
   String _searchQuery = '';
   String _selectedClassFilter = 'Semua Kelas';
+  List<Map<String, dynamic>> _timetableSubcollection = [];
+  List<Map<String, dynamic>> _sessionsSubcollection = [];
 
   // Distinct class color palette
   static const List<Map<String, Color>> _classColorPalette = [
@@ -91,6 +93,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           _isResolvingSchool = false;
         });
       }
+      await _fetchTimetableSubcollection();
       return;
     }
 
@@ -103,6 +106,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           _resolvedSchoolId = authService.schoolId;
           _isResolvingSchool = false;
         });
+        await _fetchTimetableSubcollection();
         return;
       }
     }
@@ -122,6 +126,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
             _resolvedSchoolId = parentSchool.id;
             _isResolvingSchool = false;
           });
+          await _fetchTimetableSubcollection();
           return;
         }
       }
@@ -134,6 +139,44 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
         _resolvedSchoolId = authService.schoolId ?? '';
         _isResolvingSchool = false;
       });
+      await _fetchTimetableSubcollection();
+    }
+  }
+
+  Future<void> _fetchTimetableSubcollection() async {
+    final sid = _resolvedSchoolId;
+    if (sid == null || sid.isEmpty) return;
+    try {
+      final eventRef = FirebaseFirestore.instance
+          .collection('schools')
+          .doc(sid)
+          .collection('events')
+          .doc(widget.eventId);
+
+      final results = await Future.wait([
+        eventRef.collection('timetable').get(),
+        eventRef.collection('sessions').orderBy('order').get(),
+      ]);
+
+      final timetableSnap = results[0];
+      final sessionsSnap = results[1];
+
+      if (mounted) {
+        setState(() {
+          _timetableSubcollection = timetableSnap.docs.map((d) {
+            final data = d.data();
+            data['_docId'] = d.id;
+            return data;
+          }).toList();
+          _sessionsSubcollection = sessionsSnap.docs.map((d) {
+            final data = d.data();
+            data['id'] = d.id;
+            return data;
+          }).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching timetable/sessions subcollection: $e');
     }
   }
 
@@ -225,34 +268,6 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF0F172A), size: 20),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              context.go('/teacher');
-            }
-          },
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Ruang Pengawasan Ujian',
-              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-            ),
-            Text(
-              'Ruangan: ${widget.roomId}',
-              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-            ),
-          ],
-        ),
-      ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
             .collection('schools')
@@ -267,42 +282,59 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
           final evData = evSnap.data?.data() as Map<String, dynamic>? ?? {};
           final draftState = evData['draftState'] as Map<String, dynamic>?;
-          final eventTitle = evData['title'] ?? draftState?['title'] ?? 'Event Ujian';
+          final eventTitle = (evData['name'] ??
+              evData['eventName'] ??
+              draftState?['eventName'] ??
+              draftState?['name'] ??
+              evData['title'] ??
+              draftState?['title'] ??
+              'Event Ujian').toString();
 
-          // Timetable List
+          // Timetable List (subcollection + embedded arrays)
           final timetableList = <Map<String, dynamic>>[];
+          // Priority 1: subcollection (most complete, same as event_detail_page)
+          for (var item in _timetableSubcollection) {
+            timetableList.add(item);
+          }
+          // Priority 2: draftState embedded array
           if (draftState != null && draftState['timetable'] is List) {
             for (var item in (draftState['timetable'] as List)) {
               if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
             }
           }
+          // Priority 3: evData embedded array
           if (evData['timetable'] is List) {
             for (var item in (evData['timetable'] as List)) {
               if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
             }
           }
 
-          // Rooms List
+          // Rooms List — check step4 first, then root
           final roomsList = <Map<String, dynamic>>[];
-          if (draftState != null && draftState['rooms'] is List) {
-            for (var r in (draftState['rooms'] as List)) {
+          final rawRoomsList = draftState?['step4']?['rooms'] ?? draftState?['rooms'] ?? evData['rooms'];
+          if (rawRoomsList is List) {
+            for (var r in rawRoomsList) {
               if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
             }
-          }
-          if (evData['rooms'] is List) {
+          } else if (evData['rooms'] is List) {
             for (var r in (evData['rooms'] as List)) {
               if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
             }
           }
 
-          // Sessions List
+          // Sessions List — prefer subcollection (has real Firestore IDs & order)
           final sessionsList = <Map<String, dynamic>>[];
-          if (draftState != null && draftState['sessions'] is List) {
+          if (_sessionsSubcollection.isNotEmpty) {
+            sessionsList.addAll(_sessionsSubcollection);
+          } else if (draftState != null && draftState['step2']?['sessions'] is List) {
+            for (var s in (draftState['step2']['sessions'] as List)) {
+              if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
+            }
+          } else if (draftState != null && draftState['sessions'] is List) {
             for (var s in (draftState['sessions'] as List)) {
               if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
             }
-          }
-          if (evData['sessions'] is List) {
+          } else if (evData['sessions'] is List) {
             for (var s in (evData['sessions'] as List)) {
               if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
             }
@@ -333,6 +365,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           // Resolve Layout, Columns & Arrangement Mode configured in Step 5 (Total Kolom & Pola Grid)
           int configuredColumns = 4; // Default to 4 matching Step 5 default
           String configuredArrangeMode = '';
+          int? configuredSeed;
           final roomLayouts = draftState?['roomLayouts'] as Map? ?? evData['roomLayouts'] as Map? ?? {};
           
           roomLayouts.forEach((k, v) {
@@ -353,6 +386,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 if (cols != null && cols > 0) configuredColumns = cols;
                 final arr = v['arrange']?.toString();
                 if (arr != null && arr.isNotEmpty) configuredArrangeMode = arr;
+                final s = (v['seed'] as num?)?.toInt();
+                if (s != null) configuredSeed = s;
               }
             }
           });
@@ -381,9 +416,9 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           }
 
           // Resolve Classes assigned to this room from roomAssignments
-          final rawRoomAssignments = draftState?['roomAssignments'] ?? evData['roomAssignments'];
+          final rawRoomAssignments = draftState?['step6']?['roomAssignments'] as Map? ?? draftState?['roomAssignments'] as Map? ?? evData['roomAssignments'] as Map? ?? {};
           final assignedClassesInRoom = <Map<String, dynamic>>[];
-          if (rawRoomAssignments is Map) {
+          if (rawRoomAssignments.isNotEmpty) {
             rawRoomAssignments.forEach((key, val) {
               final kStr = key.toString();
               final kClean = kStr.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
@@ -411,9 +446,71 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           // Resolve Subject Name for this Day & Session & Room
           final matchedSubjects = <String>[];
           final targetKeyStr = 'day_${widget.dayIndex}_session_${widget.sessionIndex}';
-          final targetSessionIdStr = 'session_${widget.sessionIndex}';
-          final totalSessionsPerDay = sessionsList.isNotEmpty ? sessionsList.length : 2;
-          final targetOrder = widget.dayIndex * totalSessionsPerDay + widget.sessionIndex + 1;
+          final targetSessionIdStr1 = 'session_${widget.sessionIndex}';
+          final targetSessionIdStr2 = 'session_${widget.sessionIndex + 1}';
+
+          // Helper: extract comparable date string from String or Firestore Timestamp
+          String extractDateStr(dynamic d) {
+            if (d is String) return d.length >= 10 ? d.substring(0, 10) : d;
+            if (d is Timestamp) {
+              final dt = d.toDate();
+              return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+            }
+            return '';
+          }
+
+          // Group sessions from subcollection by date, sorted by order within each day
+          String? targetRealSessionId;
+          if (_sessionsSubcollection.isNotEmpty) {
+            final dateGroups = <String, List<Map<String, dynamic>>>{};
+            for (var s in _sessionsSubcollection) {
+              final dStr = extractDateStr(s['date']);
+              if (dStr.isNotEmpty) {
+                dateGroups.putIfAbsent(dStr, () => []).add(s);
+              }
+            }
+            final sortedDates = dateGroups.keys.toList()..sort();
+            debugPrint('[ProctorRoom] dayIdx=${widget.dayIndex} sessIdx=${widget.sessionIndex} sortedDates=$sortedDates');
+            if (widget.dayIndex < sortedDates.length) {
+              final dayDate = sortedDates[widget.dayIndex];
+              final daySessions = List<Map<String, dynamic>>.from(dateGroups[dayDate]!);
+              daySessions.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
+              if (widget.sessionIndex < daySessions.length) {
+                targetRealSessionId = daySessions[widget.sessionIndex]['id']?.toString();
+              }
+              debugPrint('[ProctorRoom] dayDate=$dayDate daySessions=${daySessions.length} targetRealSessionId=$targetRealSessionId');
+            }
+          }
+
+          // Fallback: compute by order (only when subcollection is missing)
+          int targetOrder = widget.dayIndex * 2 + widget.sessionIndex + 1;
+          if (targetRealSessionId == null && sessionsList.isNotEmpty) {
+            // Try simple index-based fallback
+            final sortedSessions = List<Map<String, dynamic>>.from(sessionsList)
+              ..sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
+            final idx = widget.dayIndex * 2 + widget.sessionIndex; // rough guess sessPerDay=2
+            if (idx < sortedSessions.length) {
+              targetRealSessionId = sortedSessions[idx]['id']?.toString();
+            }
+          }
+          debugPrint('[ProctorRoom] ============================');
+          debugPrint('[ProctorRoom] widget.roomId=${widget.roomId}');
+          debugPrint('[ProctorRoom] roomName=$roomName roomCode=$roomCode');
+          debugPrint('[ProctorRoom] roomAliases=$roomAliases');
+          debugPrint('[ProctorRoom] rawRoomAssignments keys=${rawRoomAssignments.keys.toList()}');
+          debugPrint('[ProctorRoom] orderedRoomClasses=$orderedRoomClasses');
+          debugPrint('[ProctorRoom] _sessionsSubcollection.length=${_sessionsSubcollection.length}');
+          if (_sessionsSubcollection.isNotEmpty) {
+            for (var s in _sessionsSubcollection.take(4)) {
+              debugPrint('[ProctorRoom]   sess id=${s["id"]} date=${s["date"]} dateType=${s["date"]?.runtimeType} order=${s["order"]}');
+            }
+          }
+          debugPrint('[ProctorRoom] _timetableSubcollection.length=${_timetableSubcollection.length}');
+          if (_timetableSubcollection.isNotEmpty) {
+            for (var t in _timetableSubcollection.take(5)) {
+              debugPrint('[ProctorRoom]   timetable sessionId=${t["sessionId"]} subjectName=${t["subjectName"]} className=${t["className"]}');
+            }
+          }
 
           for (var tItem in timetableList) {
             final tSessionId = (tItem['sessionId'] ?? '').toString();
@@ -425,9 +522,11 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
             if (tSessionId.isNotEmpty) {
               if (tSessionId == targetKeyStr ||
-                  tSessionId == targetSessionIdStr ||
+                  tSessionId == targetSessionIdStr1 ||
+                  tSessionId == targetSessionIdStr2 ||
                   tSessionId == '${widget.sessionIndex}' ||
-                  tSessionId == '${widget.sessionIndex + 1}') {
+                  tSessionId == '${widget.sessionIndex + 1}' ||
+                  (targetRealSessionId != null && tSessionId == targetRealSessionId)) {
                 isMatch = true;
               }
             } else if (tSession != null) {
@@ -441,18 +540,59 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
             if (isMatch) {
               final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString();
               final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString();
+              final cId = (tItem['classId'] ?? '').toString();
 
               if (subj.isNotEmpty) {
-                if (cls.isNotEmpty) {
-                  if (orderedRoomClasses.isEmpty || orderedRoomClasses.contains(cls)) {
-                    if (!matchedSubjects.contains(subj)) {
-                      matchedSubjects.add(subj);
-                    }
-                  }
-                } else {
+                if (orderedRoomClasses.isEmpty || orderedRoomClasses.contains(cls) || orderedRoomClasses.contains(cId)) {
                   if (!matchedSubjects.contains(subj)) {
                     matchedSubjects.add(subj);
                   }
+                }
+              }
+            }
+          }
+
+          // Fallback 1: scheduleGrid
+          if (matchedSubjects.isEmpty) {
+            final scheduleGrid = draftState?['step6']?['scheduleGrid'] as Map? ?? draftState?['scheduleGrid'] as Map? ?? evData['scheduleGrid'] as Map? ?? {};
+            final gridKeys = [
+              'day_${widget.dayIndex}_session_${widget.sessionIndex}',
+              'day_${widget.dayIndex}_session_${widget.sessionIndex + 1}',
+              'session_${widget.sessionIndex}',
+              'session_${widget.sessionIndex + 1}',
+              '${widget.sessionIndex + 1}',
+            ];
+            for (var gk in gridKeys) {
+              final schedSubjectIds = scheduleGrid[gk];
+              if (schedSubjectIds is List && schedSubjectIds.isNotEmpty) {
+                final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+                for (var sId in schedSubjectIds) {
+                  String foundName = sId.toString();
+                  for (var sItem in subjectsList) {
+                    if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId || sItem['name'] == sId)) {
+                      foundName = sItem['name'] ?? sId.toString();
+                      break;
+                    }
+                  }
+                  if (!matchedSubjects.contains(foundName)) matchedSubjects.add(foundName);
+                }
+              }
+            }
+          }
+
+          // Fallback 2: Check all subjects in event if still empty
+          if (matchedSubjects.isEmpty) {
+            final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+            for (var sItem in subjectsList) {
+              if (sItem is Map) {
+                final sName = (sItem['name'] ?? sItem['subjectName'] ?? sItem['title'] ?? sItem['subject'] ?? '').toString();
+                if (sName.isNotEmpty && !matchedSubjects.contains(sName)) {
+                  matchedSubjects.add(sName);
+                }
+              } else if (sItem != null) {
+                final sName = sItem.toString().trim();
+                if (sName.isNotEmpty && !matchedSubjects.contains(sName)) {
+                  matchedSubjects.add(sName);
                 }
               }
             }
@@ -476,6 +616,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               final allocDocs = allocSnap.data?.docs ?? [];
               String? activeAllocId;
               String activeAllocMode = defaultAllocMode;
+              int? activeAllocSeed = configuredSeed;
 
               if (allocDocs.isNotEmpty) {
                 activeAllocId = allocDocs.first.id;
@@ -489,6 +630,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                         if (roomAliases.contains(kStr) || kStr == widget.roomId || kStr == roomName || kStr == roomCode) {
                           final arr = v['arrange']?.toString();
                           if (arr != null && arr.isNotEmpty) activeAllocMode = arr;
+                          final s = (v['seed'] as num?)?.toInt();
+                          if (s != null) activeAllocSeed = s;
                         }
                       }
                     });
@@ -622,6 +765,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                               patternMode: activeAllocMode,
                               classRealStudents: classRealStudents,
                               skipCountMap: skipCountMap,
+                              customSeed: activeAllocSeed,
                             );
                             for (var s in synthesizedSeats) {
                               final numVal = (s['seatNumber'] as num?)?.toInt() ?? 0;
@@ -865,6 +1009,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     required String patternMode,
     required Map<String, List<Map<String, dynamic>>> classRealStudents,
     required Map<String, int> skipCountMap,
+    int? customSeed,
   }) {
     final List<Map<String, dynamic>> studentPool = [];
 
@@ -949,8 +1094,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
         step++;
       }
     } else if (modeLower == 'acak' || modeLower == 'random') {
-      // Deterministic Random Shuffle using room seed so admin preview and proctor room match!
-      final seed = (widget.roomId.hashCode.abs() + 42) % 100000;
+      final seed = customSeed ?? ((widget.roomId.hashCode.abs() + 42) % 100000);
       final shuffledPool = List<Map<String, dynamic>>.from(studentPool)..shuffle(Random(seed));
 
       for (int idx = 0; idx < shuffledPool.length && (idx + 1) <= capacity; idx++) {
@@ -1036,55 +1180,81 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top Chips Row
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
+          // Top Row: Back Button & Centered Event Title
+          Stack(
+            alignment: Alignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                ),
-                child: Text(
-                  eventTitle.toUpperCase(),
-                  style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: modeColor.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: modeColor.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(modeIcon, size: 14, color: modeColor),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$modeLabel • $configuredColumns Kolom',
-                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: modeColor),
-                    ),
-                  ],
+              Align(
+                alignment: Alignment.centerLeft,
+                child: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+                  onPressed: () {
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.go('/teacher/event/${widget.eventId}/pengawas');
+                    }
+                  },
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: statusBgColor.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: statusBgColor.withValues(alpha: 0.4)),
-                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 48),
                 child: Text(
-                  'STATUS: ${currentStatus.toUpperCase()}',
-                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: statusBgColor),
+                  eventTitle,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+
+          // Sub Row: Mode & Status Chips (Centered)
+          Center(
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: modeColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: modeColor.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(modeIcon, size: 14, color: modeColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$modeLabel • $configuredColumns Kolom',
+                        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: modeColor),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: statusBgColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusBgColor.withValues(alpha: 0.4)),
+                  ),
+                  child: Text(
+                    'STATUS: ${currentStatus.toUpperCase()}',
+                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: statusBgColor),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 18),
 
@@ -1098,7 +1268,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Ruangan: $roomName',
+                      roomName,
                       style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white),
                     ),
                     const SizedBox(height: 6),

@@ -15,11 +15,13 @@ import '../../../core/models/teacher.dart';
 class TeacherEventDetailPage extends StatefulWidget {
   final String eventId;
   final String eventName;
+  final String? tabName;
 
   const TeacherEventDetailPage({
     super.key,
     required this.eventId,
     required this.eventName,
+    this.tabName,
   });
 
   @override
@@ -35,6 +37,10 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   Teacher? _teacher;
   String _schoolId = '';
   Map<String, String>? _selectedSubjectMap;
+
+  // Subcollection caches for subject matching
+  List<Map<String, dynamic>> _timetableSubcollection = [];
+  List<Map<String, dynamic>> _sessionsSubcollection = [];
 
   @override
   void initState() {
@@ -101,11 +107,28 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final timetableList = <Map<String, dynamic>>[];
 
         try {
-          final timetableSnap = await evDoc.reference.collection('timetable').get();
+          final results = await Future.wait([
+            evDoc.reference.collection('timetable').get(),
+            evDoc.reference.collection('sessions').orderBy('order').get(),
+          ]);
+          final timetableSnap = results[0];
+          final sessionsSnap = results[1];
           for (var doc in timetableSnap.docs) {
             timetableList.add(doc.data());
           }
-        } catch (_) {}
+          _timetableSubcollection = timetableSnap.docs.map((d) {
+            final data = d.data();
+            data['_docId'] = d.id;
+            return data;
+          }).toList();
+          _sessionsSubcollection = sessionsSnap.docs.map((d) {
+            final data = d.data();
+            data['id'] = d.id;
+            return data;
+          }).toList();
+        } catch (e) {
+          debugPrint('Error fetching timetable/sessions subcollections: $e');
+        }
 
         final draftState = evData['draftState'] as Map<String, dynamic>?;
         if (draftState != null && draftState['timetable'] is List) {
@@ -164,6 +187,15 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       debugPrint("Error checking teacher permissions: $e");
     } finally {
       if (mounted) {
+        if (widget.tabName != null) {
+          if (widget.tabName == 'pengawas') {
+            _tabController.index = 1;
+          } else if (widget.tabName == 'soal') {
+            _tabController.index = 2;
+          } else if (widget.tabName == 'ringkasan') {
+            _tabController.index = 0;
+          }
+        }
         setState(() {
           _isLoading = false;
         });
@@ -1849,22 +1881,30 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final evData = evSnap.data?.data() as Map<String, dynamic>? ?? {};
         final draftState = evData['draftState'] as Map<String, dynamic>?;
 
-        // 1. Timetable List (lookup mapel per hari & sesi)
+        // 1. Timetable List — prefer subcollection (real Firestore IDs)
         final timetableList = <Map<String, dynamic>>[];
-        if (draftState != null && draftState['timetable'] is List) {
-          for (var item in (draftState['timetable'] as List)) {
-            if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+        if (_timetableSubcollection.isNotEmpty) {
+          timetableList.addAll(_timetableSubcollection);
+        } else {
+          if (draftState != null && draftState['timetable'] is List) {
+            for (var item in (draftState['timetable'] as List)) {
+              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+            }
           }
-        }
-        if (evData['timetable'] is List) {
-          for (var item in (evData['timetable'] as List)) {
-            if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+          if (evData['timetable'] is List) {
+            for (var item in (evData['timetable'] as List)) {
+              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+            }
           }
         }
 
         // 2. Rooms Map
         final roomsList = <Map<String, dynamic>>[];
-        if (draftState != null && draftState['rooms'] is List) {
+        if (draftState != null && draftState['step4']?['rooms'] is List) {
+          for (var r in (draftState['step4']['rooms'] as List)) {
+            if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
+          }
+        } else if (draftState != null && draftState['rooms'] is List) {
           for (var r in (draftState['rooms'] as List)) {
             if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
           }
@@ -1875,14 +1915,19 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           }
         }
 
-        // 3. Sessions Map
+        // 3. Sessions Map — prefer subcollection (has real Firestore IDs & order)
         final sessionsList = <Map<String, dynamic>>[];
-        if (draftState != null && draftState['sessions'] is List) {
+        if (_sessionsSubcollection.isNotEmpty) {
+          sessionsList.addAll(_sessionsSubcollection);
+        } else if (draftState != null && draftState['step2']?['sessions'] is List) {
+          for (var s in (draftState['step2']['sessions'] as List)) {
+            if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
+          }
+        } else if (draftState != null && draftState['sessions'] is List) {
           for (var s in (draftState['sessions'] as List)) {
             if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
           }
-        }
-        if (evData['sessions'] is List) {
+        } else if (evData['sessions'] is List) {
           for (var s in (evData['sessions'] as List)) {
             if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
           }
@@ -2088,18 +2133,35 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     }
 
                     // Resolve Classes assigned to this room
-                    final rawRoomAssignments = draftState?['roomAssignments'] ?? evData['roomAssignments'];
+                    final rawRoomAssignments = draftState?['step6']?['roomAssignments'] as Map? ?? draftState?['roomAssignments'] as Map? ?? evData['roomAssignments'] as Map? ?? {};
                     final roomAliases = {roomId, roomName}.where((s) => s.isNotEmpty).toSet();
+                    final Set<String> normalizedAliases = {};
+                    for (var a in roomAliases) {
+                      final clean = a.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                      if (clean.isNotEmpty) normalizedAliases.add(clean);
+                    }
+
                     final roomClassNames = <String>{};
-                    if (rawRoomAssignments is Map) {
+                    if (rawRoomAssignments.isNotEmpty) {
                       rawRoomAssignments.forEach((key, val) {
-                        if (roomAliases.contains(key.toString())) {
-                          if (val is List) {
-                            for (var c in val) {
-                              if (c is Map) {
-                                final cName = (c['className'] ?? c['classId'] ?? '').toString();
-                                if (cName.isNotEmpty) roomClassNames.add(cName);
-                              }
+                        final kStr = key.toString();
+                        final kClean = kStr.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                        bool isMatch = roomAliases.contains(kStr);
+                        if (!isMatch) {
+                          for (var norm in normalizedAliases) {
+                            if (kClean == norm || (norm.length > 2 && kClean.contains(norm)) || (kClean.length > 2 && norm.contains(kClean))) {
+                              isMatch = true;
+                              break;
+                            }
+                          }
+                        }
+                        if (isMatch && val is List) {
+                          for (var c in val) {
+                            if (c is Map) {
+                              final cName = (c['className'] ?? c['classId'] ?? '').toString();
+                              final cId = (c['classId'] ?? '').toString();
+                              if (cName.isNotEmpty) roomClassNames.add(cName);
+                              if (cId.isNotEmpty) roomClassNames.add(cId);
                             }
                           }
                         }
@@ -2109,9 +2171,43 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     // Subjects for this Day & Session & Room Classes
                     final matchedSubjects = <String>[];
                     final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
-                    final targetSessionIdStr = 'session_$sessionIndex';
-                    final totalSessionsPerDay = sessionsList.isNotEmpty ? sessionsList.length : 2;
-                    final targetOrder = dayIndex * totalSessionsPerDay + sessionIndex + 1;
+                    final targetSessionIdStr1 = 'session_$sessionIndex';
+                    final targetSessionIdStr2 = 'session_${sessionIndex + 1}';
+
+                    // Helper: extract date string from String or Firestore Timestamp
+                    String extractDateStr(dynamic d) {
+                      if (d is String) return d.length >= 10 ? d.substring(0, 10) : d;
+                      if (d is Timestamp) {
+                        final dt = d.toDate();
+                        return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+                      }
+                      return '';
+                    }
+
+                    // Group sessions by date → map (dayIndex, sessionIndex) to Firestore ID
+                    String? targetRealSessionId;
+                    if (_sessionsSubcollection.isNotEmpty) {
+                      final dateGroups = <String, List<Map<String, dynamic>>>{};
+                      for (var s in _sessionsSubcollection) {
+                        final dStr = extractDateStr(s['date'] ?? s['startDate']);
+                        if (dStr.isNotEmpty) {
+                          dateGroups.putIfAbsent(dStr, () => []).add(s);
+                        }
+                      }
+                      final sortedDates = dateGroups.keys.toList()..sort();
+                      if (dayIndex < sortedDates.length) {
+                        final dayDate = sortedDates[dayIndex];
+                        final daySessions = List<Map<String, dynamic>>.from(dateGroups[dayDate]!);
+                        daySessions.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
+                        if (sessionIndex < daySessions.length) {
+                          targetRealSessionId = daySessions[sessionIndex]['id']?.toString();
+                        }
+                      }
+                    }
+
+                    // Fallback targetOrder for legacy matching
+                    final int targetOrder = dayIndex * (sessionsList.isNotEmpty ? sessionsList.length : 2) + sessionIndex + 1;
+                    debugPrint('[PengawasTab] dayIdx=$dayIndex sessIdx=$sessionIndex targetRealSessionId=$targetRealSessionId timetableCount=${timetableList.length} sessionsCount=${sessionsList.length}');
 
                     for (var tItem in timetableList) {
                       final tSessionId = (tItem['sessionId'] ?? '').toString();
@@ -2123,9 +2219,11 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
                       if (tSessionId.isNotEmpty) {
                         if (tSessionId == targetKeyStr ||
-                            tSessionId == targetSessionIdStr ||
+                            tSessionId == targetSessionIdStr1 ||
+                            tSessionId == targetSessionIdStr2 ||
                             tSessionId == '$sessionIndex' ||
-                            tSessionId == '${sessionIndex + 1}') {
+                            tSessionId == '${sessionIndex + 1}' ||
+                            (targetRealSessionId != null && tSessionId == targetRealSessionId)) {
                           isMatch = true;
                         }
                       } else if (tSession != null) {
@@ -2139,15 +2237,10 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                       if (isMatch) {
                         final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString();
                         final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString();
+                        final cId = (tItem['classId'] ?? '').toString();
 
                         if (subj.isNotEmpty) {
-                          if (cls.isNotEmpty) {
-                            if (roomClassNames.isEmpty || roomClassNames.contains(cls)) {
-                              if (!matchedSubjects.contains(subj)) {
-                                matchedSubjects.add(subj);
-                              }
-                            }
-                          } else {
+                          if (roomClassNames.isEmpty || roomClassNames.contains(cls) || roomClassNames.contains(cId)) {
                             if (!matchedSubjects.contains(subj)) {
                               matchedSubjects.add(subj);
                             }
@@ -2156,22 +2249,43 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                       }
                     }
 
-                    // Fallback to scheduleGrid if matchedSubjects is empty
+                    // Fallback 1: scheduleGrid
                     if (matchedSubjects.isEmpty) {
-                      final scheduleGrid = draftState?['scheduleGrid'] as Map? ?? evData['scheduleGrid'] as Map? ?? {};
-                      final gridKey = 'day_${dayIndex}_session_$sessionIndex';
-                      final schedSubjectIds = scheduleGrid[gridKey];
-                      if (schedSubjectIds is List && schedSubjectIds.isNotEmpty) {
-                        final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
-                        for (var sId in schedSubjectIds) {
-                          String foundName = sId.toString();
-                          for (var sItem in subjectsList) {
-                            if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId)) {
-                              foundName = sItem['name'] ?? sId.toString();
-                              break;
+                      final scheduleGrid = draftState?['step6']?['scheduleGrid'] as Map? ?? draftState?['scheduleGrid'] as Map? ?? evData['scheduleGrid'] as Map? ?? {};
+                      final gridKeys = [
+                        'day_${dayIndex}_session_$sessionIndex',
+                        'day_${dayIndex}_session_${sessionIndex + 1}',
+                        'session_$sessionIndex',
+                        'session_${sessionIndex + 1}',
+                        '${sessionIndex + 1}',
+                      ];
+                      for (var gk in gridKeys) {
+                        final schedSubjectIds = scheduleGrid[gk];
+                        if (schedSubjectIds is List && schedSubjectIds.isNotEmpty) {
+                          final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+                          for (var sId in schedSubjectIds) {
+                            String foundName = sId.toString();
+                            for (var sItem in subjectsList) {
+                              if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId || sItem['name'] == sId)) {
+                                foundName = sItem['name'] ?? sId.toString();
+                                break;
+                              }
                             }
+                            if (!matchedSubjects.contains(foundName)) matchedSubjects.add(foundName);
                           }
-                          if (!matchedSubjects.contains(foundName)) matchedSubjects.add(foundName);
+                        }
+                      }
+                    }
+
+                    // Fallback 2: Check all subjects in event if still empty
+                    if (matchedSubjects.isEmpty) {
+                      final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+                      for (var sItem in subjectsList) {
+                        if (sItem is Map) {
+                          final sName = (sItem['name'] ?? sItem['subjectName'] ?? '').toString();
+                          if (sName.isNotEmpty && !matchedSubjects.contains(sName)) {
+                            matchedSubjects.add(sName);
+                          }
                         }
                       }
                     }

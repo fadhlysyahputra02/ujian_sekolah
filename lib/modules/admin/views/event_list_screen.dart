@@ -644,40 +644,117 @@ class _EventListScreenState extends State<EventListScreen> {
                                         final teachersList = entry.value.isNotEmpty
                                             ? entry.value.join(', ')
                                             : 'Belum ditentukan';
-                                        return Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 3),
-                                          child: Row(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Container(
-                                                width: 5,
-                                                height: 5,
-                                                margin: const EdgeInsets.only(top: 6),
-                                                decoration: const BoxDecoration(
-                                                  color: Color(0xFF94A3B8),
-                                                  shape: BoxShape.circle,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: RichText(
-                                                  text: TextSpan(
-                                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF334155)),
-                                                    children: [
-                                                      TextSpan(
-                                                        text: '${entry.key}: ',
-                                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                                      ),
-                                                      TextSpan(
-                                                        text: teachersList,
-                                                        style: const TextStyle(color: Color(0xFF64748B)),
-                                                      ),
-                                                    ],
+                                        // Cari subjectId dari timetable berdasarkan nama mapel
+                                        final subjectEntry = timetableSnap.data!.firstWhere(
+                                          (t) => t['subjectName'] == entry.key,
+                                          orElse: () => {},
+                                        );
+                                        final subjectId = subjectEntry['subjectId'] as String? ?? entry.key;
+
+                                        return StreamBuilder<QuerySnapshot>(
+                                          stream: FirebaseFirestore.instance
+                                              .collection('schools')
+                                              .doc(widget.schoolId)
+                                              .collection('events')
+                                              .doc(e['id'])
+                                              .collection('subjects')
+                                              .doc(subjectId)
+                                              .collection('questions')
+                                              .limit(1)
+                                              .snapshots(),
+                                          builder: (context, qSnap) {
+                                            final hasQuestions = qSnap.hasData && qSnap.data!.docs.isNotEmpty;
+                                            final isChecking = qSnap.connectionState == ConnectionState.waiting;
+
+                                            return Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 3),
+                                              child: Row(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Container(
+                                                    width: 5,
+                                                    height: 5,
+                                                    margin: const EdgeInsets.only(top: 6),
+                                                    decoration: const BoxDecoration(
+                                                      color: Color(0xFF94A3B8),
+                                                      shape: BoxShape.circle,
+                                                    ),
                                                   ),
-                                                ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: RichText(
+                                                      text: TextSpan(
+                                                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF334155)),
+                                                        children: [
+                                                          TextSpan(
+                                                            text: '${entry.key}: ',
+                                                            style: const TextStyle(fontWeight: FontWeight.bold),
+                                                          ),
+                                                          TextSpan(
+                                                            text: teachersList,
+                                                            style: const TextStyle(color: Color(0xFF64748B)),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  if (isChecking)
+                                                    const SizedBox(
+                                                      width: 12,
+                                                      height: 12,
+                                                      child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF94A3B8)),
+                                                    )
+                                                  else if (hasQuestions)
+                                                    Tooltip(
+                                                      message: 'Soal sudah siap',
+                                                      child: Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(0xFFD1FAE5),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(color: const Color(0xFF6EE7B7)),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
+                                                            const SizedBox(width: 3),
+                                                            Text(
+                                                              'Soal sudah siap',
+                                                              style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF059669)),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    )
+                                                  else
+                                                    Tooltip(
+                                                      message: 'Belum ada soal untuk mapel ini',
+                                                      child: Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(0xFFFEF3C7),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(color: const Color(0xFFFCD34D)),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            const Icon(Icons.warning_amber_rounded, size: 11, color: Color(0xFFD97706)),
+                                                            const SizedBox(width: 3),
+                                                            Text(
+                                                              'Belum ada soal',
+                                                              style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFFD97706)),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
                                               ),
-                                            ],
-                                          ),
+                                            );
+                                          },
                                         );
                                       }),
                                     ],

@@ -108,6 +108,49 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                               _setStep(self._currentStep + 1);
                               self._autoSaveDraft();
                             }
+                          } else if (self._currentStep == 5) {
+                            // Validasi Step 6: semua mapel harus sudah punya jadwal sesi
+                            final unscheduled = self._timetable.where((t) => t['sessionId'] == null).length;
+                            if (unscheduled > 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Masih ada $unscheduled mata pelajaran yang belum mendapat jadwal!'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            } else {
+                              _setStep(self._currentStep + 1);
+                              self._autoSaveDraft();
+                            }
+                          } else if (self._currentStep == 6) {
+                            // Validasi Step 7: semua ruangan & sesi harus sudah ada pengawasnya
+                            final days = self._examDays();
+                            final missingSlots = <String>[];
+                            for (int d = 0; d < days.length; d++) {
+                              for (int s = 0; s < self._sessions.length; s++) {
+                                for (final room in self._rooms) {
+                                  final rid = (room['id'] ?? '').toString();
+                                  final key = 'day_${d}_session_${s}_room_$rid';
+                                  if (!self._proctorGrid.containsKey(key) || self._proctorGrid[key] == null) {
+                                    final rname = (room['name'] ?? room['code'] ?? rid).toString();
+                                    final sname = self._sessions[s]['name'] ?? 'Sesi ${s + 1}';
+                                    missingSlots.add('$rname - $sname');
+                                  }
+                                }
+                              }
+                            }
+                            if (missingSlots.isNotEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('${missingSlots.length} slot pengawas belum diisi!'),
+                                  backgroundColor: Colors.red,
+                                  duration: const Duration(seconds: 3),
+                                ),
+                              );
+                            } else {
+                              _setStep(self._currentStep + 1);
+                              self._autoSaveDraft();
+                            }
                           } else if (self._currentStep == 7) {
                             _submit();
                           } else {
@@ -1019,10 +1062,13 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                   ? subjects.firstWhere((s) => s['id'] == self._selectedSubjectId, orElse: () => {})['name'] as String?
                                   : null;
 
-                              final selectedTeacher = self._selectedTeacherIds.isNotEmpty
-                                  ? teachers.firstWhere((t) => t.id == self._selectedTeacherIds.first, orElse: () => Teacher(id: '', displayName: '', gender: '', nip: '', subjects: [], schoolId: '', disabled: false, archived: false, createdAt: DateTime.now(), updatedAt: DateTime.now()))
+                              final selectedTeachers = self._selectedTeacherIds
+                                  .map((id) => teachers.firstWhere((t) => t.id == id, orElse: () => Teacher(id: '', displayName: '', gender: '', nip: '', subjects: [], schoolId: '', disabled: false, archived: false, createdAt: DateTime.now(), updatedAt: DateTime.now())))
+                                  .where((t) => t.id.isNotEmpty)
+                                  .toList();
+                              final teacherName = selectedTeachers.isNotEmpty 
+                                  ? selectedTeachers.map((t) => t.displayName).join(', ') 
                                   : null;
-                              final teacherName = selectedTeacher != null && selectedTeacher.id.isNotEmpty ? selectedTeacher.displayName : null;
 
                               return InkWell(
                                 onTap: self._selectedSubjectId == null
@@ -1076,7 +1122,9 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                   return;
                                 }
                                 final subName = subjects.firstWhere((s) => s['id'] == self._selectedSubjectId)['name'] as String;
-                                final teachName = teachers.firstWhere((t) => t.id == self._selectedTeacherIds.first).displayName;
+                                final teachName = self._selectedTeacherIds
+                                    .map((id) => teachers.firstWhere((t) => t.id == id).displayName)
+                                    .join(', ');
                                 self.updateState(() {
                                   for (final cid in self._selectedClassIds) {
                                     final already = self._timetable.any((t) => t['subjectId'] == self._selectedSubjectId && t['classId'] == cid);
@@ -1085,7 +1133,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                         'subjectId': self._selectedSubjectId,
                                         'subjectName': subName,
                                         'classId': cid,
-                                        'teacherId': self._selectedTeacherIds.first,
+                                        'teacherId': List<String>.from(self._selectedTeacherIds),
                                         'teacherName': teachName,
                                         'sessionId': null,
                                         'sessionName': null,
@@ -1532,7 +1580,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
 
     final seats = List<Color?>.filled(roomCapacity, null);
     if (arrangeMode == 'acak') {
-      final seed = ((selectedRoom['id'] as String? ?? '').hashCode.abs() + 42) % 100000;
+      final int seed = layoutState['seed'] as int? ?? (((selectedRoom['id'] as String? ?? '').hashCode.abs() + 42) % 100000);
       final shuffled = List<Color?>.from(classTokens)..shuffle(Random(seed));
       for (int i = 0; i < shuffled.length && i < roomCapacity; i++) {
         seats[i] = shuffled[i];
@@ -1658,7 +1706,10 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                   icon: Icons.shuffle_rounded,
                   active: arrangeMode == 'acak',
                   onTap: () {
-                    setLocal(() => layoutState['arrange'] = 'acak');
+                    setLocal(() {
+                      layoutState['arrange'] = 'acak';
+                      layoutState['seed'] = DateTime.now().millisecondsSinceEpoch;
+                    });
                     self.updateState(() {});
                   },
                 ),
@@ -1681,7 +1732,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                     final double totalGapWidth = totalGaps * 8.0;
                     final double remainingWidth = availableWidth - totalGapWidth - 6.0;
                     final double seatWidth = (remainingWidth / totalColumns) - 2.0;
-                    final double dynamicSeatSize = seatWidth.clamp(14.0, 36.0);
+                    final double dynamicSeatSize = seatWidth.clamp(14.0, 9999.0);
 
                     return SingleChildScrollView(
                       child: ListView.separated(
@@ -1722,7 +1773,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                 child: Text(
                                   '${seatIndex + 1}',
                                   style: TextStyle(
-                                    fontSize: (dynamicSeatSize * 0.4).clamp(6.0, 11.0),
+                                    fontSize: (dynamicSeatSize * 0.4).clamp(6.0, 999.0),
                                     fontWeight: FontWeight.bold,
                                     color: seatColor != null ? Colors.white : const Color(0xFF64748B),
                                   ),
@@ -1742,6 +1793,50 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                 ),
               ),
             ),
+            if (assignments.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (int i = 0; i < assignments.length; i++)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: classColors[i % classColors.length].withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${assignments[i]['className'] ?? '-'} (${(assignments[i]['count'] as num?)?.toInt() ?? 0})',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(3),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text('Kosong', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                ],
+              ),
+            ],
           ],
         );
       },
@@ -1829,13 +1924,14 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
               final int currentAssigned = existing != null ? (existing['count'] as num).toInt() : 0;
               final int maxAvailable = (totalStudents - allocElsewhere).clamp(0, totalStudents);
               final int remaining = (maxAvailable - currentAssigned).clamp(0, maxAvailable);
+              final bool isExhaustedElsewhere = maxAvailable == 0 && currentAssigned == 0;
 
               return Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: remaining == 0 && maxAvailable > 0 ? const Color(0xFFF0FDF4) : Colors.white,
+                  color: isExhaustedElsewhere ? const Color(0xFFF1F5F9) : (remaining == 0 && maxAvailable > 0 ? const Color(0xFFF0FDF4) : Colors.white),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: remaining == 0 && maxAvailable > 0 ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
+                  border: Border.all(color: isExhaustedElsewhere ? const Color(0xFFE2E8F0) : (remaining == 0 && maxAvailable > 0 ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0))),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1843,8 +1939,8 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(cname, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF1E293B))),
-                        Text('Sisa: $remaining / $totalStudents', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                        Text(cname, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF1E293B))),
+                        Text('Sisa: $remaining / $totalStudents', style: TextStyle(fontSize: 10, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF64748B))),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -1860,7 +1956,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                             IconButton(
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
-                              icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFEF4444), size: 24),
+                              icon: Icon(Icons.remove_circle_outline, color: currentAssigned > 0 ? const Color(0xFFEF4444) : const Color(0xFFCBD5E1), size: 24),
                               onPressed: currentAssigned > 0
                                   ? () {
                                       self.updateState(() {
@@ -1895,7 +1991,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                 style: TextStyle(
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.bold,
-                                  color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                                  color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
                                 ),
                               ),
                             ),
@@ -1903,7 +1999,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                             IconButton(
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
-                              icon: const Icon(Icons.add_circle_outline, color: Color(0xFF10B981), size: 24),
+                              icon: Icon(Icons.add_circle_outline, color: remaining > 0 ? const Color(0xFF10B981) : const Color(0xFFCBD5E1), size: 24),
                               onPressed: remaining > 0
                                   ? () {
                                       if (roomAvailableSeats <= 0) {
@@ -2079,11 +2175,20 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6366F1),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              minimumSize: const Size(0, 0),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              minimumSize: const Size(0, 36),
+              elevation: 2,
+              shadowColor: const Color(0xFF6366F1).withValues(alpha: 0.4),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Auto', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome_rounded, size: 15),
+                const SizedBox(width: 6),
+                const Text('Generate Otomatis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.2)),
+              ],
+            ),
           ),
         ),
 
@@ -2309,7 +2414,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
     return StreamBuilder<List<Teacher>>(
       stream: _adminUserService.streamTeachers(self.widget.schoolId),
       builder: (context, teachersSnap) {
-        final teachers = teachersSnap.data ?? [];
+        final teachers = {for (var t in (teachersSnap.data ?? <Teacher>[])) t.id: t}.values.toList();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2328,8 +2433,8 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                           context: context,
                           builder: (ctx) => AlertDialog(
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            title: const Text('Acak Otomatis?', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                            content: const Text('Guru pengawas akan ditugaskan secara acak. Tugas lama akan ditimpa.', style: TextStyle(fontSize: 12)),
+                            title: const Text('Generate Otomatis?', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                            content: const Text('Guru pengawas akan ditugaskan secara otomatis. Tugas lama akan ditimpa.', style: TextStyle(fontSize: 12)),
                             actions: [
                               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal', style: TextStyle(fontSize: 12))),
                               ElevatedButton(
@@ -2338,7 +2443,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                   Navigator.pop(ctx);
                                   self._autoGenerateProctors(teachers);
                                 },
-                                child: const Text('Acak', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                child: const Text('Generate', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                               ),
                             ],
                           ),
@@ -2347,11 +2452,20 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF8B5CF6),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  minimumSize: const Size(0, 0),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  minimumSize: const Size(0, 36),
+                  elevation: 2,
+                  shadowColor: const Color(0xFF8B5CF6).withValues(alpha: 0.4),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                child: const Text('Acak', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.shuffle_rounded, size: 15),
+                    const SizedBox(width: 6),
+                    const Text('Generate Otomatis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.2)),
+                  ],
+                ),
               ),
             ),
 
@@ -2439,6 +2553,8 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                           final session = self._sessions[sIdx];
                                                           final proctorKey = 'day_${self._selectedStep7DayIdx}_session_${sIdx}_room_$rid';
                                                           final currentTeacherId = self._proctorGrid[proctorKey];
+                                                          final teacherExists = currentTeacherId != null && teachers.any((t) => t.id == currentTeacherId);
+                                                          final validTeacherId = teacherExists ? currentTeacherId : null;
 
                                                           return Padding(
                                                             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -2454,9 +2570,9 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                                                                   width: double.infinity,
                                                                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6), border: Border.all(color: const Color(0xFFCBD5E1))),
-                                                                  child: DropdownButtonHideUnderline(
+                                                                child: DropdownButtonHideUnderline(
                                                                     child: DropdownButton<String?>(
-                                                                      value: currentTeacherId,
+                                                                      value: validTeacherId,
                                                                       isDense: true,
                                                                       isExpanded: true,
                                                                       hint: const Text('Belum Ditugaskan', style: TextStyle(fontSize: 10, color: Colors.grey)),
@@ -2466,10 +2582,41 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                                           child: Text('Belum Ditugaskan', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey)),
                                                                         ),
                                                                         ...teachers.map((t) {
-                                                                          return DropdownMenuItem<String?>(value: t.id, child: Text(t.displayName, style: const TextStyle(fontSize: 11)));
+                                                                          final isUsed = self._rooms.any((otherRoom) {
+                                                                            final otherRid = otherRoom['id'] as String;
+                                                                            if (otherRid == rid) return false;
+                                                                            final otherKey = 'day_${self._selectedStep7DayIdx}_session_${sIdx}_room_$otherRid';
+                                                                            return self._proctorGrid[otherKey] == t.id;
+                                                                          });
+                                                                          return DropdownMenuItem<String?>(
+                                                                            value: t.id,
+                                                                            enabled: !isUsed,
+                                                                            child: Text(
+                                                                              '${t.displayName} ${isUsed ? "(Sudah bertugas)" : ""}',
+                                                                              style: TextStyle(fontSize: 11, color: isUsed ? Colors.grey : Colors.black),
+                                                                            ),
+                                                                          );
                                                                         }),
                                                                       ],
                                                                       onChanged: (val) {
+                                                                        if (val != null) {
+                                                                          final conflict = self._rooms.any((otherRoom) {
+                                                                            final otherRid = otherRoom['id'] as String;
+                                                                            if (otherRid == rid) return false;
+                                                                            final otherKey = 'day_${self._selectedStep7DayIdx}_session_${sIdx}_room_$otherRid';
+                                                                            return self._proctorGrid[otherKey] == val;
+                                                                          });
+                                                                          if (conflict) {
+                                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                                              const SnackBar(
+                                                                                content: Text('Guru ini sudah bertugas di ruangan lain pada sesi yang sama!'),
+                                                                                backgroundColor: Colors.red,
+                                                                                duration: Duration(seconds: 2),
+                                                                              ),
+                                                                            );
+                                                                            return;
+                                                                          }
+                                                                        }
                                                                         self.updateState(() {
                                                                           if (val == null) {
                                                                             self._proctorGrid.remove(proctorKey);
@@ -2912,7 +3059,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                         : ListView.separated(
                             shrinkWrap: true,
                             itemCount: filteredTeachers.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 4),
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final t = filteredTeachers[index];
                               final isSelected = self._selectedTeacherIds.contains(t.id);
@@ -2921,21 +3068,25 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
 
                               return InkWell(
                                 onTap: () {
-                                  self.updateState(() {
-                                    self._selectedTeacherIds = [t.id];
+                                  setLocalState(() {
+                                    if (self._selectedTeacherIds.contains(t.id)) {
+                                      self._selectedTeacherIds.remove(t.id);
+                                    } else {
+                                      self._selectedTeacherIds.add(t.id);
+                                    }
                                   });
-                                  Navigator.pop(ctx);
+                                  self.updateState(() {});
                                 },
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(12),
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                   decoration: BoxDecoration(
                                     color: isSelected
                                         ? const Color(0xFFECFDF5)
                                         : isRec
                                             ? const Color(0xFFF0FDF4)
                                             : const Color(0xFFF8FAFC),
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
                                       color: isSelected
                                           ? const Color(0xFF10B981)
@@ -2948,15 +3099,15 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                   child: Row(
                                     children: [
                                       CircleAvatar(
-                                        radius: 14,
-                                        backgroundColor: isSelected ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+                                        radius: 18,
+                                        backgroundColor: isSelected ? const Color(0xFF10B981) : const Color(0xFFF1F5F9),
                                         child: Icon(
                                           isSelected ? Icons.check : Icons.person_outline,
-                                          size: 14,
-                                          color: isSelected ? Colors.white : const Color(0xFF64748B),
+                                          size: 18,
+                                          color: isSelected ? Colors.white : const Color(0xFF94A3B8),
                                         ),
                                       ),
-                                      const SizedBox(width: 10),
+                                      const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2967,25 +3118,25 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                   child: Text(
                                                     t.displayName,
                                                     style: TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight: isSelected || isRec ? FontWeight.bold : FontWeight.normal,
+                                                      fontSize: 13,
+                                                      fontWeight: isSelected || isRec ? FontWeight.bold : FontWeight.w500,
                                                       color: isSelected ? const Color(0xFF065F46) : const Color(0xFF1E293B),
                                                     ),
                                                   ),
                                                 ),
                                                 if (isRec)
                                                   Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                     decoration: BoxDecoration(
                                                       color: const Color(0xFF10B981),
-                                                      borderRadius: BorderRadius.circular(4),
+                                                      borderRadius: BorderRadius.circular(6),
                                                     ),
                                                     child: const Row(
                                                       mainAxisSize: MainAxisSize.min,
                                                       children: [
-                                                        Icon(Icons.star_rounded, size: 10, color: Colors.white),
-                                                        SizedBox(width: 2),
-                                                        Text('Rekomendasi', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white)),
+                                                        Icon(Icons.star_rounded, size: 12, color: Colors.white),
+                                                        SizedBox(width: 4),
+                                                        Text('Rekomendasi', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
                                                       ],
                                                     ),
                                                   ),
@@ -3004,6 +3155,21 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                           ),
                   ),
                   const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                      child: const Text('Terapkan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
             );

@@ -97,8 +97,8 @@ class _MyAppState extends State<MyApp> {
           }
         } else if (role == 'teacher') {
           // Guru HANYA boleh mengakses rute /teacher dan sub-rutenya
-          if (!loc.startsWith('/teacher')) {
-            return '/teacher';
+          if (loc == '/' || loc == '/teacher' || !loc.startsWith('/teacher')) {
+            return '/teacher/ringkasan';
           }
         } else if (role == 'student') {
           // Student TIDAK diizinkan mengakses via Web Browser
@@ -149,15 +149,19 @@ class _MyAppState extends State<MyApp> {
           },
         ),
         GoRoute(
-          path: '/teacher',
-          builder: (context, state) => const TeacherDashboardPage(),
+          path: '/teacher/:tab',
+          builder: (context, state) {
+            final tab = state.pathParameters['tab'];
+            return TeacherDashboardPage(tabName: tab);
+          },
         ),
         GoRoute(
-          path: '/teacher/event/:eventId',
+          path: '/teacher/event/:eventId/:tab',
           builder: (context, state) {
             final eventId = state.pathParameters['eventId']!;
+            final tabName = state.pathParameters['tab'];
             final eventName = state.uri.queryParameters['name'] ?? 'Event Ujian';
-            return TeacherEventDetailPage(eventId: eventId, eventName: eventName);
+            return TeacherEventDetailPage(eventId: eventId, eventName: eventName, tabName: tabName);
           },
         ),
         GoRoute(

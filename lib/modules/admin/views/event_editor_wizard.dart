@@ -504,35 +504,58 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
       _draftId = id;
       _currentStep = (data['step'] as num?)?.toInt() ?? 0;
       _maxStepReached = max(_maxStepReached, _currentStep);
-      _nameController.text = data['eventName'] as String? ?? '';
-      _academicYearController.text = data['academicYear'] as String? ?? '2026/2027';
-      _descController.text = data['description'] as String? ?? '';
-      _examType = data['examType'] as String? ?? 'UTS';
-      if (data['startDate'] != null) _startDate = DateTime.tryParse(data['startDate'] as String);
-      if (data['endDate'] != null) _endDate = DateTime.tryParse(data['endDate'] as String);
+
+      final s1 = data['step1'] as Map<String, dynamic>? ?? data;
+      final s2 = data['step2'] as Map<String, dynamic>? ?? data;
+      final s3 = data['step3'] as Map<String, dynamic>? ?? data;
+      final s4 = data['step4'] as Map<String, dynamic>? ?? data;
+      final s5 = data['step5'] as Map<String, dynamic>? ?? data;
+      final s6 = data['step6'] as Map<String, dynamic>? ?? data;
+      final s7 = data['step7'] as Map<String, dynamic>? ?? data;
+
+      _nameController.text = s1['eventName'] as String? ?? '';
+      _academicYearController.text = s1['academicYear'] as String? ?? '2026/2027';
+      _descController.text = s1['description'] as String? ?? '';
+      _examType = s1['examType'] as String? ?? 'UTS';
+      if (s1['startDate'] != null) _startDate = DateTime.tryParse(s1['startDate'] as String);
+      if (s1['endDate'] != null) _endDate = DateTime.tryParse(s1['endDate'] as String);
+
       _sessions.clear();
-      if (data['sessions'] is List) {
-        _sessions.addAll((data['sessions'] as List).cast<Map<String, dynamic>>());
+      if (s2['sessions'] is List) {
+        _sessions.addAll((s2['sessions'] as List).cast<Map<String, dynamic>>());
       }
+      
       _timetable.clear();
-      if (data['timetable'] is List) {
-        _timetable.addAll((data['timetable'] as List).cast<Map<String, dynamic>>());
+      if (s3['timetable'] is List) {
+        _timetable.addAll((s3['timetable'] as List).cast<Map<String, dynamic>>());
       }
+      
       _rooms.clear();
-      if (data['rooms'] is List) {
-        _rooms.addAll((data['rooms'] as List).cast<Map<String, dynamic>>());
+      if (s4['rooms'] is List) {
+        _rooms.addAll((s4['rooms'] as List).cast<Map<String, dynamic>>());
       }
+
+      _addState.clear();
+      if (s5['roomLayouts'] is Map) {
+        (s5['roomLayouts'] as Map).forEach((k, v) {
+          if (v is Map) {
+            _addState[k as String] = Map<String, dynamic>.from(v);
+          }
+        });
+      }
+
       _roomAssignments.clear();
-      if (data['roomAssignments'] is Map) {
-        (data['roomAssignments'] as Map).forEach((k, v) {
+      if (s6['roomAssignments'] is Map) {
+        (s6['roomAssignments'] as Map).forEach((k, v) {
           if (v is List) {
             _roomAssignments[k as String] = v.cast<Map<String, dynamic>>();
           }
         });
       }
+      
       _scheduleGrid.clear();
-      if (data['scheduleGrid'] is Map) {
-        (data['scheduleGrid'] as Map).forEach((k, v) {
+      if (s6['scheduleGrid'] is Map) {
+        (s6['scheduleGrid'] as Map).forEach((k, v) {
           if (v is List) {
             _scheduleGrid[k as String] = List<String>.from(v);
           } else if (v is String) {
@@ -540,18 +563,11 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           }
         });
       }
+      
       _proctorGrid.clear();
-      if (data['proctorGrid'] is Map) {
-        (data['proctorGrid'] as Map).forEach((k, v) {
+      if (s7['proctorGrid'] is Map) {
+        (s7['proctorGrid'] as Map).forEach((k, v) {
           _proctorGrid[k as String] = v as String;
-        });
-      }
-      _addState.clear();
-      if (data['roomLayouts'] is Map) {
-        (data['roomLayouts'] as Map).forEach((k, v) {
-          if (v is Map) {
-            _addState[k as String] = Map<String, dynamic>.from(v);
-          }
         });
       }
     });
@@ -563,20 +579,35 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
     final draftData = {
       'step': _currentStep,
-      'eventName': _nameController.text.trim(),
-      'academicYear': _academicYearController.text.trim(),
-      'description': _descController.text.trim(),
-      'examType': _examType,
-      'startDate': _startDate?.toIso8601String(),
-      'endDate': _endDate?.toIso8601String(),
-      'sessions': _sessions,
-      'timetable': _timetable,
-      'rooms': _rooms,
-      'roomAssignments': _roomAssignments,
-      'scheduleGrid': _scheduleGrid,
-      'proctorGrid': _proctorGrid,
-      'roomLayouts': _addState,
+      'eventName': _nameController.text.trim(), // Kept at root for Event List screen
       'updatedAt': DateTime.now().toIso8601String(),
+      'step1': {
+        'eventName': _nameController.text.trim(),
+        'academicYear': _academicYearController.text.trim(),
+        'description': _descController.text.trim(),
+        'examType': _examType,
+        'startDate': _startDate?.toIso8601String(),
+        'endDate': _endDate?.toIso8601String(),
+      },
+      'step2': {
+        'sessions': _sessions,
+      },
+      'step3': {
+        'timetable': _timetable,
+      },
+      'step4': {
+        'rooms': _rooms,
+      },
+      'step5': {
+        'roomLayouts': _addState,
+      },
+      'step6': {
+        'roomAssignments': _roomAssignments,
+        'scheduleGrid': _scheduleGrid,
+      },
+      'step7': {
+        'proctorGrid': _proctorGrid,
+      },
     };
 
     try {
@@ -596,12 +627,23 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             .doc(widget.schoolId)
             .collection('eventDrafts');
 
-        if (_draftId != null) {
-          await draftsRef.doc(_draftId).update(draftData);
-        } else {
-          final doc = await draftsRef.add(draftData);
-          if (mounted) setState(() => _draftId = doc.id);
+        final name = _nameController.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+        final type = _examType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+        final year = _academicYearController.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+        
+        String customDraftId = '${name}_${type}_${year}'.replaceAll(RegExp(r'^-+|-+$|_+$|^_+'), '');
+        if (customDraftId.isEmpty || customDraftId == '__') {
+          customDraftId = 'draft_${DateTime.now().millisecondsSinceEpoch}';
         }
+
+        if (_draftId != null && _draftId != customDraftId) {
+          try {
+            await draftsRef.doc(_draftId).delete();
+          } catch (_) {}
+        }
+        
+        await draftsRef.doc(customDraftId).set(draftData, SetOptions(merge: true));
+        if (mounted && _draftId != customDraftId) setState(() => _draftId = customDraftId);
       }
       if (mounted) setState(() { _draftStatus = 'saved'; });
       // Clear status after 2 seconds
@@ -882,9 +924,18 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         }
       }
 
+      final name = _nameController.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+      final type = _examType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+      final year = _academicYearController.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+      
+      String customEventId = '${name}_${type}_${year}'.replaceAll(RegExp(r'^-+|-+$|_+$|^_+'), '');
+      if (customEventId.isEmpty || customEventId == '__') {
+        customEventId = 'event_${DateTime.now().millisecondsSinceEpoch}';
+      }
+
       final eventId = await _eventService.createEvent(
         schoolId: widget.schoolId,
-        eventId: widget.eventId,
+        eventId: widget.eventId ?? _draftId ?? customEventId,
         eventInfo: {
           'name': _nameController.text.trim(),
           'type': _examType,
@@ -897,18 +948,33 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           'draftState': {
             'step': 7,
             'eventName': _nameController.text.trim(),
-            'academicYear': _academicYearController.text.trim(),
-            'description': _descController.text.trim(),
-            'examType': _examType,
-            'startDate': _startDate?.toIso8601String(),
-            'endDate': _endDate?.toIso8601String(),
-            'sessions': _sessions,
-            'timetable': _timetable,
-            'rooms': _rooms,
-            'roomAssignments': _roomAssignments,
-            'roomLayouts': _addState,
-            'scheduleGrid': _scheduleGrid,
-            'proctorGrid': _proctorGrid,
+            'step1': {
+              'eventName': _nameController.text.trim(),
+              'academicYear': _academicYearController.text.trim(),
+              'description': _descController.text.trim(),
+              'examType': _examType,
+              'startDate': _startDate?.toIso8601String(),
+              'endDate': _endDate?.toIso8601String(),
+            },
+            'step2': {
+              'sessions': _sessions,
+            },
+            'step3': {
+              'timetable': _timetable,
+            },
+            'step4': {
+              'rooms': _rooms,
+            },
+            'step5': {
+              'roomLayouts': _addState,
+            },
+            'step6': {
+              'roomAssignments': _roomAssignments,
+              'scheduleGrid': _scheduleGrid,
+            },
+            'step7': {
+              'proctorGrid': _proctorGrid,
+            },
           },
           'roomAssignments': _roomAssignments,
           'roomLayouts': _addState,
@@ -992,8 +1058,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         }
       }
 
-      // 4. Delete draft on success if loaded as draft
-      if (widget.draftId != null) {
+      // 4. Delete draft on success
+      if (_draftId != null) {
         await _deleteDraft();
       }
 
@@ -1120,18 +1186,19 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
   void _autoGenerateProctors(List<Teacher> teachers) {
     if (teachers.isEmpty) return;
     final days = _examDays();
-    // Shuffle a copy of the teacher list with a fresh Random each call
+    if (days.isEmpty || _sessions.isEmpty || _rooms.isEmpty) return;
     final rng = Random();
-    final shuffled = List<Teacher>.from(teachers)..shuffle(rng);
     _proctorGrid.clear();
-    int tIdx = 0;
     for (int d = 0; d < days.length; d++) {
-      for (final room in _rooms) {
-        final rid = room['id'] as String;
-        for (int s = 0; s < _sessions.length; s++) {
-          // Cycle through the shuffled list if there are more slots than teachers
-          _proctorGrid['day_${d}_session_${s}_room_$rid'] = shuffled[tIdx % shuffled.length].id;
-          tIdx++;
+      for (int s = 0; s < _sessions.length; s++) {
+        // Kocok ulang guru untuk setiap kombinasi hari+sesi
+        final shuffled = List<Teacher>.from(teachers)..shuffle(rng);
+        // Assign satu guru per ruangan — tanpa pengulangan dalam satu sesi
+        for (int rIdx = 0; rIdx < _rooms.length; rIdx++) {
+          if (rIdx >= shuffled.length) break; // Guru tidak cukup, lewati ruangan ini
+          final rid = (_rooms[rIdx]['id'] ?? '').toString();
+          if (rid.isEmpty) continue;
+          _proctorGrid['day_${d}_session_${s}_room_$rid'] = shuffled[rIdx].id;
         }
       }
     }
@@ -1209,6 +1276,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
         final List<Map<String, dynamic>> typedAssignments = assignedClasses.map((c) => Map<String, dynamic>.from(c as Map)).toList();
 
+        final layoutSeed = (layoutState['seed'] as num?)?.toInt();
+
         final roomSeats = _buildSeatsFromRoomAssignments(
           assignedClassesInRoom: typedAssignments,
           capacity: roomCapacity,
@@ -1216,6 +1285,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           classRealStudents: classRealStudents,
           skipCountMap: Map.from(skipCountMap),
           roomId: roomId,
+          customSeed: layoutSeed,
         );
 
         for (var a in typedAssignments) {
@@ -1279,6 +1349,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     required Map<String, List<Map<String, dynamic>>> classRealStudents,
     required Map<String, int> skipCountMap,
     String roomId = '',
+    int? customSeed,
   }) {
     final List<Map<String, dynamic>> studentPool = [];
 
@@ -1362,7 +1433,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         step++;
       }
     } else if (modeLower == 'acak' || modeLower == 'random') {
-      final seed = (roomId.hashCode.abs() + 42) % 100000;
+      final seed = customSeed ?? ((roomId.hashCode.abs() + 42) % 100000);
       final shuffledPool = List<Map<String, dynamic>>.from(studentPool)..shuffle(Random(seed));
 
       for (int idx = 0; idx < shuffledPool.length && (idx + 1) <= capacity; idx++) {

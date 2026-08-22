@@ -8,7 +8,8 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
-  const TeacherDashboardPage({super.key});
+  final String? tabName;
+  const TeacherDashboardPage({super.key, this.tabName});
 
   @override
   State<TeacherDashboardPage> createState() => _TeacherDashboardPageState();
@@ -126,14 +127,41 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     return false;
   }
 
+  int _getIndexFromTab(String? tab) {
+    if (tab == 'ringkasan') return 0;
+    if (tab == 'eventujian') return 1;
+    return 0; // Default
+  }
+
+  void _onItemTapped(int index) {
+    if (index == _selectedIndex) return;
+    String route = '/teacher/ringkasan';
+    if (index == 1) {
+      route = '/teacher/eventujian';
+    }
+    context.go(route);
+  }
+
   @override
   void initState() {
     super.initState();
+    _selectedIndex = _getIndexFromTab(widget.tabName);
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
     )..forward();
     _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+  }
+
+  @override
+  void didUpdateWidget(covariant TeacherDashboardPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.tabName != oldWidget.tabName) {
+      setState(() {
+        _selectedIndex = _getIndexFromTab(widget.tabName);
+        _fadeController.forward(from: 0.0);
+      });
+    }
   }
 
   @override
@@ -439,9 +467,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: InkWell(
-        onTap: () => setState(() {
-          _selectedIndex = idx;
-        }),
+        onTap: () => _onItemTapped(idx),
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -689,7 +715,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       ),
       child: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (idx) => setState(() => _selectedIndex = idx),
+        onTap: _onItemTapped,
         backgroundColor: const Color(0xFF0F172A), // Slate 900 (Biru Gelap)
         selectedItemColor: const Color(0xFF818CF8),
         unselectedItemColor: const Color(0xFF94A3B8),
@@ -1052,7 +1078,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
 
                 return InkWell(
                   onTap: () {
-                    context.push('/teacher/event/$eventId?name=${Uri.encodeComponent(eventName)}');
+                    context.push('/teacher/event/$eventId/buatsoal?name=${Uri.encodeComponent(eventName)}');
                   },
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
@@ -1520,7 +1546,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                             const SizedBox(width: 16),
                             ElevatedButton.icon(
                               onPressed: () {
-                                context.go('/teacher/event/$eventId?name=${Uri.encodeComponent(name)}');
+                                context.go('/teacher/event/$eventId/buatsoal?name=${Uri.encodeComponent(name)}');
                               },
                               icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                               label: const Text('Buka Event'),
@@ -1617,7 +1643,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 onPressed: () {
-                                  context.go('/teacher/event/$eventId?name=${Uri.encodeComponent(name)}');
+                                  context.go('/teacher/event/$eventId/buatsoal?name=${Uri.encodeComponent(name)}');
                                 },
                                 icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                                 label: const Text('Buka Event'),
