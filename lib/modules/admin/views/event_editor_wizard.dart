@@ -1217,23 +1217,54 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           .collection('allocations')
           .doc(allocationId);
 
+      // Fetch classes mapping
+      List<QueryDocumentSnapshot> classDocs = [];
+      try {
+        final classSnap = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('classes')
+            .get();
+        classDocs = classSnap.docs;
+      } catch (e) {
+        throw 'Gagal mengambil data Kelas (classes): $e';
+      }
+
+      final Map<String, String> studentIdToClassName = {};
+      for (var cDoc in classDocs) {
+        final cData = cDoc.data() as Map<String, dynamic>;
+        final cName = (cData['name'] ?? cDoc.id).toString().trim();
+        final sIds = cData['studentIds'];
+        if (sIds is List) {
+          for (var sId in sIds) {
+            studentIdToClassName[sId.toString()] = cName;
+          }
+        }
+      }
+
       // Fetch real active students
-      final studentSnap = await FirebaseFirestore.instance
-          .collection('schools')
-          .doc(schoolId)
-          .collection('students')
-          .where('archived', isEqualTo: false)
-          .get();
+      List<QueryDocumentSnapshot> studentDocs = [];
+      try {
+        final studentSnap = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('students')
+            .get();
+        studentDocs = studentSnap.docs;
+      } catch (e) {
+        throw 'Gagal mengambil data Siswa (students): $e';
+      }
 
       final Map<String, List<Map<String, dynamic>>> classRealStudents = {};
-      for (var doc in studentSnap.docs) {
-        final data = doc.data();
+      for (var doc in studentDocs) {
+        final data = doc.data() as Map<String, dynamic>;
+        if (data['archived'] == true) continue;
         if (data['disabled'] == true) continue;
         final sName = (data['displayName'] ?? data['name'] ?? '').toString().trim();
         final sNis = (data['nis'] ?? '').toString().trim();
         final sAngkatan = (data['angkatan'] ?? '').toString().trim();
         final sGender = (data['gender'] ?? 'M').toString().trim();
-        final sClass = (data['className'] ?? data['classId'] ?? 'Siswa').toString().trim();
+        final sClass = (data['className'] ?? data['classId'] ?? studentIdToClassName[doc.id] ?? 'Siswa').toString().trim();
 
         if (sName.isNotEmpty) {
           classRealStudents.putIfAbsent(sClass, () => []).add({
@@ -1275,7 +1306,6 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             [];
 
         final List<Map<String, dynamic>> typedAssignments = assignedClasses.map((c) => Map<String, dynamic>.from(c as Map)).toList();
-
         final layoutSeed = (layoutState['seed'] as num?)?.toInt();
 
         final roomSeats = _buildSeatsFromRoomAssignments(
@@ -1296,27 +1326,18 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           }
         }
 
-        // Save room document in subcollection rooms/
-        final roomDocRef = allocDocRef.collection('rooms').doc(roomId);
-        await roomDocRef.set({
-          'roomId': roomId,
-          'roomName': roomName,
-          'roomCode': roomCode,
-          'capacity': roomCapacity,
-          'mode': arrangeMode,
-          'arrange': arrangeMode,
-          'columns': cols,
-          'totalAssigned': roomSeats.length,
-          'assignedClasses': typedAssignments,
-          'seats': roomSeats,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+        // Skip rooms subcollection — seats subcollection is sufficient
+        debugPrint('[Wizard] Room $roomName: ${roomSeats.length} seats generated.');
 
-        // Save seat documents in subcollection seats/
+        // Save seat documents in batches of 500
+        var batch = FirebaseFirestore.instance.batch();
+        int batchCount = 0;
+        int totalWritten = 0;
+
         for (var seat in roomSeats) {
           final sNum = seat['seatNumber'];
           final seatDocRef = allocDocRef.collection('seats').doc('${roomId}_seat_$sNum');
-          await seatDocRef.set({
+          batch.set(seatDocRef, {
             ...seat,
             'roomId': roomId,
             'roomName': roomName,
@@ -1326,19 +1347,80 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
+          batchCount++;
+          totalWritten++;
+
+          if (batchCount >= 400) {
+            await batch.commit();
+            batch = FirebaseFirestore.instance.batch();
+            batchCount = 0;
+          }
         }
+
+        if (batchCount > 0) {
+          await batch.commit();
+        }
+
+        debugPrint('[Wizard] Room $roomName: $totalWritten seats written to Firestore.');
       }
 
-      await allocDocRef.set({
-        'runId': allocationId,
-        'mode': _allocationMode,
-        'status': 'finalized',
-        'roomAssignments': _roomAssignments,
-        'roomLayouts': _addState,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('Error saving detailed room allocations: $e');
+      // Update totalAssigned on allocation doc
+      int grandTotal = 0;
+      for (var rMap in _rooms) {
+        final rId = (rMap['id'] ?? rMap['code'] ?? rMap['name'] ?? '').toString();
+        final rName = (rMap['name'] ?? rMap['code'] ?? rId).toString();
+        final rCode = (rMap['code'] ?? rMap['name'] ?? rId).toString();
+        final layoutS = (_addState['layout_$rId'] as Map?) ?? (_addState['layout_$rName'] as Map?) ?? (_addState['layout_$rCode'] as Map?) ?? {};
+        final arr = (layoutS['arrange'] ?? _allocationMode ?? 'normal').toString();
+        final assgn = (_roomAssignments[rId] as List?) ?? (_roomAssignments[rName] as List?) ?? (_roomAssignments[rCode] as List?) ?? [];
+        final typed = assgn.map((c) => Map<String, dynamic>.from(c as Map)).toList();
+        final seats = _buildSeatsFromRoomAssignments(
+          assignedClassesInRoom: typed,
+          capacity: (rMap['capacity'] as num?)?.toInt() ?? 30,
+          patternMode: arr,
+          classRealStudents: {},
+          skipCountMap: {},
+          roomId: rId,
+        );
+        grandTotal += seats.length;
+      }
+
+      // Save main allocation metadata
+      try {
+        await allocDocRef.set({
+          'runId': allocationId,
+          'mode': _allocationMode,
+          'status': 'finalized',
+          'roomAssignments': _roomAssignments,
+          'roomLayouts': _addState,
+          'totalAssigned': grandTotal,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        throw 'Gagal memperbarui metadata Alokasi: $e';
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Alokasi berhasil disimpan! Total $grandTotal bangku ujian terdaftar.'),
+            backgroundColor: const Color(0xFF10B981),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
+    } catch (e, stack) {
+      debugPrint('Error saving detailed room allocations: $e\n$stack');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$e'),
+            backgroundColor: const Color(0xFFEF4444),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
     }
   }
 
@@ -1369,8 +1451,11 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         String gender = 'M';
         String participantNumber = '2026-${className.replaceAll(' ', '')}-$paddedIndex';
 
+        String studentId = '';
+
         if (targetIndex < realList.length) {
           final r = realList[targetIndex];
+          studentId = (r['studentId'] ?? '').toString();
           studentName = (r['displayName'] ?? r['studentName'] ?? '').toString();
           nis = (r['nis'] ?? '').toString();
           angkatan = (r['angkatan'] ?? '').toString();
@@ -1389,6 +1474,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         }
 
         studentPool.add({
+          'studentId': studentId,
           'studentName': studentName,
           'displayName': studentName,
           'nis': nis,

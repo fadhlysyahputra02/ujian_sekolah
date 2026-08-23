@@ -1373,19 +1373,48 @@ function runAllocationAlgorithm(students: Student[], rooms: Room[], mode: string
 
 async function fetchActiveStudentsForEvent(db: admin.firestore.Firestore, schoolId: string, eventId: string): Promise<Student[]> {
   const timetableSnap = await db.collection('schools').doc(schoolId).collection('events').doc(eventId).collection('timetable').get();
-  const classIds = [...new Set(timetableSnap.docs.map(doc => doc.data().classId))];
+  const classIds = [...new Set(timetableSnap.docs.map(doc => {
+    const d = doc.data();
+    return (d.classId || d.className || '').toString().trim();
+  }))];
 
-  const studentsSnap = await db.collection('schools').doc(schoolId).collection('students').where('archived', '==', false).get();
+  // Fetch classes to map studentId -> className / classId
+  const classesSnap = await db.collection('schools').doc(schoolId).collection('classes').get();
+  const studentIdToClassName = new Map<string, string>();
+  classesSnap.docs.forEach(cDoc => {
+    const cData = cDoc.data();
+    const cName = (cData.name || cDoc.id).toString().trim();
+    const sIds = cData.studentIds;
+    if (Array.isArray(sIds)) {
+      sIds.forEach((sId: any) => {
+        studentIdToClassName.set(String(sId), cName);
+      });
+    }
+  });
+
+  const studentsSnap = await db.collection('schools').doc(schoolId).collection('students').get();
   const list: Student[] = [];
 
   studentsSnap.docs.forEach(doc => {
     const data = doc.data();
-    if (classIds.includes(data.classId)) {
+    if (data.archived === true) return;
+    if (data.disabled === true) return;
+
+    const resolvedClass = (data.className || data.classId || studentIdToClassName.get(doc.id) || '').toString().trim();
+    
+    // Check if resolvedClass matches any in classIds
+    const cleanResolved = resolvedClass.toLowerCase().replace(/\s+/g, '');
+    const matched = classIds.some(cid => {
+      const cleanCid = cid.toLowerCase().replace(/\s+/g, '');
+      return cleanCid === cleanResolved || (cleanResolved.length > 0 && cleanCid.includes(cleanResolved));
+    });
+
+    if (matched) {
       list.push({
         id: doc.id,
-        displayName: data.displayName || '',
+        displayName: data.displayName || data.name || '',
         nis: data.nis || '',
-        classId: data.classId || '',
+        classId: resolvedClass,
         angkatan: data.angkatan || '',
         schoolId: schoolId
       });

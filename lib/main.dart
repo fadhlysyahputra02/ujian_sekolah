@@ -14,6 +14,7 @@ import 'modules/teacher/views/teacher_dashboard_page.dart';
 import 'modules/teacher/views/teacher_event_detail_page.dart';
 import 'modules/teacher/views/teacher_proctor_room_page.dart';
 import 'modules/student/views/student_dashboard_page.dart';
+import 'modules/student/views/student_event_detail_page.dart';
 import 'modules/subscription/views/subscription_blocked_page.dart';
 
 void main() async {
@@ -101,14 +102,9 @@ class _MyAppState extends State<MyApp> {
             return '/teacher/ringkasan';
           }
         } else if (role == 'student') {
-          // Student TIDAK diizinkan mengakses via Web Browser
-          if (kIsWeb) {
-            _authService.signOut();
-            return '/login';
-          }
           // Student HANYA boleh mengakses rute /student
-          if (!loc.startsWith('/student')) {
-            return '/placeholder';
+          if (loc == '/' || loc == '/student' || !loc.startsWith('/student')) {
+            return '/student/ringkasan';
           }
         } else {
           if (loc != '/placeholder') {
@@ -183,7 +179,25 @@ class _MyAppState extends State<MyApp> {
         ),
         GoRoute(
           path: '/student',
-          builder: (context, state) => const StudentDashboardPage(),
+          redirect: (context, state) => '/student/ringkasan',
+        ),
+        GoRoute(
+          path: '/student/:tab',
+          builder: (context, state) {
+            final tab = state.pathParameters['tab'];
+            return StudentDashboardPage(tabName: tab);
+          },
+          routes: [
+            // Nested child routes agar back button kembali ke dashboard siswa
+            GoRoute(
+              path: 'event/:eventId',
+              builder: (context, state) {
+                final eventId = state.pathParameters['eventId']!;
+                final eventName = state.uri.queryParameters['name'] ?? 'Event Ujian';
+                return StudentEventDetailPage(eventId: eventId, eventName: eventName);
+              },
+            ),
+          ],
         ),
         GoRoute(
           path: '/placeholder',

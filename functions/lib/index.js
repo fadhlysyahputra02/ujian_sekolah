@@ -1114,10 +1114,10 @@ function runAllocationAlgorithm(students, rooms, mode, options) {
     }
     else {
         if (options.respectAngkatan) {
-            pool.sort((a, b) => a.angkatan.localeCompare(b.angkatan) || a.classId.localeCompare(b.classId) || a.displayName.localeCompare(b.displayName));
+            pool.sort((a, b) => a.angkatan.localeCompare(b.angkatan, undefined, { numeric: true, sensitivity: 'base' }) || a.classId.localeCompare(b.classId, undefined, { numeric: true, sensitivity: 'base' }) || a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }));
         }
         else {
-            pool.sort((a, b) => a.classId.localeCompare(b.classId) || a.displayName.localeCompare(b.displayName));
+            pool.sort((a, b) => a.classId.localeCompare(b.classId, undefined, { numeric: true, sensitivity: 'base' }) || a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: 'base' }));
         }
         if (options.avoidSameClassAdjacent) {
             pool = interleaveStudents(pool);
@@ -1158,17 +1158,44 @@ function runAllocationAlgorithm(students, rooms, mode, options) {
 }
 async function fetchActiveStudentsForEvent(db, schoolId, eventId) {
     const timetableSnap = await db.collection('schools').doc(schoolId).collection('events').doc(eventId).collection('timetable').get();
-    const classIds = [...new Set(timetableSnap.docs.map(doc => doc.data().classId))];
-    const studentsSnap = await db.collection('schools').doc(schoolId).collection('students').where('archived', '==', false).get();
+    const classIds = [...new Set(timetableSnap.docs.map(doc => {
+            const d = doc.data();
+            return (d.classId || d.className || '').toString().trim();
+        }))];
+    // Fetch classes to map studentId -> className / classId
+    const classesSnap = await db.collection('schools').doc(schoolId).collection('classes').get();
+    const studentIdToClassName = new Map();
+    classesSnap.docs.forEach(cDoc => {
+        const cData = cDoc.data();
+        const cName = (cData.name || cDoc.id).toString().trim();
+        const sIds = cData.studentIds;
+        if (Array.isArray(sIds)) {
+            sIds.forEach((sId) => {
+                studentIdToClassName.set(String(sId), cName);
+            });
+        }
+    });
+    const studentsSnap = await db.collection('schools').doc(schoolId).collection('students').get();
     const list = [];
     studentsSnap.docs.forEach(doc => {
         const data = doc.data();
-        if (classIds.includes(data.classId)) {
+        if (data.archived === true)
+            return;
+        if (data.disabled === true)
+            return;
+        const resolvedClass = (data.className || data.classId || studentIdToClassName.get(doc.id) || '').toString().trim();
+        // Check if resolvedClass matches any in classIds
+        const cleanResolved = resolvedClass.toLowerCase().replace(/\s+/g, '');
+        const matched = classIds.some(cid => {
+            const cleanCid = cid.toLowerCase().replace(/\s+/g, '');
+            return cleanCid === cleanResolved || (cleanResolved.length > 0 && cleanCid.includes(cleanResolved));
+        });
+        if (matched) {
             list.push({
                 id: doc.id,
-                displayName: data.displayName || '',
+                displayName: data.displayName || data.name || '',
                 nis: data.nis || '',
-                classId: data.classId || '',
+                classId: resolvedClass,
                 angkatan: data.angkatan || '',
                 schoolId: schoolId
             });

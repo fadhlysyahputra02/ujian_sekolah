@@ -21,12 +21,12 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnim;
 
-  // Cached statistics to prevent infinite rebuild loops
-  String? _lastTeacherId;
-  List<QueryDocumentSnapshot>? _lastEvents;
-  int _makingQuestionsCount = 0;
-  int _proctoringSessionsCount = 0;
-  bool _statsLoaded = false;
+  // Cached statistics statically to persist across widget destructions/recreations during route changes
+  static String? _lastTeacherId;
+  static List<QueryDocumentSnapshot>? _lastEvents;
+  static int _makingQuestionsCount = 0;
+  static int _proctoringSessionsCount = 0;
+  static bool _statsLoaded = false;
 
   void _updateStats(String schoolId, String teacherId, List<QueryDocumentSnapshot> events) {
     final currentIds = events.map((e) => e.id).toSet();
@@ -428,7 +428,22 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                 top: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
               ),
             ),
-            child: _buildLogoutTile(authService, extended: extended),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildLogoutTile(authService, extended: extended),
+                const SizedBox(height: 8),
+                Text(
+                  extended ? 'Versi 1.0.1' : '1.0.1',
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.35),
+                    fontSize: extended ? 11 : 9,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -1078,7 +1093,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
 
                 return InkWell(
                   onTap: () {
-                    context.push('/teacher/event/$eventId/buatsoal?name=${Uri.encodeComponent(eventName)}');
+                    context.go('/teacher/event/$eventId/buatsoal?name=${Uri.encodeComponent(eventName)}');
                   },
                   borderRadius: BorderRadius.circular(16),
                   child: Container(

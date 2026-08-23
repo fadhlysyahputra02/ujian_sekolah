@@ -46,13 +46,48 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_handleTabSelection);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkPermissions());
   }
 
   @override
+  void didUpdateWidget(covariant TeacherEventDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.tabName != oldWidget.tabName && widget.tabName != null) {
+      int targetIdx = 0;
+      if (widget.tabName == 'pengawas') {
+        targetIdx = 1;
+      } else if (widget.tabName == 'ringkasan' || widget.tabName == 'koreksi') {
+        targetIdx = 2;
+      }
+      if (_tabController.index != targetIdx) {
+        _tabController.animateTo(targetIdx);
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    _tabController.removeListener(_handleTabSelection);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _handleTabSelection() {
+    if (_tabController.indexIsChanging) {
+      return;
+    }
+    String targetTab = 'buatsoal';
+    if (_tabController.index == 1) {
+      targetTab = 'pengawas';
+    } else if (_tabController.index == 2) {
+      targetTab = 'koreksi';
+    }
+
+    if (widget.tabName != targetTab && mounted) {
+      final nameParam = Uri.encodeComponent(widget.eventName);
+      context.go('/teacher/event/${widget.eventId}/$targetTab?name=$nameParam');
+    }
   }
 
   Future<void> _checkPermissions() async {
@@ -205,19 +240,6 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(widget.eventName),
-          backgroundColor: Colors.white,
-          foregroundColor: const Color(0xFF0F172A),
-        ),
-        body: const Center(
-          child: CircularProgressIndicator(color: Color(0xFF10B981)),
-        ),
-      );
-    }
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -258,20 +280,24 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _isPembuatSoal
-              ? _buildBuatSoalTab()
-              : _buildLockedTab('Buat Soal', 'Anda tidak ditugaskan sebagai pembuat soal pada event ujian ini.'),
-          _isPengawas
-              ? _buildPengawasTab()
-              : _buildLockedTab('Pengawas Ruangan', 'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.'),
-          _isPembuatSoal
-              ? _buildKoreksiTab()
-              : _buildLockedTab('Koreksi Ujian', 'Anda tidak ditugaskan sebagai penilai/korektor soal pada event ujian ini.'),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF10B981)),
+            )
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _isPembuatSoal
+                    ? _buildBuatSoalTab()
+                    : _buildLockedTab('Buat Soal', 'Anda tidak ditugaskan sebagai pembuat soal pada event ujian ini.'),
+                _isPengawas
+                    ? _buildPengawasTab()
+                    : _buildLockedTab('Pengawas Ruangan', 'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.'),
+                _isPembuatSoal
+                    ? _buildKoreksiTab()
+                    : _buildLockedTab('Koreksi Ujian', 'Anda tidak ditugaskan sebagai penilai/korektor soal pada event ujian ini.'),
+              ],
+            ),
     );
   }
 
@@ -2234,13 +2260,27 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         isMatch = (tOrder == targetOrder);
                       }
 
-                      if (isMatch) {
-                        final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString();
-                        final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString();
-                        final cId = (tItem['classId'] ?? '').toString();
+                       if (isMatch) {
+                        final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString().trim();
+                        final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString().trim();
+                        final cId = (tItem['classId'] ?? '').toString().trim();
 
                         if (subj.isNotEmpty) {
-                          if (roomClassNames.isEmpty || roomClassNames.contains(cls) || roomClassNames.contains(cId)) {
+                          bool classMatched = roomClassNames.isEmpty;
+                          if (!classMatched) {
+                            final clsClean = cls.toLowerCase().replaceAll(' ', '');
+                            final cIdClean = cId.toLowerCase().replaceAll(' ', '');
+                            classMatched = roomClassNames.contains(cls) || 
+                                           roomClassNames.contains(cId) ||
+                                           roomClassNames.contains(clsClean) ||
+                                           roomClassNames.contains(cIdClean) ||
+                                           roomClassNames.any((c) {
+                                             final cClean = c.toLowerCase().replaceAll(' ', '');
+                                             return cClean.isNotEmpty && (clsClean.contains(cClean) || cClean.contains(clsClean));
+                                           });
+                          }
+
+                          if (classMatched) {
                             if (!matchedSubjects.contains(subj)) {
                               matchedSubjects.add(subj);
                             }

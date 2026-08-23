@@ -225,9 +225,17 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
-    final schoolId = (_resolvedSchoolId != null && _resolvedSchoolId!.isNotEmpty)
-        ? _resolvedSchoolId!
-        : (authService.schoolId ?? '');
+    final schoolId = (authService.schoolId != null && authService.schoolId!.isNotEmpty)
+        ? authService.schoolId!
+        : (_resolvedSchoolId ?? '');
+
+    if (schoolId.isNotEmpty && _resolvedSchoolId != schoolId) {
+      _resolvedSchoolId = schoolId;
+      _isResolvingSchool = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _fetchTimetableSubcollection();
+      });
+    }
 
     if (_isResolvingSchool || schoolId.isEmpty) {
       return Scaffold(
@@ -443,6 +451,20 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               .where((c) => c.isNotEmpty)
               .toList();
 
+          final roomClassNamesSet = <String>{};
+          for (var c in assignedClassesInRoom) {
+            final cName = (c['className'] ?? '').toString().trim();
+            final cId = (c['classId'] ?? '').toString().trim();
+            if (cName.isNotEmpty) {
+              roomClassNamesSet.add(cName);
+              roomClassNamesSet.add(cName.toLowerCase().replaceAll(' ', ''));
+            }
+            if (cId.isNotEmpty) {
+              roomClassNamesSet.add(cId);
+              roomClassNamesSet.add(cId.toLowerCase().replaceAll(' ', ''));
+            }
+          }
+
           // Resolve Subject Name for this Day & Session & Room
           final matchedSubjects = <String>[];
           final targetKeyStr = 'day_${widget.dayIndex}_session_${widget.sessionIndex}';
@@ -538,12 +560,26 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
             }
 
             if (isMatch) {
-              final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString();
-              final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString();
-              final cId = (tItem['classId'] ?? '').toString();
+              final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString().trim();
+              final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString().trim();
+              final cId = (tItem['classId'] ?? '').toString().trim();
 
               if (subj.isNotEmpty) {
-                if (orderedRoomClasses.isEmpty || orderedRoomClasses.contains(cls) || orderedRoomClasses.contains(cId)) {
+                bool classMatched = roomClassNamesSet.isEmpty;
+                if (!classMatched) {
+                  final clsClean = cls.toLowerCase().replaceAll(' ', '');
+                  final cIdClean = cId.toLowerCase().replaceAll(' ', '');
+                  classMatched = roomClassNamesSet.contains(cls) || 
+                                 roomClassNamesSet.contains(cId) ||
+                                 roomClassNamesSet.contains(clsClean) ||
+                                 roomClassNamesSet.contains(cIdClean) ||
+                                 roomClassNamesSet.any((c) {
+                                   final cClean = c.toLowerCase().replaceAll(' ', '');
+                                   return cClean.isNotEmpty && (clsClean.contains(cClean) || cClean.contains(clsClean));
+                                 });
+                }
+
+                if (classMatched) {
                   if (!matchedSubjects.contains(subj)) {
                     matchedSubjects.add(subj);
                   }
