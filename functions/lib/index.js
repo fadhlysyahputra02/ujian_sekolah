@@ -1405,6 +1405,16 @@ exports.executeAllocation = functions.https.onCall(async (request) => {
     await writeAuditLog(db, schoolId, actorUid, 'EXECUTE_ALLOCATION', `Mengeksekusi alokasi tempat duduk (${mode}) untuk event ${eventId}`);
     return { allocationId };
 });
+function cleanRoomCode(raw) {
+    if (!raw || !raw.trim())
+        return '00';
+    let str = raw.trim();
+    str = str.replace(/^(ruangan|ruang|room|r\.?)\s+/i, '');
+    if (/^\d+$/.test(str)) {
+        return str.padStart(2, '0');
+    }
+    return str;
+}
 exports.generateParticipantNumbers = functions.https.onCall(async (request) => {
     const { schoolId, eventId, allocationId, formatConfig } = request.data || {};
     if (!schoolId || !eventId || !allocationId || !formatConfig) {
@@ -1419,18 +1429,20 @@ exports.generateParticipantNumbers = functions.https.onCall(async (request) => {
     let count = 0;
     for (const doc of seatsSnap.docs) {
         const s = doc.data();
-        const angkatan = s.angkatan || '0000';
-        const roomCode = s.roomCode || '00';
+        const angkatan = s.angkatan || '2026';
+        const rawRoom = (s.roomCode || s.roomName || s.roomId || '00').toString();
+        const roomCodeClean = cleanRoomCode(rawRoom);
         const seatPadding = formatConfig.seatPadding || 3;
-        const seatNumberStr = String(s.seatNumber).padStart(seatPadding, '0');
+        const seatNumberStr = String(s.seatNumber || 1).padStart(seatPadding, '0');
+        const delimiter = formatConfig.delimiter !== undefined ? formatConfig.delimiter : '-';
         let num = '';
-        if (formatConfig.delimiter) {
-            num = `${angkatan}${formatConfig.delimiter}${roomCode}${formatConfig.delimiter}${seatNumberStr}`;
+        if (delimiter) {
+            num = `${angkatan}${delimiter}${roomCodeClean}${delimiter}${seatNumberStr}`;
         }
         else {
-            num = `${angkatan}${roomCode}${seatNumberStr}`;
+            num = `${angkatan}${roomCodeClean}${seatNumberStr}`;
         }
-        batch.update(doc.ref, { participantNumber: num, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+        batch.update(doc.ref, { participantNumber: num, roomCode: roomCodeClean, updatedAt: firestore_1.FieldValue.serverTimestamp() });
         count++;
         if (count === 500) {
             await batch.commit();

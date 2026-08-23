@@ -1,11 +1,14 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/student.dart';
+import 'student_exam_page.dart';
 
 class StudentEventDetailPage extends StatefulWidget {
   final String eventId;
@@ -28,13 +31,17 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   String? _myClassId;
   String? _myClassName;
 
+  // Event Date Range
+  String _eventDateRange = 'Tanggal belum diatur';
+  DateTime? _eventStartDate;
+
   // Seat Allocation Info
   Map<String, dynamic>? _allocatedSeat;
-  
+
   // Timetable & Sessions
   List<Map<String, dynamic>> _myTimetable = [];
   Map<String, Map<String, dynamic>> _sessionMap = {};
-  
+
   @override
   void initState() {
     super.initState();
@@ -43,7 +50,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
   Future<void> _loadStudentAndEventDetails() async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     // Wait for auth to load
     if (authService.isLoading || authService.schoolId == null || authService.schoolId!.isEmpty) {
       for (int i = 0; i < 20; i++) {
@@ -63,28 +70,34 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     }
 
     try {
-      // 1. Fetch Student profile
-      final studentSnap = await FirebaseFirestore.instance
-          .collection('schools')
-          .doc(_schoolId)
-          .collection('students')
-          .where('uid', isEqualTo: uid)
-          .limit(1)
-          .get();
+      final db = FirebaseFirestore.instance;
+      final schoolRef = db.collection('schools').doc(_schoolId);
+      final eventRef = schoolRef.collection('events').doc(widget.eventId);
+
+      // PARALLEL BATCH 1: Fetch Student profile, Classes, Event doc, Sessions, Timetable, Allocations concurrently
+      final results = await Future.wait([
+        schoolRef.collection('students').where('uid', isEqualTo: uid).limit(1).get(),
+        schoolRef.collection('classes').get(),
+        eventRef.get(),
+        eventRef.collection('sessions').get(),
+        eventRef.collection('timetable').get(),
+        eventRef.collection('allocations').limit(1).get(),
+      ]);
+
+      final studentSnap = results[0] as QuerySnapshot;
+      final classSnap = results[1] as QuerySnapshot;
+      final eventDoc = results[2] as DocumentSnapshot;
+      final sessionsSnap = results[3] as QuerySnapshot;
+      final timetableSnap = results[4] as QuerySnapshot;
+      final allocSnap = results[5] as QuerySnapshot;
 
       if (studentSnap.docs.isNotEmpty) {
         final doc = studentSnap.docs.first;
         _student = Student.fromFirestore(doc);
-        
-        // Resolve student's class name by looking up in classes collection
-        final classSnap = await FirebaseFirestore.instance
-            .collection('schools')
-            .doc(_schoolId)
-            .collection('classes')
-            .get();
 
+        // Resolve student's class name
         for (var cDoc in classSnap.docs) {
-          final cData = cDoc.data();
+          final cData = cDoc.data() as Map<String, dynamic>;
           final sIds = cData['studentIds'];
           if (sIds is List && sIds.contains(doc.id)) {
             _myClassId = cDoc.id;
@@ -93,94 +106,116 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           }
         }
 
-        // Fallback: Check if student document stores className directly
-        _myClassName ??= (doc.data()['className'] ?? doc.data()['classId'] ?? _student!.angkatan).toString();
+        final docMap = doc.data() as Map<String, dynamic>;
+        _myClassName ??= (docMap['className'] ?? docMap['classId'] ?? _student!.angkatan).toString();
         _myClassId ??= _myClassName;
 
-        // 2. Fetch Active Seat Allocation
-        final eventRef = FirebaseFirestore.instance
-            .collection('schools')
-            .doc(_schoolId)
-            .collection('events')
-            .doc(widget.eventId);
-
-        final allocSnap = await eventRef.collection('allocations').limit(1).get();
-        if (allocSnap.docs.isNotEmpty) {
-          final activeAllocId = allocSnap.docs.first.id;
-          final allocRef = eventRef.collection('allocations').doc(activeAllocId);
-          
-          Map<String, dynamic>? seatData;
-          
-          // 1. Try by studentId
-          var seatSnap = await allocRef.collection('seats').where('studentId', isEqualTo: doc.id).limit(1).get();
-          if (seatSnap.docs.isNotEmpty) {
-            seatData = seatSnap.docs.first.data();
-          }
-          
-          // 2. Try by nis
-          if (seatData == null && _student!.nis.isNotEmpty) {
-            seatSnap = await allocRef.collection('seats').where('nis', isEqualTo: _student!.nis).limit(1).get();
-            if (seatSnap.docs.isNotEmpty) {
-              seatData = seatSnap.docs.first.data();
-            }
-          }
-          
-          // 3. Try by studentName / displayName
-          if (seatData == null && _student!.displayName.isNotEmpty) {
-            seatSnap = await allocRef.collection('seats').where('studentName', isEqualTo: _student!.displayName).limit(1).get();
-            if (seatSnap.docs.isNotEmpty) {
-              seatData = seatSnap.docs.first.data();
+        // Process Event Doc Date Range
+        if (eventDoc.exists) {
+          final eData = eventDoc.data() as Map<String, dynamic>?;
+          if (eData != null) {
+            final sd = eData['startDate'];
+            final ed = eData['endDate'];
+            DateTime? start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
+            DateTime? end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
+            _eventStartDate = start;
+            final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
+            if (start != null && end != null) {
+              _eventDateRange = '${dateFormat.format(start)} - ${dateFormat.format(end)}';
             } else {
-              seatSnap = await allocRef.collection('seats').where('displayName', isEqualTo: _student!.displayName).limit(1).get();
-              if (seatSnap.docs.isNotEmpty) {
-                seatData = seatSnap.docs.first.data();
-              }
+              _eventDateRange = 'Tanggal belum diatur';
             }
-          }
-
-          if (seatData != null) {
-            _allocatedSeat = seatData;
           }
         }
 
-        // 3. Fetch Sessions and build SessionMap
-        final sessionsSnap = await eventRef.collection('sessions').get();
+        // Process Sessions
         for (var sDoc in sessionsSnap.docs) {
-          final sData = sDoc.data();
+          final sData = sDoc.data() as Map<String, dynamic>;
           sData['id'] = sDoc.id;
           _sessionMap[sDoc.id] = sData;
-          // Support fallback matching tempId as well
           final tempId = sData['tempId']?.toString();
           if (tempId != null && tempId.isNotEmpty) {
             _sessionMap[tempId] = sData;
           }
         }
 
-        // 4. Fetch Timetable & Filter for student's class
-        final timetableSnap = await eventRef.collection('timetable').get();
+        // Process Timetable Filter for student's class
         final filteredTimetable = <Map<String, dynamic>>[];
-        
         final cleanMyClass = _myClassName?.toLowerCase().replaceAll(' ', '') ?? '';
         final cleanMyClassId = _myClassId?.toLowerCase().replaceAll(' ', '') ?? '';
 
         for (var tDoc in timetableSnap.docs) {
-          final tData = tDoc.data();
+          final tData = tDoc.data() as Map<String, dynamic>;
           final tClass = (tData['className'] ?? tData['classId'] ?? '').toString().trim();
           final tClassId = (tData['classId'] ?? '').toString().trim();
-          
+
           final cleanTClass = tClass.toLowerCase().replaceAll(' ', '');
           final cleanTClassId = tClassId.toLowerCase().replaceAll(' ', '');
 
-          bool matched = cleanTClass == cleanMyClass || 
-                         cleanTClassId == cleanMyClassId ||
-                         (cleanMyClass.isNotEmpty && cleanTClass.contains(cleanMyClass)) ||
-                         (cleanMyClassId.isNotEmpty && cleanTClassId.contains(cleanMyClassId));
-                         
+          bool matched = cleanTClass == cleanMyClass ||
+              cleanTClassId == cleanMyClassId ||
+              (cleanMyClass.isNotEmpty && cleanTClass.contains(cleanMyClass)) ||
+              (cleanMyClassId.isNotEmpty && cleanTClassId.contains(cleanMyClassId));
+
           if (matched) {
             filteredTimetable.add(tData);
           }
         }
-        
+
+        // PARALLEL BATCH 2: Fetch Seat allocation & Questions readiness concurrently
+        final List<Future<void>> parallelTasks = [];
+
+        // Task A: Seat lookup
+        if (allocSnap.docs.isNotEmpty) {
+          final activeAllocId = allocSnap.docs.first.id;
+          final allocRef = eventRef.collection('allocations').doc(activeAllocId);
+          parallelTasks.add(
+            allocRef.collection('seats').get().then((seatSnap) {
+              for (var sDoc in seatSnap.docs) {
+                final sData = sDoc.data();
+                if (sData['studentId'] == doc.id ||
+                    (sData['nis'] != null && sData['nis'] == _student!.nis) ||
+                    (sData['studentName'] != null && sData['studentName'] == _student!.displayName) ||
+                    (sData['displayName'] != null && sData['displayName'] == _student!.displayName)) {
+                  _allocatedSeat = sData;
+                  break;
+                }
+              }
+            }).catchError((_) {}),
+          );
+        }
+
+        // Task B: Question readiness check for all subjects in parallel
+        for (var item in filteredTimetable) {
+          final subId = (item['subjectId'] ?? item['subjectName'] ?? '').toString();
+          final subName = (item['subjectName'] ?? '').toString();
+
+          if (subId.isNotEmpty) {
+            parallelTasks.add(
+              eventRef.collection('subjects').doc(subId).collection('questions').get().then((qSnap) {
+                int qCount = qSnap.docs.length;
+                item['isQuestionReady'] = qCount > 0;
+                item['questionCount'] = qCount;
+              }).catchError((_) {
+                if (subName.isNotEmpty && subName != subId) {
+                  return eventRef.collection('subjects').doc(subName).collection('questions').get().then((qSnap2) {
+                    int qCount = qSnap2.docs.length;
+                    item['isQuestionReady'] = qCount > 0;
+                    item['questionCount'] = qCount;
+                  }).catchError((_) {
+                    item['isQuestionReady'] = false;
+                    item['questionCount'] = 0;
+                  });
+                } else {
+                  item['isQuestionReady'] = false;
+                  item['questionCount'] = 0;
+                }
+              }),
+            );
+          }
+        }
+
+        await Future.wait(parallelTasks);
         _myTimetable = filteredTimetable;
       }
     } catch (e) {
@@ -201,7 +236,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           backgroundColor: const Color(0xFF0F172A),
           foregroundColor: Colors.white,
           elevation: 0,
-          title: Text('Memuat Jadwal...', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+          title: Text('Memuat Detail Ujian...', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
         ),
         body: const Center(
           child: CircularProgressIndicator(color: Color(0xFF10B981)),
@@ -209,36 +244,70 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       );
     }
 
-    // Group my timetable by Date
-    final Map<String, List<Map<String, dynamic>>> timetableByDate = {};
+    // Group timetable by DateTime for CHRONOLOGICAL sorting
+    final Map<DateTime, Map<String, dynamic>> dateGroupMap = {};
+
     for (var item in _myTimetable) {
       final sId = item['sessionId']?.toString() ?? '';
       final session = _sessionMap[sId];
-      
-      String dateStr = 'Tanggal Belum Diatur';
+
+      DateTime itemDate = DateTime(2099, 12, 31); // Default far future
       if (session != null && session['date'] != null) {
         final dVal = session['date'];
-        DateTime? dt;
         if (dVal is Timestamp) {
-          dt = dVal.toDate();
+          itemDate = dVal.toDate();
         } else if (dVal is String) {
-          dt = DateTime.tryParse(dVal);
-        }
-        if (dt != null) {
-          dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dt);
+          final dt = DateTime.tryParse(dVal);
+          if (dt != null) itemDate = dt;
         }
       }
-      timetableByDate.putIfAbsent(dateStr, () => []).add(item);
+
+      // Fallback date calculation from dayIndex relative to event startDate
+      if (itemDate.year == 2099) {
+        final dayIdx = (item['dayIndex'] as num?)?.toInt() ?? 0;
+        if (_eventStartDate != null) {
+          itemDate = _eventStartDate!.add(Duration(days: dayIdx));
+        } else {
+          itemDate = DateTime(2026, 8, 23).add(Duration(days: dayIdx));
+        }
+      }
+
+      final normDate = DateTime(itemDate.year, itemDate.month, itemDate.day);
+      final dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(normDate);
+
+      if (!dateGroupMap.containsKey(normDate)) {
+        dateGroupMap[normDate] = {
+          'dateStr': dateStr,
+          'date': normDate,
+          'items': <Map<String, dynamic>>[item],
+        };
+      } else {
+        (dateGroupMap[normDate]!['items'] as List<Map<String, dynamic>>).add(item);
+      }
     }
 
-    // Sort dates
-    final sortedDates = timetableByDate.keys.toList()..sort((a, b) {
-      if (a.contains('Belum') || b.contains('Belum')) return 1;
-      return a.compareTo(b);
-    });
+    // Sort dates CHRONOLOGICALLY
+    final sortedDateKeys = dateGroupMap.keys.toList()..sort((a, b) => a.compareTo(b));
 
     final roomName = _allocatedSeat?['roomName'] ?? _allocatedSeat?['roomId'] ?? 'Belum Alokasi';
     final seatNumber = _allocatedSeat?['seatNumber']?.toString() ?? '-';
+    final participantNumber = _allocatedSeat?['participantNumber']?.toString() ?? _student?.nis ?? '-';
+
+    // JSON Payload encoded inside QR Code with full student and exam event data
+    final Map<String, dynamic> qrDataMap = {
+      'studentId': _student?.id ?? '',
+      'studentName': _student?.displayName ?? 'Siswa SesiCermat',
+      'nis': _student?.nis ?? '',
+      'className': _myClassName ?? '',
+      'schoolId': _schoolId,
+      'eventId': widget.eventId,
+      'eventName': widget.eventName,
+      'eventDateRange': _eventDateRange,
+      'participantNumber': participantNumber,
+      'roomName': roomName,
+      'seatNumber': seatNumber,
+    };
+    final String qrDataString = jsonEncode(qrDataMap);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -252,7 +321,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
             if (context.canPop()) {
               context.pop();
             } else {
-              context.go('/student/ujian');
+              context.go('/student');
             }
           },
         ),
@@ -264,7 +333,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
               style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             Text(
-              'Jadwal & Kartu Peserta Ujian',
+              'Kartu Peserta & Jadwal Ujian',
               style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFFA7F3D0)),
             ),
           ],
@@ -275,8 +344,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Student Card Box
-            _buildParticipantCard(roomName, seatNumber),
+            // Card dengan QR (Dapat diklik memperbesar), Nama Event, Tanggal Event, No Peserta, Ruangan, No Kursi
+            _buildParticipantCard(
+              roomName: roomName,
+              seatNumber: seatNumber,
+              participantNumber: participantNumber,
+              dateRange: _eventDateRange,
+              qrDataString: qrDataString,
+            ),
             const SizedBox(height: 28),
 
             // Schedule Section Header
@@ -294,7 +369,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                 Text(
                   'Jadwal Ujian Anda',
                   style: GoogleFonts.inter(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.bold,
                     color: const Color(0xFF1E293B),
                   ),
@@ -306,9 +381,11 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
             if (_myTimetable.isEmpty)
               _buildEmptySchedule()
             else
-              ...sortedDates.map((dateKey) {
-                final dayItems = timetableByDate[dateKey]!;
-                // Sort items by session startTime
+              ...sortedDateKeys.map((dateKey) {
+                final group = dateGroupMap[dateKey]!;
+                final dateStr = group['dateStr'] as String;
+                final dayItems = group['items'] as List<Map<String, dynamic>>;
+
                 dayItems.sort((a, b) {
                   final sessA = _sessionMap[a['sessionId']];
                   final sessB = _sessionMap[b['sessionId']];
@@ -317,7 +394,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   return startA.compareTo(startB);
                 });
 
-                return _buildDayScheduleGroup(dateKey, dayItems);
+                return _buildDayScheduleGroup(dateStr, dayItems);
               }),
           ],
         ),
@@ -325,7 +402,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     );
   }
 
-  Widget _buildParticipantCard(String roomName, String seatNumber) {
+  /// Card Peserta Ujian berisi: QR Code (Click to enlarge), Nama Event Ujian, Tanggal Event, No Peserta, Ruangan, No Kursi
+  Widget _buildParticipantCard({
+    required String roomName,
+    required String seatNumber,
+    required String participantNumber,
+    required String dateRange,
+    required String qrDataString,
+  }) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -345,7 +429,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       ),
       child: Stack(
         children: [
-          // Background accents
+          // Background circles accent
           Positioned(
             right: -20,
             top: -20,
@@ -363,47 +447,162 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(22.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Top Header Row: Event Name, Date Range, & Interactive QR Code Box
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'KARTU PESERTA UJIAN',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFA7F3D0),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                        letterSpacing: 1.5,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'KARTU PESERTA UJIAN',
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFFA7F3D0),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            widget.eventName,
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 19,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.calendar_today_rounded, size: 13, color: Color(0xFFA7F3D0)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  dateRange,
+                                  style: GoogleFonts.inter(
+                                    color: const Color(0xFFA7F3D0),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    const Icon(Icons.qr_code_rounded, color: Colors.white60, size: 28),
+                    const SizedBox(width: 12),
+                    // Clickable Interactive QR Code Box
+                    Tooltip(
+                      message: 'Klik untuk memperbesar QR Code',
+                      child: InkWell(
+                        onTap: () => _showEnlargedQrDialog(
+                          context: context,
+                          qrData: qrDataString,
+                          participantNumber: participantNumber,
+                          roomName: roomName,
+                          seatNumber: seatNumber,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.15),
+                                blurRadius: 10,
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              QrImageView(
+                                data: qrDataString,
+                                version: QrVersions.auto,
+                                size: 56.0,
+                                padding: EdgeInsets.zero,
+                                backgroundColor: Colors.white,
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.zoom_in_rounded, size: 10, color: Color(0xFF0F172A)),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    'PERBESAR',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w900,
+                                      color: const Color(0xFF0F172A),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  _student?.displayName ?? 'Siswa SesiCermat',
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                    letterSpacing: -0.5,
-                  ),
+                const SizedBox(height: 16),
+                const Divider(color: Colors.white24, height: 1),
+                const SizedBox(height: 14),
+
+                // Student Identity Info
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _student?.displayName ?? 'Siswa SesiCermat',
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'NIS: ${_student?.nis ?? "-"}  •  Kelas: ${_myClassName ?? "-"}',
+                            style: GoogleFonts.inter(
+                              color: const Color(0xFFA7F3D0),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'NISN/NIS: ${_student?.nis ?? "-"}  •  Kelas: ${_myClassName ?? "-"}',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFA7F3D0),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
+
+                // Grid Details: Nomor Peserta, Ruangan, Nomor Kursi
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(14),
@@ -411,40 +610,62 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   ),
                   child: Row(
                     children: [
+                      // Nomor Peserta
                       Expanded(
+                        flex: 4,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'NO. PESERTA',
+                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              participantNumber,
+                              style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(height: 28, width: 1, color: Colors.white24),
+                      const SizedBox(width: 12),
+                      // Ruangan
+                      Expanded(
+                        flex: 4,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'RUANGAN',
-                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1),
+                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.8),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               roomName,
-                              style: GoogleFonts.inter(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                              style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
                       ),
-                      Container(
-                        height: 32,
-                        width: 1,
-                        color: Colors.white24,
-                      ),
-                      const SizedBox(width: 24),
+                      Container(height: 28, width: 1, color: Colors.white24),
+                      const SizedBox(width: 12),
+                      // Nomor Kursi
                       Expanded(
+                        flex: 3,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'NOMOR KURSI',
-                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1),
+                              'NO. KURSI',
+                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.8),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               seatNumber,
-                              style: GoogleFonts.inter(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                              style: GoogleFonts.inter(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900),
                             ),
                           ],
                         ),
@@ -457,6 +678,150 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Dialog untuk memperbesar QR Code peserta
+  void _showEnlargedQrDialog({
+    required BuildContext context,
+    required String qrData,
+    required String participantNumber,
+    required String roomName,
+    required String seatNumber,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: Colors.white,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Dialog Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD1FAE5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.qr_code_2_rounded, color: Color(0xFF10B981), size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'QR Kartu Ujian',
+                            style: GoogleFonts.inter(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF0F172A),
+                            ),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Large QR Code Display Box
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: QrImageView(
+                      data: qrData,
+                      version: QrVersions.auto,
+                      size: 220.0,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Detailed Student & Exam Info Box
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      children: [
+                        _buildQrDetailRow('Nama Siswa', _student?.displayName ?? '-'),
+                        const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                        _buildQrDetailRow('NIS / Kelas', '${_student?.nis ?? "-"} • ${_myClassName ?? "-"}'),
+                        const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                        _buildQrDetailRow('Event Ujian', widget.eventName),
+                        const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                        _buildQrDetailRow('No. Peserta', participantNumber),
+                        const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                        _buildQrDetailRow('Ruangan / Kursi', '$roomName (Kursi $seatNumber)'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF10B981)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Tunjukkan QR Code ini kepada pengawas untuk verifikasi kehadiran ujian.',
+                          style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildQrDetailRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 
@@ -503,11 +868,15 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
               final sId = item['sessionId']?.toString() ?? '';
               final session = _sessionMap[sId];
               final subjectName = item['subjectName'] ?? 'Mata Pelajaran';
-              
+
               final sName = session?['name'] ?? session?['sessionName'] ?? 'Sesi ${index + 1}';
-              final startTime = session?['startTime'] ?? '';
-              final endTime = session?['endTime'] ?? '';
+              final startTime = (session?['startTime'] ?? '').toString();
+              final endTime = (session?['endTime'] ?? '').toString();
               final timeLabel = startTime.isNotEmpty ? '$startTime - $endTime' : 'Waktu belum diatur';
+
+              final bool isQuestionReady = item['isQuestionReady'] == true;
+              final bool isSubmitted = item['isSubmitted'] == true;
+              final num? submittedScore = item['submittedScore'];
 
               return Padding(
                 padding: const EdgeInsets.all(16.0),
@@ -516,10 +885,20 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
+                        color: isSubmitted
+                            ? const Color(0xFFD1FAE5)
+                            : (isQuestionReady ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9)),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 22),
+                      child: Icon(
+                        isSubmitted
+                            ? Icons.check_circle_rounded
+                            : (isQuestionReady ? Icons.edit_note_rounded : Icons.lock_clock_rounded),
+                        color: isSubmitted
+                            ? const Color(0xFF047857)
+                            : (isQuestionReady ? const Color(0xFF10B981) : const Color(0xFF94A3B8)),
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -545,6 +924,75 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                         ],
                       ),
                     ),
+                    const SizedBox(width: 10),
+
+                    // Action Button or Status Badge
+                    if (isSubmitted)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD1FAE5),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFF6EE7B7)),
+                        ),
+                        child: Text(
+                          submittedScore != null ? 'Selesai ($submittedScore)' : 'Selesai',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 11, color: const Color(0xFF047857)),
+                        ),
+                      )
+                    else if (isQuestionReady)
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          final sid = (item['subjectId'] ?? subjectName).toString();
+                          debugPrint('🚀 Navigating to StudentExamPage');
+                          debugPrint('   subjectId  : "$sid"');
+                          debugPrint('   subjectName: "$subjectName"');
+                          debugPrint('   angkatan   : "${_student?.angkatan}"');
+                          debugPrint('   className  : "$_myClassName"');
+                          debugPrint('   item keys  : ${item.keys.toList()}');
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => StudentExamPage(
+                                schoolId: _schoolId,
+                                eventId: widget.eventId,
+                                eventName: widget.eventName,
+                                subjectId: sid,
+                                subjectName: subjectName.toString(),
+                                studentId: _student?.id ?? '',
+                                studentName: _student?.displayName ?? 'Siswa',
+                                nis: _student?.nis ?? '',
+                                className: _myClassName ?? '',
+                                angkatan: _student?.angkatan ?? '',
+                                sessionName: sName,
+                                startTimeStr: startTime,
+                                endTimeStr: endTime,
+                              ),
+                            ),
+                          ).then((_) => _loadStudentAndEventDetails());
+                        },
+                        icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
+                        label: const Text('Kerjakan'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B981),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          'Soal Belum Siap',
+                          style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w600),
+                        ),
+                      ),
                   ],
                 ),
               );

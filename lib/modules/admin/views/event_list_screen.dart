@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/event_exam_service.dart';
 import 'event_editor_wizard.dart';
+import 'admin_full_schedule_page.dart';
 
 class EventListScreen extends StatefulWidget {
   final String schoolId;
@@ -769,6 +770,28 @@ class _EventListScreenState extends State<EventListScreen> {
                                   spacing: 12,
                                   runSpacing: 12,
                                   children: [
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => AdminFullSchedulePage(
+                                              schoolId: widget.schoolId,
+                                              eventId: e['id'],
+                                              eventName: name,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.calendar_month_rounded, size: 16),
+                                      label: const Text('Lihat Jadwal Lengkap'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF4F46E5),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    ),
                                     if (status == 'draft')
                                       OutlinedButton.icon(
                                         onPressed: () {
@@ -821,6 +844,28 @@ class _EventListScreenState extends State<EventListScreen> {
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => AdminFullSchedulePage(
+                                              schoolId: widget.schoolId,
+                                              eventId: e['id'],
+                                              eventName: name,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.calendar_month_rounded, size: 16),
+                                      label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(0xFF4F46E5),
+                                        side: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
                                     if (status != 'closed') ...[
                                       ElevatedButton.icon(
                                         onPressed: () => _updateStatus(e['id'], status),

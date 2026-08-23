@@ -179,16 +179,30 @@ class _MyAppState extends State<MyApp> {
         ),
         GoRoute(
           path: '/student',
-          redirect: (context, state) => '/student/ringkasan',
+          builder: (context, state) => const StudentDashboardPage(),
+          routes: [
+            GoRoute(
+              path: 'event/:eventId',
+              builder: (context, state) {
+                final eventId = state.pathParameters['eventId']!;
+                final eventName = state.uri.queryParameters['name'] ?? 'Event Ujian';
+                return StudentEventDetailPage(eventId: eventId, eventName: eventName);
+              },
+            ),
+          ],
+        ),
+        GoRoute(
+          path: '/student/event/:eventId',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['name'] ?? 'Event Ujian';
+            return StudentEventDetailPage(eventId: eventId, eventName: eventName);
+          },
         ),
         GoRoute(
           path: '/student/:tab',
-          builder: (context, state) {
-            final tab = state.pathParameters['tab'];
-            return StudentDashboardPage(tabName: tab);
-          },
+          builder: (context, state) => const StudentDashboardPage(),
           routes: [
-            // Nested child routes agar back button kembali ke dashboard siswa
             GoRoute(
               path: 'event/:eventId',
               builder: (context, state) {

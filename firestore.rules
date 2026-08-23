@@ -30,14 +30,6 @@ service cloud.firestore {
              isSchoolActive(schoolId);
     }
 
-    // Helper function to check if user is a teacher of a specific school (only if active)
-    function isSchoolTeacher(schoolId) {
-      return request.auth != null && 
-             request.auth.token.role == 'teacher' && 
-             request.auth.token.schoolId == schoolId &&
-             isSchoolActive(schoolId);
-    }
-
     match /schools/{schoolId} {
       allow read: if true;
       allow create, delete: if isSuperAdmin();
@@ -84,52 +76,57 @@ service cloud.firestore {
 
       // Sub-collection for events
       match /events/{eventId} {
-        allow read: if request.auth != null;
-        allow write: if request.auth != null;
+        allow read, write: if true;
 
         match /sessions/{sessionId} {
-          allow read: if request.auth != null;
-          allow write: if request.auth != null;
+          allow read, write: if true;
         }
 
         match /timetable/{timetableId} {
-          allow read: if request.auth != null;
-          allow write: if request.auth != null;
+          allow read, write: if true;
         }
 
         match /proctors/{proctorId} {
-          allow read: if request.auth != null;
-          allow write: if request.auth != null;
+          allow read, write: if true;
         }
 
         match /allocations/{allocationId} {
-          allow read: if request.auth != null;
-          allow write: if request.auth != null;
+          allow read, write: if true;
 
           match /seats/{seatId} {
-            allow read: if request.auth != null;
-            allow write: if request.auth != null;
+            allow read, write: if true;
+
+            match /rooms/{roomId} {
+              allow read, write: if true;
+            }
           }
 
           match /rooms/{roomId} {
-            allow read: if request.auth != null;
-            allow write: if request.auth != null;
+            allow read, write: if true;
           }
         }
 
         match /participants/{participantId} {
-          allow read: if request.auth != null;
-          allow write: if request.auth != null;
+          allow read, write: if true;
         }
 
         match /subjects/{subjectId} {
-          allow read: if request.auth != null;
-          allow write: if isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+          allow read: if true;
+          allow write: if true;
 
           match /questions/{questionId} {
-            allow read: if request.auth != null;
-            allow write: if isSchoolAdmin(schoolId) || isSchoolTeacher(schoolId);
+            allow read: if true;
+            allow write: if true;
           }
+        }
+
+        match /questions/{questionId} {
+          allow read: if true;
+          allow write: if true;
+        }
+
+        match /submissions/{submissionId} {
+          allow read, write: if true;
         }
       }
 

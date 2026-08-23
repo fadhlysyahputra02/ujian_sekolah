@@ -384,7 +384,12 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final evData = evSnap.data?.data() as Map<String, dynamic>? ?? {};
         final timetableList = <Map<String, dynamic>>[];
 
-        // 1. Dari field draftState -> timetable
+        // 1. Dari subkoleksi timetable
+        if (_timetableSubcollection.isNotEmpty) {
+          timetableList.addAll(_timetableSubcollection);
+        }
+
+        // 2. Dari field draftState -> timetable
         final draftState = evData['draftState'] as Map<String, dynamic>?;
         if (draftState != null && draftState['timetable'] is List) {
           for (var item in (draftState['timetable'] as List)) {
@@ -392,7 +397,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           }
         }
 
-        // 2. Dari top-level field timetable
+        // 3. Dari top-level field timetable
         if (evData['timetable'] is List) {
           for (var item in (evData['timetable'] as List)) {
             if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
@@ -2726,7 +2731,12 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final evData = evSnap.data?.data() as Map<String, dynamic>? ?? {};
         final timetableList = <Map<String, dynamic>>[];
 
-        // 1. Dari field draftState -> timetable
+        // 1. Dari subkoleksi timetable
+        if (_timetableSubcollection.isNotEmpty) {
+          timetableList.addAll(_timetableSubcollection);
+        }
+
+        // 2. Dari field draftState -> timetable
         final draftState = evData['draftState'] as Map<String, dynamic>?;
         if (draftState != null && draftState['timetable'] is List) {
           for (var item in (draftState['timetable'] as List)) {
@@ -2734,7 +2744,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           }
         }
 
-        // 2. Dari top-level field timetable
+        // 3. Dari top-level field timetable
         if (evData['timetable'] is List) {
           for (var item in (evData['timetable'] as List)) {
             if (item is Map) timetableList.add(Map<String, dynamic>.from(item));

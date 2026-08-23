@@ -1114,10 +1114,15 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     return result;
   }
 
-  /// Auto-generate: scatter all subjects randomly across (day × session) slots
+  /// Auto-generate: scatter all subjects across (day × session) slots
+  /// - Priority 1: Subjects taken by all/more classes are scheduled in earlier days.
+  /// - Priority 2: Subjects taken by specific/fewer classes are scheduled in later days.
+  /// - Order within same class-count priority is randomized (shuffled) instead of alphabetical.
   void _autoGenerateSchedule() {
     final days = _examDays();
     if (days.isEmpty || _sessions.isEmpty) return;
+
+    final rng = Random();
 
     setState(() {
       // 1. Reset all assignments
@@ -1126,19 +1131,38 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         t['sessionName'] = null;
       }
 
-      // 2. Map subjects to the classes that take them
+      // 2. Map subjects to the set of classes that take them
       final Map<String, Set<String>> subjectClasses = {};
       for (var t in _timetable) {
-        final sid = t['subjectId'] as String? ?? '';
-        final cid = t['classId'] as String? ?? '';
+        final sid = (t['subjectId'] ?? '').toString();
+        final cid = (t['classId'] ?? '').toString();
         if (sid.isNotEmpty && cid.isNotEmpty) {
           subjectClasses.putIfAbsent(sid, () => {}).add(cid);
         }
       }
 
-      // 3. Group subjects that can run in parallel (no class takes both)
-      final List<List<String>> subjectGroups = [];
+      if (subjectClasses.isEmpty) return;
+
+      // 3. Group subjects by their class count (how many classes take this subject)
+      final Map<int, List<String>> byCount = {};
       for (final sid in subjectClasses.keys) {
+        final count = subjectClasses[sid]!.length;
+        byCount.putIfAbsent(count, () => []).add(sid);
+      }
+
+      // Sort class counts in descending order (highest count first = all-class subjects first)
+      final countsDesc = byCount.keys.toList()..sort((a, b) => b.compareTo(a));
+
+      // Build ordered list: highest class count first, randomly shuffled within each priority tier
+      final List<String> orderedSubjectIds = [];
+      for (final cnt in countsDesc) {
+        final tier = List<String>.from(byCount[cnt]!)..shuffle(rng);
+        orderedSubjectIds.addAll(tier);
+      }
+
+      // 4. Group subjects into parallel slots (subjects in same slot cannot share any class)
+      final List<List<String>> subjectGroups = [];
+      for (final sid in orderedSubjectIds) {
         final classes = subjectClasses[sid]!;
         bool placed = false;
         for (final group in subjectGroups) {
@@ -1161,14 +1185,14 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         }
       }
 
-      // 4. Distribute the groups across the slots
+      // 5. Distribute groups across available day & session slots
       final totalSlots = days.length * _sessions.length;
       for (int i = 0; i < subjectGroups.length; i++) {
         final group = subjectGroups[i];
         final slotIdx = i % totalSlots;
         final d = slotIdx ~/ _sessions.length;
         final s = slotIdx % _sessions.length;
-        
+
         for (final sid in group) {
           for (var t in _timetable) {
             if (t['subjectId'] == sid) {
@@ -1292,6 +1316,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         final roomName = (rMap['name'] ?? rMap['code'] ?? roomId).toString();
         final roomCode = (rMap['code'] ?? rMap['name'] ?? roomId).toString();
         final roomCapacity = (rMap['capacity'] as num?)?.toInt() ?? 30;
+        final cleanCode = _cleanRoomCode(roomName.isNotEmpty ? roomName : roomCode);
 
         final layoutState = (_addState['layout_$roomId'] as Map?) ??
             (_addState['layout_$roomName'] as Map?) ??
@@ -1327,7 +1352,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         }
 
         // Skip rooms subcollection — seats subcollection is sufficient
-        debugPrint('[Wizard] Room $roomName: ${roomSeats.length} seats generated.');
+        debugPrint('[Wizard] Room $roomName ($cleanCode): ${roomSeats.length} seats generated.');
 
         // Save seat documents in batches of 500
         var batch = FirebaseFirestore.instance.batch();
@@ -1336,12 +1361,18 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
         for (var seat in roomSeats) {
           final sNum = seat['seatNumber'];
+          final seatNumStr = sNum.toString().padLeft(3, '0');
+          final sAngk = (seat['angkatan'] ?? '').toString();
+          final yearStr = sAngk.isNotEmpty ? sAngk : '2026';
+          final formattedParticipantNum = '$yearStr-$cleanCode-$seatNumStr';
+
           final seatDocRef = allocDocRef.collection('seats').doc('${roomId}_seat_$sNum');
           batch.set(seatDocRef, {
             ...seat,
             'roomId': roomId,
             'roomName': roomName,
-            'roomCode': roomCode,
+            'roomCode': cleanCode,
+            'participantNumber': formattedParticipantNum,
             'mode': arrangeMode,
             'arrange': arrangeMode,
             'createdAt': FieldValue.serverTimestamp(),
@@ -1422,6 +1453,16 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         );
       }
     }
+  }
+
+  String _cleanRoomCode(String raw) {
+    if (raw.trim().isEmpty) return '00';
+    String str = raw.trim();
+    str = str.replaceAll(RegExp(r'^(ruangan|ruang|room|r\.?)\s+', caseSensitive: false), '');
+    if (RegExp(r'^\d+$').hasMatch(str)) {
+      return str.padLeft(2, '0');
+    }
+    return str;
   }
 
   List<Map<String, dynamic>> _buildSeatsFromRoomAssignments({
