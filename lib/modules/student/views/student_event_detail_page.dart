@@ -40,7 +40,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
   // Timetable & Sessions
   List<Map<String, dynamic>> _myTimetable = [];
-  Map<String, Map<String, dynamic>> _sessionMap = {};
+  final Map<String, Map<String, dynamic>> _sessionMap = {};
 
   @override
   void initState() {
@@ -214,6 +214,38 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
             );
           }
         }
+
+        // Task C: Submission completion check for all subjects in parallel
+        parallelTasks.add(
+          eventRef.collection('submissions').get().then((subSnap) {
+            for (var item in filteredTimetable) {
+              final subId = (item['subjectId'] ?? item['subjectName'] ?? '').toString();
+              final subName = (item['subjectName'] ?? '').toString();
+              final docId = '${_student!.id}_$subId';
+
+              for (var sDoc in subSnap.docs) {
+                final sData = sDoc.data();
+                final sStudentId = (sData['studentId'] ?? '').toString();
+                final sSubId = (sData['subjectId'] ?? sData['subjectName'] ?? '').toString();
+                final isCompleted = sData['isCompleted'] == true;
+
+                final matchesStudent = sStudentId == _student!.id ||
+                    (sData['nis'] != null && sData['nis'].toString().isNotEmpty && sData['nis'].toString() == _student!.nis);
+
+                final matchesSubject = sSubId == subId || sSubId == subName || sDoc.id == docId;
+
+                if (isCompleted && matchesStudent && matchesSubject) {
+                  item['isSubmitted'] = true;
+                  item['submittedScore'] = sData['score'];
+                  debugPrint('✅ Subject "$subName" is already submitted (Score: ${sData['score']})');
+                  break;
+                }
+              }
+            }
+          }).catchError((e) {
+            debugPrint("Error checking submissions: $e");
+          }),
+        );
 
         await Future.wait(parallelTasks);
         _myTimetable = filteredTimetable;
@@ -929,15 +961,22 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     // Action Button or Status Badge
                     if (isSubmitted)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFD1FAE5),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFF6EE7B7)),
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
                         ),
-                        child: Text(
-                          submittedScore != null ? 'Selesai ($submittedScore)' : 'Selesai',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 11, color: const Color(0xFF047857)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF059669)),
+                            const SizedBox(width: 6),
+                            Text(
+                              submittedScore != null ? 'Selesai ($submittedScore)' : 'Sudah Dikumpulkan',
+                              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
+                            ),
+                          ],
                         ),
                       )
                     else if (isQuestionReady)

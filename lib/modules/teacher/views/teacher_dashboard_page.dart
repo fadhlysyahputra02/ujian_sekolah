@@ -84,18 +84,34 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
 
         // Proctors count
         int eventProctors = 0;
+        bool isCurrentTeacher(String tid) {
+          final t = tid.trim().toLowerCase();
+          if (t.isEmpty) return false;
+          final myId = teacherId.trim().toLowerCase();
+          if (t == myId) return true;
+          final cT = t.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+          final cM = myId.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+          return cT.isNotEmpty && cT == cM;
+        }
+
         try {
           final proctorsSnap = await evDoc.reference
               .collection('proctors')
-              .where('teacherId', isEqualTo: teacherId)
               .get();
-          eventProctors += proctorsSnap.size;
+          for (var pDoc in proctorsSnap.docs) {
+            final pData = pDoc.data();
+            final pTid = (pData['teacherId'] ?? '').toString();
+            final pTname = (pData['teacherName'] ?? '').toString();
+            if (isCurrentTeacher(pTid) || isCurrentTeacher(pTname)) {
+              eventProctors++;
+            }
+          }
         } catch (_) {}
 
         final proctorGrid = draftState?['proctorGrid'] ?? evData['proctorGrid'];
         if (proctorGrid is Map) {
           for (var val in proctorGrid.values) {
-            if (val == teacherId) eventProctors++;
+            if (isCurrentTeacher(val.toString())) eventProctors++;
           }
         }
         proctorCount += eventProctors;
@@ -1282,21 +1298,38 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       }
 
       // Check proctors
+      bool isCurrentTeacher(String tid) {
+        final t = tid.trim().toLowerCase();
+        if (t.isEmpty) return false;
+        final myId = teacherId.trim().toLowerCase();
+        if (t == myId) return true;
+        final cT = t.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+        final cM = myId.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+        return cT.isNotEmpty && cT == cM;
+      }
+
       try {
         final proctorsSnap = await eventRef
             .collection('proctors')
-            .where('teacherId', isEqualTo: teacherId)
-            .limit(1)
             .get();
-        if (proctorsSnap.docs.isNotEmpty) {
-          isPengawas = true;
+        for (var pDoc in proctorsSnap.docs) {
+          final pData = pDoc.data();
+          final pTid = (pData['teacherId'] ?? '').toString();
+          final pTname = (pData['teacherName'] ?? '').toString();
+          if (isCurrentTeacher(pTid) || isCurrentTeacher(pTname)) {
+            isPengawas = true;
+            break;
+          }
         }
       } catch (_) {}
 
       final proctorGrid = draftState?['proctorGrid'] ?? evData['proctorGrid'];
       if (proctorGrid is Map) {
-        if (proctorGrid.values.contains(teacherId)) {
-          isPengawas = true;
+        for (var val in proctorGrid.values) {
+          if (isCurrentTeacher(val.toString())) {
+            isPengawas = true;
+            break;
+          }
         }
       }
     } catch (_) {}

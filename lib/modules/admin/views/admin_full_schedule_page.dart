@@ -89,12 +89,22 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
       } catch (_) {}
 
       // 3. Fetch Sessions
-      final sessionSnap = await eventRef.collection('sessions').orderBy('order').get();
-      _sessions = sessionSnap.docs.map((d) {
-        final data = d.data();
-        data['id'] = d.id;
-        return data;
-      }).toList();
+      try {
+        final sessionSnap = await eventRef.collection('sessions').orderBy('order').get();
+        _sessions = sessionSnap.docs.map((d) {
+          final data = d.data();
+          data['id'] = d.id;
+          return data;
+        }).toList();
+      } catch (_) {
+        final sessionSnap = await eventRef.collection('sessions').get();
+        _sessions = sessionSnap.docs.map((d) {
+          final data = d.data();
+          data['id'] = d.id;
+          return data;
+        }).toList();
+        _sessions.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
+      }
 
       if (_sessions.isEmpty && _eventData != null && _eventData!['sessions'] is List) {
         _sessions = (_eventData!['sessions'] as List)
@@ -227,13 +237,46 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
         ? (maxDayIndex + 1)
         : calculatedDaysCount;
 
-    final int sessionsPerDay = _sessions.isNotEmpty ? _sessions.length : 2;
+    // 3. Determine sessionsPerDay & Session Resolver
+    int sessionsPerDay = 0;
+    for (var s in _sessions) {
+      final tempId = (s['tempId'] ?? '').toString();
+      if (tempId.startsWith('day_')) {
+        final parts = tempId.split('_');
+        if (parts.length >= 4 && parts[1] == '0') {
+          sessionsPerDay++;
+        }
+      }
+    }
+    if (sessionsPerDay == 0) {
+      final evSessions = _eventData?['sessions'] as List?;
+      if (evSessions != null && evSessions.isNotEmpty) {
+        sessionsPerDay = evSessions.length;
+      } else {
+        sessionsPerDay = 2;
+      }
+    }
+
+    Map<String, dynamic> getSessionForSlot(int dIdx, int sIdx) {
+      final targetKey = 'day_${dIdx}_session_$sIdx';
+      for (var s in _sessions) {
+        if ((s['tempId'] ?? s['id'] ?? '').toString() == targetKey) return s;
+      }
+      final targetOrder = dIdx * sessionsPerDay + sIdx + 1;
+      for (var s in _sessions) {
+        if ((s['order'] as num?)?.toInt() == targetOrder) return s;
+      }
+      final idx = dIdx * sessionsPerDay + sIdx;
+      if (idx < _sessions.length) return _sessions[idx];
+      if (sIdx < _sessions.length) return _sessions[sIdx];
+      return {};
+    }
 
     int globalRowIdx = 0;
 
     for (int dayIdx = 0; dayIdx < totalDays; dayIdx++) {
       for (int sessIdx = 0; sessIdx < sessionsPerDay; sessIdx++) {
-        final sess = (sessIdx < _sessions.length) ? _sessions[sessIdx] : <String, dynamic>{};
+        final sess = getSessionForSlot(dayIdx, sessIdx);
         final sId = (sess['id'] ?? 'day_${dayIdx}_session_$sessIdx').toString();
         final sName = (sess['name'] ?? sess['sessionName'] ?? 'Sesi ${sessIdx + 1}').toString();
         final sStart = (sess['startTime'] ?? '').toString();
@@ -241,23 +284,22 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
         final timeLabel = (sStart.isNotEmpty && sEnd.isNotEmpty) ? '$sStart - $sEnd' : (sStart.isNotEmpty ? sStart : 'Jam Sesi');
 
         // Resolve Date Label for Day dayIdx
-        String dateStr = 'Hari ${dayIdx + 1}';
-        if (_eventData != null && _eventData!['startDate'] != null) {
-          final sd = _eventData!['startDate'];
-          DateTime? startDt = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
-          if (startDt != null) {
-            final dayDate = startDt.add(Duration(days: dayIdx));
-            dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dayDate);
-          }
+        String dateStr = '';
+        final dVal = sess['date'] ?? sess['startDate'];
+        if (dVal is Timestamp) {
+          dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dVal.toDate());
+        } else if (dVal is String && dVal.isNotEmpty) {
+          final dt = DateTime.tryParse(dVal);
+          if (dt != null) dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dt);
         }
-        if (dateStr.startsWith('Hari') && sess['date'] != null) {
-          final dVal = sess['date'];
-          if (dVal is Timestamp) {
-            dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dVal.toDate());
-          } else if (dVal is String && dVal.isNotEmpty) {
-            final dt = DateTime.tryParse(dVal);
-            if (dt != null) dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dt);
-          }
+
+        if (dateStr.isEmpty && startDt != null) {
+          final dayDate = startDt.add(Duration(days: dayIdx));
+          dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dayDate);
+        }
+
+        if (dateStr.isEmpty) {
+          dateStr = 'Hari ${dayIdx + 1}';
         }
 
         // Match timetable entries for this (dayIdx, sessIdx)
@@ -287,16 +329,19 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
             }
           }
 
-          // 4. Fallback match if tsId equals sId and tDay matches dayIdx
-          if (tsId == sId) {
-            return tDay == dayIdx || (tDay == null && dayIdx == 0);
-          }
+          // 4. Match if tsId equals session ID (sId) or session's tempId
+          if (sId.isNotEmpty && tsId == sId) return true;
+          final tempIdStr = (sess['tempId'] ?? '').toString();
+          if (tempIdStr.isNotEmpty && tsId == tempIdStr) return true;
 
           return false;
         }).toList();
 
-        if (matchingTimetable.isEmpty && _timetable.isNotEmpty) {
-          continue; // Skip slots that have no scheduled subjects
+        final schedGrid = _eventData?['scheduleGrid'] as Map? ?? _eventData?['draftState']?['scheduleGrid'] as Map? ?? _eventData?['draftState']?['step6']?['scheduleGrid'] as Map? ?? {};
+        final gridSubjects = schedGrid[daySessKey] as List? ?? schedGrid[sId] as List?;
+
+        if (matchingTimetable.isEmpty && (gridSubjects == null || gridSubjects.isEmpty) && _timetable.isNotEmpty) {
+          continue; // Skip slots that have no scheduled subjects in timetable or scheduleGrid
         }
 
         // Active Rooms
@@ -334,6 +379,20 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           for (var t in matchingTimetable) {
             final subName = (t['subjectName'] ?? t['subjectId'] ?? '').toString().trim();
             if (subName.isNotEmpty) subjectSet.add(subName);
+          }
+
+          if (subjectSet.isEmpty && gridSubjects != null) {
+            final subjectsList = _eventData?['subjects'] as List? ?? _eventData?['draftState']?['subjects'] as List? ?? [];
+            for (var subId in gridSubjects) {
+              String foundName = subId.toString();
+              for (var sItem in subjectsList) {
+                if (sItem is Map && (sItem['id'] == subId || sItem['code'] == subId || sItem['name'] == subId)) {
+                  foundName = sItem['name'] ?? subId.toString();
+                  break;
+                }
+              }
+              if (foundName.isNotEmpty) subjectSet.add(foundName);
+            }
           }
 
           // Resolve Proctor for this day/session/room

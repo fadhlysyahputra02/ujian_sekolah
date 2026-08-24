@@ -144,7 +144,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         try {
           final results = await Future.wait([
             evDoc.reference.collection('timetable').get(),
-            evDoc.reference.collection('sessions').orderBy('order').get(),
+            evDoc.reference.collection('sessions').get(),
           ]);
           final timetableSnap = results[0];
           final sessionsSnap = results[1];
@@ -159,8 +159,10 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           _sessionsSubcollection = sessionsSnap.docs.map((d) {
             final data = d.data();
             data['id'] = d.id;
+            data['_docId'] = d.id;
             return data;
           }).toList();
+          _sessionsSubcollection.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
         } catch (e) {
           debugPrint('Error fetching timetable/sessions subcollections: $e');
         }
@@ -1484,7 +1486,13 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                                     border: InputBorder.none,
                                                     contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                                                   ),
-                                                  validator: (v) => v == null || v.isEmpty ? 'Opsi ${field.label} wajib diisi' : null,
+                                                  validator: (v) {
+                                                    final hasImg = optionImgUrl != null && optionImgUrl.isNotEmpty;
+                                                    if (!hasImg && (v == null || v.trim().isEmpty)) {
+                                                      return 'Opsi ${field.label} wajib diisi (teks atau gambar)';
+                                                    }
+                                                    return null;
+                                                  },
                                                 ),
                                               ),
                                               if (isCorrect) ...[
@@ -1788,8 +1796,10 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         if (questionType == 'pilihan_ganda') {
                           final optsMap = <String, String>{};
                           for (final opt in optionFields) {
-                            if (opt.controller.text.trim().isNotEmpty) {
-                              optsMap[opt.label] = opt.controller.text.trim();
+                            final txt = opt.controller.text.trim();
+                            final optImg = optionImages[opt.label];
+                            if (txt.isNotEmpty || (optImg != null && optImg.isNotEmpty)) {
+                              optsMap[opt.label] = txt;
                             }
                           }
                           dataToSave['options'] = optsMap;
@@ -1964,10 +1974,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           }
         }
 
-        // 4. Default Allocation Mode
-        final defaultAllocMode = draftState?['allocationMode'] as String? ?? evData['allocationMode'] as String? ?? 'zigzag';
-
-        // 5. Proctor Stream
+        // 4. Proctor Stream
         return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('schools')
@@ -1978,32 +1985,59 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
               .snapshots(),
           builder: (context, proctorSnap) {
             final proctorDocs = proctorSnap.data?.docs ?? [];
-            final assignedDutyList = <Map<String, dynamic>>[];
-
             final teacherId = _teacher!.id;
-            final teacherUid = _teacher!.uid;
+            final teacherUid = _teacher!.uid ?? '';
+            final teacherName = _teacher!.displayName;
+            final teacherNip = _teacher!.nip;
+
+            // Helper to match current teacher strictly across all possible ID/Name formats
+            bool matchesCurrentTeacher(String tid) {
+              final target = tid.trim().toLowerCase();
+              if (target.isEmpty) return false;
+
+              final myId = teacherId.trim().toLowerCase();
+              final myUid = teacherUid.trim().toLowerCase();
+              final myName = teacherName.trim().toLowerCase();
+              final myNip = teacherNip.trim().toLowerCase();
+
+              // 1. Direct exact matches
+              if (target == myId) return true;
+              if (myUid.isNotEmpty && target == myUid) return true;
+              if (myName.isNotEmpty && target == myName) return true;
+              if (myNip.isNotEmpty && target == myNip) return true;
+
+              // 2. Strict normalized comparison (strip 'guru', spaces, underscores, dashes)
+              final cleanTarget = target.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+              final cleanMyName = myName.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+              final cleanMyId = myId.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+              final cleanMyNip = myNip.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+
+              if (cleanTarget.isNotEmpty) {
+                if (cleanTarget == cleanMyName) return true;
+                if (cleanTarget == cleanMyId) return true;
+                if (cleanMyNip.isNotEmpty && cleanTarget == cleanMyNip) return true;
+              }
+
+              return false;
+            }
 
             // Primary source of truth: proctorGrid from draftState or evData
             final proctorGrid = draftState?['proctorGrid'] as Map? ?? evData['proctorGrid'] as Map? ?? {};
-            final teacherName = _teacher!.displayName;
+            final rawDutyList = <Map<String, dynamic>>[];
 
             if (proctorGrid.isNotEmpty) {
               proctorGrid.forEach((keyStr, tidStr) {
                 final k = keyStr.toString();
                 final v = tidStr.toString();
-                bool isCurrentTeacher = (v == teacherId ||
-                    v == teacherUid ||
-                    v == teacherName ||
-                    v.toLowerCase() == teacherName.toLowerCase());
 
-                if (isCurrentTeacher) {
+                if (matchesCurrentTeacher(v)) {
                   final parts = k.split('_');
                   if (parts.length >= 6 && parts[0] == 'day' && parts[2] == 'session' && parts[4] == 'room') {
                     final dIdx = int.tryParse(parts[1]) ?? 0;
                     final sIdx = int.tryParse(parts[3]) ?? 0;
                     final rId = parts.sublist(5).join('_');
 
-                    assignedDutyList.add({
+                    rawDutyList.add({
                       'docId': 'grid_$k',
                       'roomId': rId,
                       'sessionId': 'session_$sIdx',
@@ -2016,31 +2050,56 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
               });
             }
 
-            // Fallback: check proctorDocs subcollection if proctorGrid has no entries for this teacher
-            if (assignedDutyList.isEmpty && proctorDocs.isNotEmpty) {
+            // Supplement with proctorDocs subcollection
+            if (proctorDocs.isNotEmpty) {
               for (var pDoc in proctorDocs) {
                 final pData = pDoc.data() as Map<String, dynamic>;
                 final pTeacher = pData['teacherId']?.toString() ?? '';
                 final pTeacherName = pData['teacherName']?.toString() ?? '';
 
-                bool isCurrentTeacher = (pTeacher == teacherId ||
-                    pTeacher == teacherUid ||
-                    pTeacher == teacherName ||
-                    pTeacher.toLowerCase() == teacherName.toLowerCase() ||
-                    pTeacherName == teacherName ||
-                    pTeacherName.toLowerCase() == teacherName.toLowerCase());
-
-                if (isCurrentTeacher) {
-                  int dIdx = (pData['dayIndex'] as num?)?.toInt() ?? 0;
-                  int sIdx = (pData['sessionIndex'] as num?)?.toInt() ?? 0;
+                if (matchesCurrentTeacher(pTeacher) || matchesCurrentTeacher(pTeacherName)) {
+                  int dIdx = (pData['dayIndex'] as num?)?.toInt() ?? -1;
+                  int sIdx = (pData['sessionIndex'] as num?)?.toInt() ?? -1;
                   final sId = (pData['sessionId'] ?? '').toString();
 
-                  if (sIdx == 0 && sId.startsWith('session_')) {
-                    final parsedS = int.tryParse(sId.replaceAll('session_', '')) ?? 0;
-                    if (parsedS > 0) sIdx = parsedS - 1;
+                  if (dIdx < 0 || sIdx < 0) {
+                    Map<String, dynamic>? matchedSession;
+                    if (_sessionsSubcollection.isNotEmpty) {
+                      for (var sObj in _sessionsSubcollection) {
+                        if (sObj['id'] == sId || sObj['tempId'] == sId || sObj['_docId'] == sId) {
+                          matchedSession = sObj;
+                          break;
+                        }
+                      }
+                    }
+
+                    if (matchedSession != null) {
+                      final tempId = (matchedSession['tempId'] ?? '').toString();
+                      if (tempId.startsWith('day_')) {
+                        final parts = tempId.split('_');
+                        if (parts.length >= 4) {
+                          if (dIdx < 0) dIdx = int.tryParse(parts[1]) ?? 0;
+                          if (sIdx < 0) sIdx = int.tryParse(parts[3]) ?? 0;
+                        }
+                      } else {
+                        final order = (matchedSession['order'] as num?)?.toInt() ?? 1;
+                        final numSessionsPerDay = (sessionsList.isNotEmpty ? sessionsList.length : 2);
+                        if (dIdx < 0) dIdx = (order - 1) ~/ numSessionsPerDay;
+                        if (sIdx < 0) sIdx = (order - 1) % numSessionsPerDay;
+                      }
+                    } else if (sId.startsWith('day_')) {
+                      final parts = sId.split('_');
+                      if (parts.length >= 4) {
+                        if (dIdx < 0) dIdx = int.tryParse(parts[1]) ?? 0;
+                        if (sIdx < 0) sIdx = int.tryParse(parts[3]) ?? 0;
+                      }
+                    }
+
+                    if (dIdx < 0) dIdx = 0;
+                    if (sIdx < 0) sIdx = 0;
                   }
 
-                  assignedDutyList.add({
+                  rawDutyList.add({
                     'docId': pDoc.id,
                     'roomId': pData['roomId'] ?? '',
                     'sessionId': sId,
@@ -2051,6 +2110,17 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                 }
               }
             }
+
+            // Deduplicate duties by dayIndex_sessionIndex_roomId
+            final uniqueDutyMap = <String, Map<String, dynamic>>{};
+            for (var duty in rawDutyList) {
+              final uniqueKey = '${duty['dayIndex']}_${duty['sessionIndex']}_${duty['roomId']}';
+              if (!uniqueDutyMap.containsKey(uniqueKey) || !uniqueDutyMap[uniqueKey]!['docId'].toString().startsWith('grid_')) {
+                uniqueDutyMap[uniqueKey] = duty;
+              }
+            }
+
+            final assignedDutyList = uniqueDutyMap.values.toList();
 
             // Sort duties chronologically by dayIndex, sessionIndex, roomId
             assignedDutyList.sort((a, b) {
@@ -2106,14 +2176,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
               builder: (context, allocSnap) {
                 final allocDocs = allocSnap.data?.docs ?? [];
                 String? activeAllocId;
-                String activeAllocMode = defaultAllocMode;
-
                 if (allocDocs.isNotEmpty) {
                   activeAllocId = allocDocs.first.id;
-                  final aData = allocDocs.first.data() as Map<String, dynamic>?;
-                  if (aData != null && aData['mode'] != null) {
-                    activeAllocMode = aData['mode'].toString();
-                  }
                 }
 
                 return ListView.separated(
@@ -2128,27 +2192,55 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     final sessionIndex = duty['sessionIndex'] as int;
                     final status = duty['status'] as String;
 
-                    // Date Label
-                    final startDateStr = evData['startDate'] ?? draftState?['startDate'];
-                    DateTime? startDate;
-                    if (startDateStr is String) {
-                      startDate = DateTime.tryParse(startDateStr);
-                    } else if (startDateStr is Timestamp) {
-                      startDate = startDateStr.toDate();
+                    final targetSId = duty['sessionId']?.toString() ?? '';
+                    Map<String, dynamic>? matchedSession;
+
+                    if (targetSId.isNotEmpty) {
+                      for (var s in sessionsList) {
+                        if (s['id'] == targetSId || s['_docId'] == targetSId || s['tempId'] == targetSId) {
+                          matchedSession = s;
+                          break;
+                        }
+                      }
                     }
-                    
-                    final dutyDate = startDate?.add(Duration(days: dayIndex));
+                    if (matchedSession == null && sessionsList.length > sessionIndex) {
+                      matchedSession = sessionsList[sessionIndex];
+                    }
+
+                    // Date Label - Prefer date stored in session document
+                    DateTime? dutyDate;
+                    if (matchedSession != null) {
+                      final rawDate = matchedSession['date'] ?? matchedSession['startDate'];
+                      if (rawDate is String && rawDate.isNotEmpty) {
+                        dutyDate = DateTime.tryParse(rawDate);
+                      } else if (rawDate is Timestamp) {
+                        dutyDate = rawDate.toDate();
+                      }
+                    }
+
+                    if (dutyDate == null) {
+                      final startDateStr = evData['startDate'] ?? draftState?['startDate'];
+                      DateTime? startDate;
+                      if (startDateStr is String) {
+                        startDate = DateTime.tryParse(startDateStr);
+                      } else if (startDateStr is Timestamp) {
+                        startDate = startDateStr.toDate();
+                      }
+                      if (startDate != null) {
+                        dutyDate = startDate.add(Duration(days: dayIndex));
+                      }
+                    }
+
                     final dateLabel = dutyDate != null
                         ? '${_getNamaHari(dutyDate.weekday)}, ${dutyDate.day} ${_getNamaBulan(dutyDate.month)} ${dutyDate.year}'
                         : 'Hari Ke-${dayIndex + 1}';
 
-                    // Session Name
+                    // Session Name - Prefer data in matchedSession
                     String sessionLabel = 'Sesi ${sessionIndex + 1}';
-                    if (sessionsList.length > sessionIndex) {
-                      final sMap = sessionsList[sessionIndex];
-                      final sName = sMap['name'] ?? sMap['sessionName'] ?? 'Sesi ${sessionIndex + 1}';
-                      final sStart = sMap['startTime'] ?? sMap['start'] ?? '';
-                      final sEnd = sMap['endTime'] ?? sMap['end'] ?? '';
+                    if (matchedSession != null) {
+                      final sName = matchedSession['name'] ?? matchedSession['sessionName'] ?? 'Sesi ${sessionIndex + 1}';
+                      final sStart = matchedSession['startTime'] ?? matchedSession['start'] ?? '';
+                      final sEnd = matchedSession['endTime'] ?? matchedSession['end'] ?? '';
                       sessionLabel = sStart.isNotEmpty ? '$sName ($sStart - $sEnd)' : sName;
                     }
 
@@ -2203,7 +2295,6 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     final matchedSubjects = <String>[];
                     final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
                     final targetSessionIdStr1 = 'session_$sessionIndex';
-                    final targetSessionIdStr2 = 'session_${sessionIndex + 1}';
 
                     // Helper: extract date string from String or Firestore Timestamp
                     String extractDateStr(dynamic d) {
@@ -2248,18 +2339,17 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
                       bool isMatch = false;
 
-                      if (tSessionId.isNotEmpty) {
-                        if (tSessionId == targetKeyStr ||
-                            tSessionId == targetSessionIdStr1 ||
-                            tSessionId == targetSessionIdStr2 ||
-                            tSessionId == '$sessionIndex' ||
-                            tSessionId == '${sessionIndex + 1}' ||
-                            (targetRealSessionId != null && tSessionId == targetRealSessionId)) {
+                      if (tDay != null && tDay != dayIndex) {
+                        isMatch = false;
+                      } else if (tSessionId == targetKeyStr || (targetRealSessionId != null && tSessionId == targetRealSessionId)) {
+                        isMatch = true;
+                      } else if (tSessionId.isNotEmpty) {
+                        if (tDay == dayIndex && (tSessionId == targetSessionIdStr1 || tSessionId == '$sessionIndex')) {
                           isMatch = true;
                         }
                       } else if (tSession != null) {
-                        bool dayMatch = tDay == null || tDay == dayIndex || tDay == (dayIndex + 1);
-                        bool sessMatch = tSession == sessionIndex || tSession == (sessionIndex + 1);
+                        bool dayMatch = tDay == null || tDay == dayIndex;
+                        bool sessMatch = tSession == sessionIndex;
                         isMatch = dayMatch && sessMatch;
                       } else if (tOrder != null) {
                         isMatch = (tOrder == targetOrder);
@@ -2340,13 +2430,13 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     return _buildProctorCard(
                       docId: docId,
                       dateLabel: dateLabel,
+                      dutyDate: dutyDate,
                       sessionLabel: sessionLabel,
                       roomName: roomName,
                       roomId: roomId,
                       roomCapacity: roomCapacity,
                       subjectText: subjectText,
                       status: status,
-                      allocationMode: activeAllocMode,
                       activeAllocId: activeAllocId,
                       dayIndex: dayIndex,
                       sessionIndex: sessionIndex,
@@ -2364,49 +2454,76 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   Widget _buildProctorCard({
     required String docId,
     required String dateLabel,
+    required DateTime? dutyDate,
     required String sessionLabel,
     required String roomName,
     required String roomId,
     required int roomCapacity,
     required String subjectText,
     required String status,
-    required String allocationMode,
     required String? activeAllocId,
     required int dayIndex,
     required int sessionIndex,
   }) {
-    Color statusColor;
-    switch (status) {
-      case 'Sedang Berlangsung':
-        statusColor = const Color(0xFFF59E0B);
-        break;
-      case 'Selesai':
-        statusColor = const Color(0xFF10B981);
-        break;
-      default:
-        statusColor = const Color(0xFF3B82F6);
+    // 1. Clean Room Name (remove "Ruangan:" or "Ruangan :")
+    String cleanRoomName = roomName.trim();
+    if (cleanRoomName.toLowerCase().startsWith('ruangan:')) {
+      cleanRoomName = cleanRoomName.substring(8).trim();
+    } else if (cleanRoomName.toLowerCase().startsWith('ruangan :')) {
+      cleanRoomName = cleanRoomName.substring(9).trim();
     }
 
-    // Allocation Mode styling & label
-    Color modeColor;
-    IconData modeIcon;
-    String modeLabel;
-    switch (allocationMode.toLowerCase()) {
-      case 'zigzag':
-        modeColor = const Color(0xFFD97706);
-        modeIcon = Icons.alt_route_rounded;
-        modeLabel = 'Pola Posisi: ZIGZAG (Silang Kelas)';
+    // 2. Compute dynamic time-based status
+    DateTime? sessionStartDt;
+    DateTime? sessionEndDt;
+    final timeMatch = RegExp(r'(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})').firstMatch(sessionLabel);
+    if (timeMatch != null && dutyDate != null) {
+      final sParts = timeMatch.group(1)!.split(':');
+      final eParts = timeMatch.group(2)!.split(':');
+      if (sParts.length >= 2 && eParts.length >= 2) {
+        sessionStartDt = DateTime(dutyDate.year, dutyDate.month, dutyDate.day, int.parse(sParts[0]), int.parse(sParts[1]));
+        sessionEndDt = DateTime(dutyDate.year, dutyDate.month, dutyDate.day, int.parse(eParts[0]), int.parse(eParts[1]));
+      }
+    }
+
+    final now = DateTime.now();
+    String displayStatus = status;
+
+    if (sessionEndDt != null && now.isAfter(sessionEndDt)) {
+      displayStatus = 'Ujian Selesai';
+    } else if (status == 'Selesai') {
+      displayStatus = 'Ujian Selesai';
+    } else if (sessionStartDt != null && sessionEndDt != null && (now.isAfter(sessionStartDt) || now.isAtSameMomentAs(sessionStartDt)) && now.isBefore(sessionEndDt)) {
+      displayStatus = 'Sedang Berlangsung';
+    } else if (sessionStartDt != null && now.isBefore(sessionStartDt)) {
+      displayStatus = 'Belum Dimulai';
+    }
+
+    // 3. Status Badge Styling
+    Color badgeBg;
+    Color badgeText;
+    Color badgeBorder;
+    IconData badgeIcon;
+
+    switch (displayStatus) {
+      case 'Sedang Berlangsung':
+        badgeBg = const Color(0xFFFFFBEB);
+        badgeText = const Color(0xFFD97706);
+        badgeBorder = const Color(0xFFFDE68A);
+        badgeIcon = Icons.sensors_rounded;
         break;
-      case 'random':
-      case 'acak':
-        modeColor = const Color(0xFF6366F1);
-        modeIcon = Icons.shuffle_rounded;
-        modeLabel = 'Pola Posisi: ACAK / RANDOM';
+      case 'Ujian Selesai':
+      case 'Selesai':
+        badgeBg = const Color(0xFFF1F5F9);
+        badgeText = const Color(0xFF64748B);
+        badgeBorder = const Color(0xFFCBD5E1);
+        badgeIcon = Icons.check_circle_rounded;
         break;
       default:
-        modeColor = const Color(0xFF059669);
-        modeIcon = Icons.grid_view_rounded;
-        modeLabel = 'Pola Posisi: NORMAL';
+        badgeBg = const Color(0xFFEFF6FF);
+        badgeText = const Color(0xFF2563EB);
+        badgeBorder = const Color(0xFFBFDBFE);
+        badgeIcon = Icons.schedule_rounded;
     }
 
     void navigateToProctorRoom() {
@@ -2419,133 +2536,84 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       color: Colors.transparent,
       child: InkWell(
         onTap: navigateToProctorRoom,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
-          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
             ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Header Bar: Date & Status
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.calendar_today_rounded, size: 16, color: Color(0xFF475569)),
-                      const SizedBox(width: 8),
-                      Text(
-                        dateLabel,
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF1E293B),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-                    ),
-                    child: Text(
-                      status,
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: statusColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              const Divider(height: 1, color: Color(0xFFF1F5F9)),
-              const SizedBox(height: 14),
-
-              // 2. Room & Session Details
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEEF2FF),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.meeting_room_rounded, color: Color(0xFF4F46E5), size: 24),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Ruangan: $roomName',
-                          style: GoogleFonts.inter(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            const Icon(Icons.access_time_rounded, size: 14, color: Color(0xFF64748B)),
-                            const SizedBox(width: 6),
-                            Text(
-                              sessionLabel,
-                              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B), fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // 3. Subject Name Banner
+              // HEADER BAR: Date, Capacity & Status Badge
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFBBF7D0)),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                  border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
                 ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Icon(Icons.menu_book_rounded, color: Color(0xFF166534), size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Mata Pelajaran Ujian',
-                            style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF166534)),
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF64748B)),
+                        const SizedBox(width: 8),
+                        Text(
+                          dateLabel,
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF1E293B),
                           ),
-                          const SizedBox(height: 2),
+                        ),
+                        if (roomCapacity > 0) ...[
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEEF2FF),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '$roomCapacity Bangku',
+                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5)),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: badgeBg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: badgeBorder),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(badgeIcon, size: 13, color: badgeText),
+                          const SizedBox(width: 5),
                           Text(
-                            subjectText,
-                            style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF14532D)),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                            displayStatus,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: badgeText,
+                            ),
                           ),
                         ],
                       ),
@@ -2553,103 +2621,172 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
 
-              // 4. Seating Pattern Mode Badge & Capacity
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: modeColor.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: modeColor.withValues(alpha: 0.2)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+              // CARD BODY
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ROOM NAME & SESSION TIME
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Icon(modeIcon, size: 16, color: modeColor),
-                        const SizedBox(width: 8),
-                        Text(
-                          modeLabel,
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: modeColor,
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                cleanRoomName,
+                                style: GoogleFonts.inter(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF0F172A),
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  const Icon(Icons.access_time_filled_rounded, size: 14, color: Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    sessionLabel,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  if (roomCapacity > 0) ...[
-                    const SizedBox(width: 8),
+
+                    const SizedBox(height: 16),
+
+                    // SUBJECT BANNER
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(10),
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFBBF7D0)),
                       ),
-                      child: Text(
-                        '$roomCapacity Bangku',
-                        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF475569)),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDCFCE7),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.auto_stories_rounded, color: Color(0xFF166534), size: 18),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'MATA PELAJARAN UJIAN',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF15803D),
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  subjectText,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF14532D),
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // BOTTOM ACTION BAR
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        if (displayStatus == 'Sedang Berlangsung' && !docId.startsWith('grid_'))
+                          OutlinedButton.icon(
+                            onPressed: () => _updateProctorStatus(docId, 'Selesai'),
+                            icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                            label: const Text('Selesaikan Sesi'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF059669),
+                              side: const BorderSide(color: Color(0xFFA7F3D0)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          )
+                        else
+                          const SizedBox(),
+
+                        ElevatedButton(
+                          onPressed: navigateToProctorRoom,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF4F46E5),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 2,
+                            shadowColor: const Color(0xFF4F46E5).withValues(alpha: 0.4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Masuk ke Ruangan',
+                                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.arrow_forward_rounded, size: 16),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ],
-              ),
-              const SizedBox(height: 18),
-
-              // 5. Action Buttons: Masuk ke Ruangan
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      if (status == 'Belum Dimulai')
-                        ElevatedButton.icon(
-                          onPressed: docId.startsWith('grid_')
-                              ? null
-                              : () => _updateProctorStatus(docId, 'Sedang Berlangsung'),
-                          icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                          label: const Text('Mulai Pengawasan'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFF59E0B),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            elevation: 0,
-                          ),
-                        ),
-                      if (status == 'Sedang Berlangsung')
-                        ElevatedButton.icon(
-                          onPressed: docId.startsWith('grid_')
-                              ? null
-                              : () => _updateProctorStatus(docId, 'Selesai'),
-                          icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
-                          label: const Text('Selesaikan Sesi'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF10B981),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            elevation: 0,
-                          ),
-                        ),
-                    ],
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: navigateToProctorRoom,
-                    icon: const Icon(Icons.login_rounded, size: 18),
-                    label: const Text('Masuk ke Ruangan'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4F46E5),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      elevation: 2,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
           ),

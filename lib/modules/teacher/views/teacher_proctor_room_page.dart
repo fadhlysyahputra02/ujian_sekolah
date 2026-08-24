@@ -198,20 +198,325 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Status pengawasan diubah menjadi "$newStatus"'),
-            backgroundColor: const Color(0xFF10B981),
+            backgroundColor: newStatus == 'Selesai' ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
           ),
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal memperbarui status: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      debugPrint('Error updating proctor status: $e');
     }
+  }
+
+  Future<bool> _markStudentAttendance({
+    required String schoolId,
+    required String eventId,
+    required String roomId,
+    required Map<String, dynamic> seatData,
+    required bool isAttended,
+  }) async {
+    try {
+      final studentId = (seatData['studentId'] ?? '').toString();
+      final nis = (seatData['nis'] ?? '').toString();
+      final seatNum = (seatData['seatNumber'] as num?)?.toInt() ?? 0;
+      final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
+      final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
+
+      final docKey = studentId.isNotEmpty
+          ? '${roomId}_$studentId'
+          : (nis.isNotEmpty ? '${roomId}_$nis' : '${roomId}_seat_$seatNum');
+
+      final attRef = FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('events')
+          .doc(eventId)
+          .collection('attendances')
+          .doc(docKey);
+
+      await attRef.set({
+        'eventId': eventId,
+        'roomId': roomId,
+        'studentId': studentId,
+        'studentName': name,
+        'nis': nis,
+        'className': className,
+        'seatNumber': seatNum,
+        'isAttended': isAttended,
+        'attendedAt': FieldValue.serverTimestamp(),
+        'updatedBy': 'proctor',
+      }, SetOptions(merge: true));
+
+      debugPrint('📌 Attendance updated for $name (seat #$seatNum): $isAttended');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error updating attendance: $e');
+      return false;
+    }
+  }
+
+  void _showQrScanDialog({
+    required String schoolId,
+    required String eventId,
+    required String roomId,
+    required Map<int, Map<String, dynamic>> seatMap,
+  }) {
+    final TextEditingController searchCtrl = TextEditingController();
+    String query = '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          final attendedCount = seatMap.values.where((s) => s['isAttended'] == true).length;
+          final totalCount = seatMap.length;
+
+          final matchingSeats = seatMap.entries.where((entry) {
+            final s = entry.value;
+            final name = (s['displayName'] ?? s['studentName'] ?? '').toString().toLowerCase();
+            final nis = (s['nis'] ?? '').toString().toLowerCase();
+            final className = (s['classId'] ?? s['className'] ?? '').toString().toLowerCase();
+            final q = query.trim().toLowerCase();
+            if (q.isEmpty) return true;
+            return name.contains(q) || nis.contains(q) || className.contains(q) || entry.key.toString() == q;
+          }).toList();
+
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            clipBehavior: Clip.antiAlias,
+            backgroundColor: Colors.white,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 500, maxHeight: 620),
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: const Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF059669), size: 28),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Presensi QR Murid',
+                              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A)),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Hadir: $attendedCount / $totalCount Siswa',
+                              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF059669), fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(dialogCtx).pop(),
+                        icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Scanner Viewfinder Banner
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.center_focus_strong_rounded, color: Color(0xFF34D399), size: 24),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Arahkan QR Card Siswa / Ketik Nama/NIS',
+                                style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Presensi otomatis realtime di denah ruangan',
+                                style: GoogleFonts.inter(color: const Color(0xFF94A3B8), fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Search Field
+                  TextField(
+                    controller: searchCtrl,
+                    onChanged: (val) => setDialogState(() => query = val),
+                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF0F172A)),
+                    decoration: InputDecoration(
+                      hintText: 'Ketik NIS atau Nama Siswa di sini...',
+                      hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                      prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B), size: 20),
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Student Attendance List
+                  Expanded(
+                    child: matchingSeats.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Siswa tidak ditemukan',
+                              style: GoogleFonts.inter(color: const Color(0xFF94A3B8), fontSize: 13),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: matchingSeats.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (ctx, idx) {
+                              final entry = matchingSeats[idx];
+                              final seatNum = entry.key;
+                              final seatData = entry.value;
+
+                              final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
+                              final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
+                              final nis = (seatData['nis'] ?? '-').toString();
+                              final isAttended = seatData['isAttended'] == true;
+
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isAttended ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isAttended ? const Color(0xFFA7F3D0) : const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: isAttended ? const Color(0xFF059669) : const Color(0xFF475569),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '#$seatNum',
+                                          style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            name,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: isAttended ? const Color(0xFF065F46) : const Color(0xFF0F172A),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Kelas $className • NIS: $nis',
+                                            style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ElevatedButton.icon(
+                                      onPressed: () async {
+                                        final newStatus = !isAttended;
+                                        setDialogState(() {
+                                          seatData['isAttended'] = newStatus;
+                                        });
+                                        await _markStudentAttendance(
+                                          schoolId: schoolId,
+                                          eventId: eventId,
+                                          roomId: roomId,
+                                          seatData: seatData,
+                                          isAttended: newStatus,
+                                        );
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                newStatus
+                                                    ? '✅ "$name" (Meja #$seatNum) ditandai HADIR!'
+                                                    : 'ℹ️ Presensi "$name" dibatalkan.',
+                                              ),
+                                              backgroundColor: newStatus ? const Color(0xFF059669) : const Color(0xFF475569),
+                                              duration: const Duration(seconds: 2),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      icon: Icon(
+                                        isAttended ? Icons.check_circle_rounded : Icons.qr_code_rounded,
+                                        size: 14,
+                                      ),
+                                      label: Text(isAttended ? 'HADIR' : 'Tandai Hadir'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isAttended ? const Color(0xFF059669) : const Color(0xFF0F172A),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        elevation: 0,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Map<String, Color> _getClassColorScheme(String className, List<String> roomClasses) {
@@ -946,6 +1251,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                   currentStatus: currentStatus,
                                   proctorDocId: realProctorDocId,
                                   configuredColumns: configuredColumns,
+                                  seatMap: seatMap,
                                 ),
                                 const SizedBox(height: 24),
 
@@ -1161,6 +1467,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     required String currentStatus,
     required String proctorDocId,
     required int configuredColumns,
+    required Map<int, Map<String, dynamic>> seatMap,
   }) {
     Color modeColor;
     IconData modeIcon;
@@ -1329,37 +1636,60 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 ),
               ),
 
-              // Control Status Button
-              if (currentStatus == 'Belum Dimulai')
-                ElevatedButton.icon(
-                  onPressed: proctorDocId.isEmpty || proctorDocId.startsWith('grid_')
-                      ? null
-                      : () => _updateProctorStatus(schoolId, proctorDocId, 'Sedang Berlangsung'),
-                  icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                  label: const Text('Mulai Pengawasan'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF59E0B),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    elevation: 4,
+              // Control Status & QR Scan Buttons
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _showQrScanDialog(
+                      schoolId: schoolId,
+                      eventId: widget.eventId,
+                      roomId: widget.roomId,
+                      seatMap: seatMap,
+                    ),
+                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+                    label: const Text('Scan QR Presensi'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF059669),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 4,
+                    ),
                   ),
-                ),
-              if (currentStatus == 'Sedang Berlangsung')
-                ElevatedButton.icon(
-                  onPressed: proctorDocId.isEmpty || proctorDocId.startsWith('grid_')
-                      ? null
-                      : () => _updateProctorStatus(schoolId, proctorDocId, 'Selesai'),
-                  icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
-                  label: const Text('Selesaikan Sesi'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    elevation: 4,
-                  ),
-                ),
+                  const SizedBox(width: 10),
+                  if (currentStatus == 'Belum Dimulai')
+                    ElevatedButton.icon(
+                      onPressed: proctorDocId.isEmpty || proctorDocId.startsWith('grid_')
+                          ? null
+                          : () => _updateProctorStatus(schoolId, proctorDocId, 'Sedang Berlangsung'),
+                      icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                      label: const Text('Mulai Pengawasan'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF59E0B),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 4,
+                      ),
+                    ),
+                  if (currentStatus == 'Sedang Berlangsung')
+                    ElevatedButton.icon(
+                      onPressed: proctorDocId.isEmpty || proctorDocId.startsWith('grid_')
+                          ? null
+                          : () => _updateProctorStatus(schoolId, proctorDocId, 'Selesai'),
+                      icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
+                      label: const Text('Selesaikan Sesi'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 4,
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -1669,22 +1999,30 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     final genderSymbol = (rawGender == 'F' || rawGender == 'P') ? 'P' : 'L';
     final scheme = _getClassColorScheme(className, orderedRoomClasses);
 
+    final bool isAttended = seatData['isAttended'] == true || seatData['attended'] == true;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => _showStudentDetailModal(seatNum, seatData, scheme),
+        onTap: () => _showStudentDetailModal(seatNum, seatData, scheme, isAttended),
         borderRadius: BorderRadius.circular(14),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: scheme['bg'],
+            color: isAttended ? scheme['primary']! : scheme['bg']!,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: scheme['border']!, width: 1.5),
+            border: Border.all(
+              color: isAttended ? scheme['primary']! : scheme['border']!,
+              width: isAttended ? 2 : 1.5,
+            ),
             boxShadow: [
               BoxShadow(
-                color: scheme['primary']!.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
+                color: isAttended
+                    ? scheme['primary']!.withValues(alpha: 0.35)
+                    : scheme['primary']!.withValues(alpha: 0.05),
+                blurRadius: isAttended ? 10 : 6,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
@@ -1698,7 +2036,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: scheme['primary'],
+                      color: isAttended ? Colors.black.withValues(alpha: 0.25) : scheme['primary'],
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -1709,13 +2047,17 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: isAttended ? Colors.white.withValues(alpha: 0.25) : Colors.white,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: scheme['border']!),
+                      border: Border.all(color: isAttended ? Colors.white.withValues(alpha: 0.3) : scheme['border']!),
                     ),
                     child: Text(
                       className,
-                      style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w800, color: scheme['text']),
+                      style: GoogleFonts.inter(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: isAttended ? Colors.white : scheme['text'],
+                      ),
                     ),
                   ),
                 ],
@@ -1728,7 +2070,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
-                  color: const Color(0xFF0F172A),
+                  color: isAttended ? Colors.white : const Color(0xFF0F172A),
                   height: 1.2,
                 ),
                 maxLines: 2,
@@ -1740,7 +2082,11 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               if (nis.isNotEmpty || angkatan.isNotEmpty)
                 Text(
                   'NIS: ${nis.isEmpty ? '-' : nis}${angkatan.isNotEmpty ? ' • $angkatan' : ''}',
-                  style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                  style: GoogleFonts.inter(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
+                    color: isAttended ? const Color(0xFFE2E8F0) : const Color(0xFF64748B),
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1750,32 +2096,59 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 children: [
                   Text(
                     number,
-                    style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: scheme['primary']),
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: isAttended ? Colors.white : scheme['primary'],
+                    ),
                   ),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: scheme['primary']!.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          genderSymbol,
-                          style: GoogleFonts.inter(fontSize: 8.5, fontWeight: FontWeight.w900, color: scheme['primary']),
-                        ),
+                  if (isAttended)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(width: 4),
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          color: scheme['primary'],
-                          shape: BoxShape.circle,
-                        ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
+                          const SizedBox(width: 3),
+                          Text(
+                            'HADIR',
+                            style: GoogleFonts.inter(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w900,
+                              color: const Color(0xFF059669),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: scheme['primary']!.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            genderSymbol,
+                            style: GoogleFonts.inter(fontSize: 8.5, fontWeight: FontWeight.w900, color: scheme['primary']),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: scheme['primary'],
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ],
@@ -1785,7 +2158,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     );
   }
 
-  void _showStudentDetailModal(int seatNum, Map<String, dynamic> seatData, Map<String, Color> scheme) {
+  void _showStudentDetailModal(int seatNum, Map<String, dynamic> seatData, Map<String, Color> scheme, [bool isAttended = false]) {
     final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
     final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
     final number = (seatData['participantNumber'] ?? '-').toString();
@@ -1865,11 +2238,11 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: scheme['primary'],
+                    color: isAttended ? const Color(0xFF059669) : scheme['primary'],
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    'Meja #$seatNum',
+                    isAttended ? 'HADIR (#$seatNum)' : 'Meja #$seatNum',
                     style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
                 ),
@@ -1923,18 +2296,43 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
                       Navigator.of(ctx).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Absensi siswa "$name" berhasil dicatat.')),
+                      final newStatus = !isAttended;
+                      await _markStudentAttendance(
+                        schoolId: _resolvedSchoolId ?? '',
+                        eventId: widget.eventId,
+                        roomId: widget.roomId,
+                        seatData: seatData,
+                        isAttended: newStatus,
                       );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              newStatus
+                                  ? '✅ Presensi "$name" (Meja #$seatNum) dicatat HADIR!'
+                                  : 'ℹ️ Presensi "$name" dibatalkan.',
+                            ),
+                            backgroundColor: newStatus ? const Color(0xFF059669) : const Color(0xFF475569),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     },
-                    icon: const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF059669)),
-                    label: const Text('Catat Hadir'),
-                    style: OutlinedButton.styleFrom(
+                    icon: Icon(
+                      isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                    label: Text(isAttended ? 'Batalkan Presensi' : 'Tandai Hadir (Manual)'),
+                    style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      side: const BorderSide(color: Color(0xFFA7F3D0)),
+                      backgroundColor: isAttended ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
                     ),
                   ),
                 ),

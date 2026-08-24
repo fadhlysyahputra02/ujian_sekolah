@@ -1042,6 +1042,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                 'sessionId': realSessionId,
                 'roomId': roomId,
                 'teacherId': teacherId,
+                'dayIndex': d,
+                'sessionIndex': s,
                 'role': 'main',
                 'notes': 'Mengawas Sesi',
               });

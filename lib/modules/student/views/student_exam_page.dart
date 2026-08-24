@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -661,6 +662,245 @@ class _StudentExamPageState extends State<StudentExamPage> {
     }
   }
 
+  /// Intercept Back Navigation Dialog (Beautiful & Modern UI)
+  Future<void> _showBackNavigationWarningDialog() async {
+    if (_isSubmitting) return;
+
+    final unansweredCount = _questions.length - _answeredCount;
+    final timeFormatted = _formatTime(_remainingSeconds);
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        clipBehavior: Clip.antiAlias,
+        backgroundColor: Colors.white,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Top Warning Banner with Gradient Header
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFDC2626), Color(0xFF991B1B)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2),
+                      ),
+                      child: const Icon(
+                        Icons.shield_outlined,
+                        color: Colors.white,
+                        size: 38,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Peringatan Keluar Ujian',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 19,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.subjectName,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: const Color(0xFFFCA5A5),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Dialog Content Body
+              Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Apakah Anda yakin ingin keluar?',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Jika Anda keluar dari halaman ini sekarang, sistem akan otomatis mengumpulkan jawaban Anda dan mengunci mata pelajaran ini.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13.5,
+                        color: const Color(0xFF475569),
+                        height: 1.55,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Progress & Time Summary Pills
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Text(
+                                  'Terjawab',
+                                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '$_answeredCount / ${_questions.length}',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(width: 1, height: 32, color: const Color(0xFFCBD5E1)),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Text(
+                                  'Sisa Waktu',
+                                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  timeFormatted,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFFDC2626),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Warning Alert Chip
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.lock_clock_rounded, color: Color(0xFFDC2626), size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              unansweredCount > 0
+                                  ? 'Ada $unansweredCount soal belum dijawab & tidak bisa dikerjakan ulang!'
+                                  : 'Ujian akan langsung diselesaikan & dikunci permanen.',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF991B1B),
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Action Buttons (Primary: Lanjutkan Ujian, Secondary Danger: Ya, Keluar & Kumpulkan)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
+                        label: Text(
+                          'Lanjutkan Mengerjakan Ujian',
+                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F172A),
+                          foregroundColor: Colors.white,
+                          elevation: 2,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        icon: const Icon(Icons.exit_to_app_rounded, size: 16, color: Color(0xFFDC2626)),
+                        label: Text(
+                          'Ya, Keluar & Kumpulkan Jawaban',
+                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFFDC2626)),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFFCA5A5)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      setState(() => _isSubmitting = true);
+      await _saveAnswersToFirestore();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ujian telah dikumpulkan secara otomatis.'),
+            backgroundColor: Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
   /// Opens bottom sheet with grid view of all questions
   void _showQuestionGridBottomSheet() {
     showModalBottomSheet(
@@ -891,6 +1131,55 @@ class _StudentExamPageState extends State<StudentExamPage> {
     return ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'];
   }
 
+  Widget _buildImageWidget(String url, {double? width, double? height, BoxFit fit = BoxFit.contain}) {
+    final cleanUrl = url.trim();
+    if (cleanUrl.isEmpty) return const SizedBox();
+
+    if (cleanUrl.startsWith('data:image/')) {
+      try {
+        final parts = cleanUrl.split(',');
+        if (parts.length > 1) {
+          final base64Content = parts[1];
+          final bytes = base64Decode(base64Content);
+          return Image.memory(
+            bytes,
+            width: width,
+            height: height,
+            fit: fit,
+            errorBuilder: (context, error, stackTrace) => const SizedBox(),
+          );
+        }
+      } catch (e) {
+        debugPrint('Error decoding base64 image: $e');
+        return const SizedBox();
+      }
+    }
+
+    if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+      return Image.network(
+        cleanUrl,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) => const SizedBox(),
+      );
+    }
+
+    // Direct raw base64 string fallback
+    try {
+      final bytes = base64Decode(cleanUrl);
+      return Image.memory(
+        bytes,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) => const SizedBox(),
+      );
+    } catch (_) {
+      return const SizedBox();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1005,565 +1294,572 @@ class _StudentExamPageState extends State<StudentExamPage> {
     final isUrgent = _remainingSeconds < 300; // Less than 5 mins
     final progressPercent = _questions.isNotEmpty ? (_answeredCount / _questions.length) : 0.0;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        toolbarHeight: 64,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _showBackNavigationWarningDialog();
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF0F172A),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          automaticallyImplyLeading: false,
+          toolbarHeight: 64,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.menu_book_rounded, size: 20, color: Color(0xFF34D399)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  widget.subjectName,
+                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            // Live Timer Badge
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
+                color: isUrgent ? const Color(0xFFDC2626) : const Color(0xFF064E3B),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: isUrgent ? Colors.redAccent : const Color(0xFF34D399), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: (isUrgent ? Colors.red : const Color(0xFF10B981)).withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.menu_book_rounded, size: 20, color: Color(0xFF34D399)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                widget.subjectName,
-                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.white),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Row(
+                children: [
+                  Icon(Icons.timer_outlined, size: 16, color: isUrgent ? Colors.white : const Color(0xFFA7F3D0)),
+                  const SizedBox(width: 6),
+                  Text(
+                    _formatTime(_remainingSeconds),
+                    style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.white, letterSpacing: 0.5),
+                  ),
+                ],
               ),
             ),
+            const SizedBox(width: 16),
           ],
         ),
-        actions: [
-          // Live Timer Badge
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: isUrgent ? const Color(0xFFDC2626) : const Color(0xFF064E3B),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: isUrgent ? Colors.redAccent : const Color(0xFF34D399), width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: (isUrgent ? Colors.red : const Color(0xFF10B981)).withValues(alpha: 0.25),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+        body: Column(
+          children: [
+            // Thin Linear Progress Indicator Bar
+            LinearProgressIndicator(
+              value: progressPercent,
+              backgroundColor: const Color(0xFFE2E8F0),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+              minHeight: 3,
             ),
-            child: Row(
-              children: [
-                Icon(Icons.timer_outlined, size: 16, color: isUrgent ? Colors.white : const Color(0xFFA7F3D0)),
-                const SizedBox(width: 6),
-                Text(
-                  _formatTime(_remainingSeconds),
-                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.white, letterSpacing: 0.5),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Thin Linear Progress Indicator Bar
-          LinearProgressIndicator(
-            value: progressPercent,
-            backgroundColor: const Color(0xFFE2E8F0),
-            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
-            minHeight: 3,
-          ),
 
-          // Question Navigation Grid Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: const Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.02),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: List.generate(_questions.length, (idx) {
-                        final itemQ = _questions[idx];
-                        final itemQId = itemQ['id'].toString();
-                        final itemIsEssay = _isEssayQuestion(itemQ);
-
-                        final isAnswered = itemIsEssay
-                            ? (_essayAnswers[itemQId] ?? '').trim().isNotEmpty
-                            : _answers.containsKey(itemQId);
-
-                        final isDoubt = _doubts[itemQId] == true;
-                        final isCurrent = idx == _currentIndex;
-
-                        Color boxColor = const Color(0xFFF1F5F9);
-                        Color textColor = const Color(0xFF475569);
-                        Border border = Border.all(color: const Color(0xFFCBD5E1));
-
-                        if (isDoubt) {
-                          boxColor = const Color(0xFFFEF3C7);
-                          textColor = const Color(0xFFD97706);
-                          border = Border.all(color: const Color(0xFFFBBF24), width: 1.5);
-                        } else if (isAnswered) {
-                          boxColor = const Color(0xFFD1FAE5);
-                          textColor = const Color(0xFF047857);
-                          border = Border.all(color: const Color(0xFF34D399), width: 1.5);
-                        }
-
-                        if (isCurrent) {
-                          boxColor = const Color(0xFF0F172A);
-                          textColor = Colors.white;
-                          border = Border.all(color: const Color(0xFF0F172A), width: 2);
-                        }
-
-                        return InkWell(
-                          onTap: () {
-                            _saveDraftToFirestore();
-                            setState(() => _currentIndex = idx);
-                          },
-                          borderRadius: BorderRadius.circular(10),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            width: 40,
-                            height: 40,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: boxColor,
-                              borderRadius: BorderRadius.circular(10),
-                              border: border,
-                            ),
-                            child: Center(
-                              child: Text(
-                                '${idx + 1}',
-                                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13, color: textColor),
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
+            // Question Navigation Grid Bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: const Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
-                ),
-                // Quick Grid Button
-                const SizedBox(width: 8),
-                InkWell(
-                  onTap: _showQuestionGridBottomSheet,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFCBD5E1)),
-                    ),
-                    child: const Icon(Icons.grid_view_rounded, size: 18, color: Color(0xFF0F172A)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Main Question Content Body
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                ],
+              ),
+              child: Row(
                 children: [
-                  // Question Box Card
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(22),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 14,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          (currentQuestion['text'] ?? currentQuestion['questionText'] ?? currentQuestion['soal'] ?? '').toString().trim().isEmpty
-                              ? 'Soal Ujian'
-                              : (currentQuestion['text'] ?? currentQuestion['questionText'] ?? currentQuestion['soal']).toString(),
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF0F172A),
-                            height: 1.65,
-                          ),
-                        ),
-                        // Question Image if available
-                        if ((currentQuestion['imageUrl'] ?? '').toString().isNotEmpty) ...[
-                          const SizedBox(height: 18),
-                          Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: Image.network(
-                                currentQuestion['imageUrl'].toString(),
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => const SizedBox(),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: List.generate(_questions.length, (idx) {
+                          final itemQ = _questions[idx];
+                          final itemQId = itemQ['id'].toString();
+                          final itemIsEssay = _isEssayQuestion(itemQ);
+
+                          final isAnswered = itemIsEssay
+                              ? (_essayAnswers[itemQId] ?? '').trim().isNotEmpty
+                              : _answers.containsKey(itemQId);
+
+                          final isDoubt = _doubts[itemQId] == true;
+                          final isCurrent = idx == _currentIndex;
+
+                          Color boxColor = const Color(0xFFF1F5F9);
+                          Color textColor = const Color(0xFF475569);
+                          Border border = Border.all(color: const Color(0xFFCBD5E1));
+
+                          if (isDoubt) {
+                            boxColor = const Color(0xFFFEF3C7);
+                            textColor = const Color(0xFFD97706);
+                            border = Border.all(color: const Color(0xFFFBBF24), width: 1.5);
+                          } else if (isAnswered) {
+                            boxColor = const Color(0xFFD1FAE5);
+                            textColor = const Color(0xFF047857);
+                            border = Border.all(color: const Color(0xFF34D399), width: 1.5);
+                          }
+
+                          if (isCurrent) {
+                            boxColor = const Color(0xFF0F172A);
+                            textColor = Colors.white;
+                            border = Border.all(color: const Color(0xFF0F172A), width: 2);
+                          }
+
+                          return InkWell(
+                            onTap: () {
+                              _saveDraftToFirestore();
+                              setState(() => _currentIndex = idx);
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              width: 40,
+                              height: 40,
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: boxColor,
+                                borderRadius: BorderRadius.circular(10),
+                                border: border,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '${idx + 1}',
+                                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13, color: textColor),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ],
+                          );
+                        }),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  // Quick Grid Button
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _showQuestionGridBottomSheet,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: const Icon(Icons.grid_view_rounded, size: 18, color: Color(0xFF0F172A)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
-                  // Dynamic Answer Section (Essay vs Multiple Choice)
-                  if (isEssay) ...[
-                    // Essay Input Card
+            // Main Question Content Body
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Question Box Card
                     Container(
-                      padding: const EdgeInsets.all(20),
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(22),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF2FF),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(Icons.edit_note_rounded, color: Color(0xFF4338CA), size: 20),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Lembar Jawaban Esai',
-                                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 15, color: const Color(0xFF1E293B)),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
                           Text(
-                            'Tuliskan jawaban Anda secara rinci dan jelas pada kolom di bawah ini:',
-                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                          ),
-                          const SizedBox(height: 14),
-                          TextField(
-                            controller: _getEssayController(qId),
-                            maxLines: 8,
-                            minLines: 5,
-                            keyboardType: TextInputType.multiline,
-                            style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF0F172A), height: 1.6),
-                            decoration: InputDecoration(
-                              hintText: 'Ketik jawaban Anda di sini...',
-                              hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
-                              filled: true,
-                              fillColor: const Color(0xFFF8FAFC),
-                              contentPadding: const EdgeInsets.all(18),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: Color(0xFF4338CA), width: 1.8),
-                              ),
+                            (currentQuestion['text'] ?? currentQuestion['questionText'] ?? currentQuestion['soal'] ?? '').toString().trim().isEmpty
+                                ? 'Soal Ujian'
+                                : (currentQuestion['text'] ?? currentQuestion['questionText'] ?? currentQuestion['soal']).toString(),
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF0F172A),
+                              height: 1.65,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    (_essayAnswers[qId] ?? '').trim().isNotEmpty ? Icons.cloud_done_rounded : Icons.edit_off_rounded,
-                                    size: 15,
-                                    color: (_essayAnswers[qId] ?? '').trim().isNotEmpty ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    (_essayAnswers[qId] ?? '').trim().isNotEmpty ? 'Tersimpan otomatis' : 'Belum diisi',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: (_essayAnswers[qId] ?? '').trim().isNotEmpty ? const Color(0xFF059669) : const Color(0xFF94A3B8),
-                                    ),
-                                  ),
-                                ],
+                          // Question Image if available
+                          if ((currentQuestion['imageUrl'] ?? '').toString().isNotEmpty) ...[
+                            const SizedBox(height: 18),
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
                               ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  '${(_essayAnswers[qId] ?? '').length} Karakter',
-                                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF64748B)),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: _buildImageWidget(
+                                  currentQuestion['imageUrl'].toString(),
+                                  fit: BoxFit.contain,
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
-                  ] else ...[
-                    // Options Cards (A, B, C, D, E)
-                    ...options.asMap().entries.map((optEntry) {
-                      final optIdx = optEntry.key;
-                      final optText = optEntry.value;
-                      final optionLabel = String.fromCharCode(65 + optIdx); // A, B, C, D, E
-                      final isSelected = _answers[qId] == optIdx;
+                    const SizedBox(height: 20),
 
-                      // Check for option image
-                      final optionImages = currentQuestion['optionImages'] as Map?;
-                      final optionImgUrl = optionImages?[optionLabel]?.toString();
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: InkWell(
-                          onTap: () {
-                            setState(() {
-                              _answers[qId] = optIdx;
-                            });
-                            _saveDraftToFirestore();
-                          },
-                          borderRadius: BorderRadius.circular(16),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                            decoration: BoxDecoration(
-                              color: isSelected ? const Color(0xFFECFDF5) : Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isSelected ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
-                                width: isSelected ? 2 : 1,
-                              ),
-                              boxShadow: isSelected
-                                  ? [
-                                      BoxShadow(
-                                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ]
-                                  : [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.015),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
+                    // Dynamic Answer Section (Essay vs Multiple Choice)
+                    if (isEssay) ...[
+                      // Essay Input Card
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.02),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
                             ),
-                            child: Row(
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               children: [
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
-                                  width: 36,
-                                  height: 36,
+                                Container(
+                                  padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: isSelected ? const Color(0xFF10B981) : const Color(0xFFF1F5F9),
-                                    shape: BoxShape.circle,
+                                    color: const Color(0xFFEEF2FF),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: Center(
-                                    child: Text(
-                                      optionLabel,
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                        color: isSelected ? Colors.white : const Color(0xFF475569),
+                                  child: const Icon(Icons.edit_note_rounded, color: Color(0xFF4338CA), size: 20),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Lembar Jawaban Esai',
+                                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 15, color: const Color(0xFF1E293B)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Tuliskan jawaban Anda secara rinci dan jelas pada kolom di bawah ini:',
+                              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                            ),
+                            const SizedBox(height: 14),
+                            TextField(
+                              controller: _getEssayController(qId),
+                              maxLines: 8,
+                              minLines: 5,
+                              keyboardType: TextInputType.multiline,
+                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF0F172A), height: 1.6),
+                              decoration: InputDecoration(
+                                hintText: 'Ketik jawaban Anda di sini...',
+                                hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                                filled: true,
+                                fillColor: const Color(0xFFF8FAFC),
+                                contentPadding: const EdgeInsets.all(18),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: const BorderSide(color: Color(0xFF4338CA), width: 1.8),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      (_essayAnswers[qId] ?? '').trim().isNotEmpty ? Icons.cloud_done_rounded : Icons.edit_off_rounded,
+                                      size: 15,
+                                      color: (_essayAnswers[qId] ?? '').trim().isNotEmpty ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      (_essayAnswers[qId] ?? '').trim().isNotEmpty ? 'Tersimpan otomatis' : 'Belum diisi',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: (_essayAnswers[qId] ?? '').trim().isNotEmpty ? const Color(0xFF059669) : const Color(0xFF94A3B8),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${(_essayAnswers[qId] ?? '').length} Karakter',
+                                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF64748B)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      // Options Cards (A, B, C, D, E)
+                      ...options.asMap().entries.map((optEntry) {
+                        final optIdx = optEntry.key;
+                        final optText = optEntry.value;
+                        final optionLabel = String.fromCharCode(65 + optIdx); // A, B, C, D, E
+                        final isSelected = _answers[qId] == optIdx;
+
+                        // Check for option image
+                        final optionImages = currentQuestion['optionImages'] as Map?;
+                        final optionImgUrl = optionImages?[optionLabel]?.toString();
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: InkWell(
+                            onTap: () {
+                              setState(() {
+                                _answers[qId] = optIdx;
+                              });
+                              _saveDraftToFirestore();
+                            },
+                            borderRadius: BorderRadius.circular(16),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                              decoration: BoxDecoration(
+                                color: isSelected ? const Color(0xFFECFDF5) : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isSelected ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+                                  width: isSelected ? 2 : 1,
+                                ),
+                                boxShadow: isSelected
+                                    ? [
+                                        BoxShadow(
+                                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ]
+                                    : [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: 0.015),
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                              ),
+                              child: Row(
+                                children: [
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? const Color(0xFF10B981) : const Color(0xFFF1F5F9),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        optionLabel,
+                                        style: GoogleFonts.plusJakartaSans(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: isSelected ? Colors.white : const Color(0xFF475569),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        optText,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 15,
-                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                          color: isSelected ? const Color(0xFF065F46) : const Color(0xFF334155),
-                                          height: 1.4,
-                                        ),
-                                      ),
-                                      if (optionImgUrl != null && optionImgUrl.isNotEmpty) ...[
-                                        const SizedBox(height: 10),
-                                        ClipRRect(
-                                          borderRadius: BorderRadius.circular(10),
-                                          child: Image.network(
-                                            optionImgUrl,
-                                            height: 110,
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (_, __, ___) => const SizedBox(),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        if (optText.isNotEmpty)
+                                          Text(
+                                            optText,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 15,
+                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                              color: isSelected ? const Color(0xFF065F46) : const Color(0xFF334155),
+                                              height: 1.4,
+                                            ),
                                           ),
-                                        ),
+                                        if (optionImgUrl != null && optionImgUrl.isNotEmpty) ...[
+                                          const SizedBox(height: 10),
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(10),
+                                            child: _buildImageWidget(
+                                              optionImgUrl,
+                                              height: 140,
+                                              fit: BoxFit.contain,
+                                            ),
+                                          ),
+                                        ],
                                       ],
-                                    ],
+                                    ),
                                   ),
-                                ),
-                                if (isSelected)
-                                  const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 24),
-                              ],
+                                  if (isSelected)
+                                    const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 24),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    }),
+                        );
+                      }),
+                    ],
                   ],
+                ),
+              ),
+            ),
+
+            // Bottom Bar Navigation Dock (Sebelumnya, Ragu-Ragu, Selanjutnya)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // 1. Previous Question Button
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _currentIndex > 0
+                          ? () {
+                              _saveDraftToFirestore();
+                              setState(() => _currentIndex--);
+                            }
+                          : null,
+                      icon: const Icon(Icons.arrow_back_ios_rounded, size: 14),
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Sebelumnya', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // 2. Ragu-Ragu Toggle Button
+                  Expanded(
+                    child: FilterChip(
+                      selected: _doubts[qId] == true,
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Ragu-Ragu',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF475569),
+                          ),
+                        ),
+                      ),
+                      avatar: Icon(
+                        _doubts[qId] == true ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                        size: 16,
+                        color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF64748B),
+                      ),
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      selectedColor: const Color(0xFFFEF3C7),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: _doubts[qId] == true ? const Color(0xFFFBBF24) : const Color(0xFFCBD5E1),
+                        ),
+                      ),
+                      onSelected: (val) {
+                        setState(() {
+                          _doubts[qId] = val;
+                        });
+                        _saveDraftToFirestore();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // 3. Next Question Button (or Selesai on last question)
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _currentIndex < _questions.length - 1
+                          ? () {
+                              _saveDraftToFirestore();
+                              setState(() => _currentIndex++);
+                            }
+                          : _showSubmitConfirmationDialog,
+                      icon: Icon(
+                        _currentIndex < _questions.length - 1 ? Icons.arrow_forward_ios_rounded : Icons.check_circle_outline_rounded,
+                        size: 14,
+                      ),
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _currentIndex < _questions.length - 1 ? 'Selanjutnya' : 'Selesai',
+                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0F172A),
+                        foregroundColor: Colors.white,
+                        elevation: 2,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
-
-          // Bottom Bar Navigation Dock (Sebelumnya, Ragu-Ragu, Selanjutnya)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, -4),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                // 1. Previous Question Button
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _currentIndex > 0
-                        ? () {
-                            _saveDraftToFirestore();
-                            setState(() => _currentIndex--);
-                          }
-                        : null,
-                    icon: const Icon(Icons.arrow_back_ios_rounded, size: 14),
-                    label: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text('Sebelumnya', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-
-                // 2. Ragu-Ragu Toggle Button
-                Expanded(
-                  child: FilterChip(
-                    selected: _doubts[qId] == true,
-                    label: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        'Ragu-Ragu',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF475569),
-                        ),
-                      ),
-                    ),
-                    avatar: Icon(
-                      _doubts[qId] == true ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                      size: 16,
-                      color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF64748B),
-                    ),
-                    backgroundColor: const Color(0xFFF1F5F9),
-                    selectedColor: const Color(0xFFFEF3C7),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(
-                        color: _doubts[qId] == true ? const Color(0xFFFBBF24) : const Color(0xFFCBD5E1),
-                      ),
-                    ),
-                    onSelected: (val) {
-                      setState(() {
-                        _doubts[qId] = val;
-                      });
-                      _saveDraftToFirestore();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-
-                // 3. Next Question Button (or Selesai on last question)
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _currentIndex < _questions.length - 1
-                        ? () {
-                            _saveDraftToFirestore();
-                            setState(() => _currentIndex++);
-                          }
-                        : _showSubmitConfirmationDialog,
-                    icon: Icon(
-                      _currentIndex < _questions.length - 1 ? Icons.arrow_forward_ios_rounded : Icons.check_circle_outline_rounded,
-                      size: 14,
-                    ),
-                    label: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        _currentIndex < _questions.length - 1 ? 'Selanjutnya' : 'Selesai',
-                        style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0F172A),
-                      foregroundColor: Colors.white,
-                      elevation: 2,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
+
