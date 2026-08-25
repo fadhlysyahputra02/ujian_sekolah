@@ -1622,42 +1622,110 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
     }
 
     final seats = List<Color?>.filled(roomCapacity, null);
+    final seatStudentNames = List<String?>.filled(roomCapacity, null);
+
+    // Calculate skipCountMap across preceding rooms
+    final Map<String, int> skipCountMap = {};
+    for (var rMap in self.rooms) {
+      final rId = (rMap['id'] ?? rMap['code'] ?? rMap['name'] ?? '').toString();
+      final rName = (rMap['name'] ?? rMap['code'] ?? rId).toString();
+      final curId = (selectedRoom['id'] ?? selectedRoom['code'] ?? selectedRoom['name'] ?? '').toString();
+      final curName = (selectedRoom['name'] ?? selectedRoom['code'] ?? curId).toString();
+
+      if (rId == curId || rName == curName) {
+        break;
+      }
+
+      List rAssgn = [];
+      self.roomAssignments.forEach((k, v) {
+        if (rAssgn.isNotEmpty) return;
+        final kStr = k.toString();
+        final kClean = kStr.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+        final rIdClean = rId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+        final rNameClean = rName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+
+        if (kStr == rId || kStr == rName || (kClean.isNotEmpty && (kClean == rIdClean || kClean == rNameClean))) {
+          if (v is List) rAssgn = v;
+        }
+      });
+
+      for (var a in rAssgn) {
+        if (a is Map) {
+          final cName = (a['className'] ?? a['classId'] ?? '').toString().trim();
+          final cnt = (a['count'] as num?)?.toInt() ?? 0;
+          if (cName.isNotEmpty && cnt > 0) {
+            skipCountMap[cName] = (skipCountMap[cName] ?? 0) + cnt;
+            final cleanC = cName.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+            if (cleanC.isNotEmpty && cleanC != cName) {
+              skipCountMap[cleanC] = (skipCountMap[cleanC] ?? 0) + cnt;
+            }
+          }
+        }
+      }
+    }
+
+    // Build real student item queues for each class in this room
+    final List<List<Map<String, dynamic>>> classQueues = [];
+    final List<Map<String, dynamic>> allTokenItems = [];
+
+    for (int i = 0; i < assignments.length; i++) {
+      final cnt = (assignments[i]['count'] as num?)?.toInt() ?? 0;
+      final cName = (assignments[i]['className'] ?? assignments[i]['classId'] ?? 'Kelas').toString().trim();
+      final cleanC = cName.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+      final color = classColors[i % classColors.length];
+
+      final realList = self.classRealStudentsMap[cName] ?? self.classRealStudentsMap[cleanC] ?? [];
+      final skipIdx = skipCountMap[cName] ?? skipCountMap[cleanC] ?? 0;
+
+      final classList = <Map<String, dynamic>>[];
+      for (int k = 0; k < cnt; k++) {
+        final targetIdx = skipIdx + k;
+        String sName = '$cName #${k + 1}';
+        if (targetIdx < realList.length) {
+          final r = realList[targetIdx];
+          sName = (r['displayName'] ?? r['studentName'] ?? sName).toString();
+        }
+        final item = {'color': color, 'label': sName};
+        classList.add(item);
+        allTokenItems.add(item);
+      }
+      classQueues.add(classList);
+    }
+
     if (arrangeMode == 'acak') {
       final int seed = layoutState['seed'] as int? ?? (((selectedRoom['id'] as String? ?? '').hashCode.abs() + 42) % 100000);
-      final shuffled = List<Color?>.from(classTokens)..shuffle(Random(seed));
+      final shuffled = List<Map<String, dynamic>>.from(allTokenItems)..shuffle(Random(seed));
       for (int i = 0; i < shuffled.length && i < roomCapacity; i++) {
-        seats[i] = shuffled[i];
+        seats[i] = shuffled[i]['color'] as Color?;
+        seatStudentNames[i] = shuffled[i]['label'] as String?;
       }
     } else if (arrangeMode == 'zigzag') {
-      final List<List<Color>> queues = [];
-      for (int i = 0; i < assignments.length; i++) {
-        final cnt = (assignments[i]['count'] as num?)?.toInt() ?? 0;
-        final color = classColors[i % classColors.length];
-        queues.add(List.filled(cnt, color));
-      }
       int qi = 0;
-      final List<int> qIdx = List.filled(queues.length, 0);
+      final List<int> qIdx = List.filled(classQueues.length, 0);
       for (int seat = 0; seat < roomCapacity; seat++) {
         int tried = 0;
-        while (tried < queues.length) {
-          final q = qi % queues.length;
-          if (qIdx[q] < queues[q].length) {
-            seats[seat] = queues[q][qIdx[q]++];
+        while (tried < classQueues.length) {
+          final q = qi % classQueues.length;
+          if (qIdx[q] < classQueues[q].length) {
+            final item = classQueues[q][qIdx[q]++];
+            seats[seat] = item['color'] as Color?;
+            seatStudentNames[seat] = item['label'] as String?;
             qi = q + 1;
             break;
           }
           qi++;
           tried++;
         }
-        if (tried == queues.length) break;
+        if (tried == classQueues.length) break;
       }
     } else {
       int seatIdx = 0;
-      for (int i = 0; i < assignments.length && seatIdx < roomCapacity; i++) {
-        final cnt = (assignments[i]['count'] as num?)?.toInt() ?? 0;
-        final color = classColors[i % classColors.length];
-        for (int j = 0; j < cnt && seatIdx < roomCapacity; j++) {
-          seats[seatIdx++] = color;
+      for (int q = 0; q < classQueues.length && seatIdx < roomCapacity; q++) {
+        for (int k = 0; k < classQueues[q].length && seatIdx < roomCapacity; k++) {
+          final item = classQueues[q][k];
+          seats[seatIdx] = item['color'] as Color?;
+          seatStudentNames[seatIdx] = item['label'] as String?;
+          seatIdx++;
         }
       }
     }
@@ -1799,26 +1867,56 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
                             }
 
                             final seatColor = seats[seatIndex];
+                            final studentName = seatStudentNames[seatIndex];
+
                             rowChildren.add(
-                              Container(
-                                width: dynamicSeatSize,
-                                height: dynamicSeatSize,
-                                margin: const EdgeInsets.symmetric(horizontal: 1),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: seatColor != null ? seatColor.withValues(alpha: 0.85) : Colors.white,
-                                  borderRadius: BorderRadius.circular(3),
-                                  border: Border.all(
-                                    color: seatColor != null ? seatColor.withValues(alpha: 0.95) : const Color(0xFFCBD5E1),
-                                    width: 0.5,
+                              Tooltip(
+                                message: seatColor != null
+                                    ? 'Kursi #${seatIndex + 1}\n$studentName'
+                                    : 'Kursi #${seatIndex + 1} (Kosong)',
+                                child: Container(
+                                  width: dynamicSeatSize,
+                                  height: dynamicSeatSize,
+                                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: seatColor != null ? seatColor.withValues(alpha: 0.90) : Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: seatColor != null ? seatColor : const Color(0xFFCBD5E1),
+                                      width: 0.8,
+                                    ),
                                   ),
-                                ),
-                                child: Text(
-                                  '${seatIndex + 1}',
-                                  style: TextStyle(
-                                    fontSize: (dynamicSeatSize * 0.4).clamp(6.0, 999.0),
-                                    fontWeight: FontWeight.bold,
-                                    color: seatColor != null ? Colors.white : const Color(0xFF64748B),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '${seatIndex + 1}',
+                                        style: TextStyle(
+                                          fontSize: (dynamicSeatSize * 0.32).clamp(6.5, 14.0),
+                                          fontWeight: FontWeight.w900,
+                                          color: seatColor != null ? Colors.white : const Color(0xFF94A3B8),
+                                        ),
+                                      ),
+                                      if (studentName != null && studentName.isNotEmpty) ...[
+                                        const SizedBox(height: 1),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 1),
+                                          child: Text(
+                                            studentName,
+                                            style: TextStyle(
+                                              fontSize: (dynamicSeatSize * 0.16).clamp(5.5, 9.5),
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white.withValues(alpha: 0.98),
+                                              height: 1.05,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
                               ),

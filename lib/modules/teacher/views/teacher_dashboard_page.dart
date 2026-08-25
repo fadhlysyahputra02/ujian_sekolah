@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
+import '../../../core/constants/app_version.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
   final String? tabName;
@@ -444,22 +445,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                 top: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildLogoutTile(authService, extended: extended),
-                const SizedBox(height: 8),
-                Text(
-                  extended ? 'Versi 1.0.1' : '1.0.1',
-                  style: GoogleFonts.inter(
-                    color: Colors.white.withValues(alpha: 0.35),
-                    fontSize: extended ? 11 : 9,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
+            child: _buildLogoutTile(authService, extended: extended),
           ),
         ],
       ),
@@ -555,41 +541,55 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   }
 
   Widget _buildLogoutTile(AuthService authService, {required bool extended}) {
-    return InkWell(
-      onTap: () => authService.signOut(),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: extended ? 14 : 0,
-          vertical: 12,
-        ),
-        child: Row(
-          mainAxisAlignment:
-              extended ? MainAxisAlignment.start : MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.logout_rounded,
-                  color: Color(0xFFFCA5A5), size: 16),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () => authService.signOut(),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: extended ? 14 : 0,
+              vertical: 12,
             ),
-            if (extended) ...[
-              const SizedBox(width: 12),
-              Text(
-                'Keluar',
-                style: GoogleFonts.inter(
-                  color: const Color(0xFFFCA5A5),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
+            child: Row(
+              mainAxisAlignment:
+                  extended ? MainAxisAlignment.start : MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.logout_rounded,
+                      color: Color(0xFFFCA5A5), size: 16),
                 ),
-              ),
-            ],
-          ],
+                if (extended) ...[
+                  const SizedBox(width: 12),
+                  Text(
+                    'Keluar',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFFCA5A5),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
-      ),
+        const SizedBox(height: 6),
+        Text(
+          extended ? 'Versi ${AppVersion.version}' : AppVersion.version,
+          style: GoogleFonts.inter(
+            color: Colors.white.withValues(alpha: 0.35),
+            fontSize: extended ? 11 : 9,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 
@@ -624,33 +624,47 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       ),
       actions: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-          child: InkWell(
-            onTap: () => authService.signOut(),
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+          padding: const EdgeInsets.only(right: 12.0, top: 4.0, bottom: 4.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              InkWell(
+                onTap: () => authService.signOut(),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 16),
-                  SizedBox(width: 6),
-                  Text(
-                    'Keluar',
-                    style: TextStyle(
-                      color: Color(0xFFF87171),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
                   ),
-                ],
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        'Keluar',
+                        style: TextStyle(
+                          color: Color(0xFFF87171),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: 2),
+              Text(
+                AppVersion.version,
+                style: GoogleFonts.inter(
+                  color: const Color(0xFF94A3B8),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1255,8 +1269,19 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     );
   }
 
+  static final Map<String, Map<String, bool>> _assignmentCache = {};
+  static final Map<String, DateTime> _assignmentCacheTime = {};
+
   Future<Map<String, bool>> _checkTeacherAssignments(
       String schoolId, String eventId, String teacherId) async {
+    final cacheKey = '${eventId}_$teacherId';
+    final now = DateTime.now();
+    if (_assignmentCache.containsKey(cacheKey) &&
+        _assignmentCacheTime.containsKey(cacheKey) &&
+        now.difference(_assignmentCacheTime[cacheKey]!).inMinutes < 5) {
+      return _assignmentCache[cacheKey]!;
+    }
+
     bool isPembuatSoal = false;
     bool isPengawas = false;
 
@@ -1271,13 +1296,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       final evData = evSnap.data() ?? {};
 
       final timetableList = <Map<String, dynamic>>[];
-      try {
-        final timetableSnap = await eventRef.collection('timetable').get();
-        for (var doc in timetableSnap.docs) {
-          timetableList.add(doc.data());
-        }
-      } catch (_) {}
-
       final draftState = evData['draftState'] as Map<String, dynamic>?;
       if (draftState != null && draftState['timetable'] is List) {
         for (var item in (draftState['timetable'] as List)) {
@@ -1288,6 +1306,16 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
         for (var item in (evData['timetable'] as List)) {
           if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
         }
+      }
+
+      // Only query subcollection if not found in top level/draftState
+      if (timetableList.isEmpty) {
+        try {
+          final timetableSnap = await eventRef.collection('timetable').get();
+          for (var doc in timetableSnap.docs) {
+            timetableList.add(doc.data());
+          }
+        } catch (_) {}
       }
 
       for (var entry in timetableList) {
@@ -1308,21 +1336,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
         return cT.isNotEmpty && cT == cM;
       }
 
-      try {
-        final proctorsSnap = await eventRef
-            .collection('proctors')
-            .get();
-        for (var pDoc in proctorsSnap.docs) {
-          final pData = pDoc.data();
-          final pTid = (pData['teacherId'] ?? '').toString();
-          final pTname = (pData['teacherName'] ?? '').toString();
-          if (isCurrentTeacher(pTid) || isCurrentTeacher(pTname)) {
-            isPengawas = true;
-            break;
-          }
-        }
-      } catch (_) {}
-
       final proctorGrid = draftState?['proctorGrid'] ?? evData['proctorGrid'];
       if (proctorGrid is Map) {
         for (var val in proctorGrid.values) {
@@ -1332,12 +1345,32 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           }
         }
       }
+
+      if (!isPengawas) {
+        try {
+          final proctorsSnap = await eventRef
+              .collection('proctors')
+              .get();
+          for (var pDoc in proctorsSnap.docs) {
+            final pData = pDoc.data();
+            final pTid = (pData['teacherId'] ?? '').toString();
+            final pTname = (pData['teacherName'] ?? '').toString();
+            if (isCurrentTeacher(pTid) || isCurrentTeacher(pTname)) {
+              isPengawas = true;
+              break;
+            }
+          }
+        } catch (_) {}
+      }
     } catch (_) {}
 
-    return {
+    final res = {
       'isPembuatSoal': isPembuatSoal,
       'isPengawas': isPengawas,
     };
+    _assignmentCache[cacheKey] = res;
+    _assignmentCacheTime[cacheKey] = DateTime.now();
+    return res;
   }
 
   Widget _buildSectionLabel(String text) {

@@ -59,9 +59,9 @@ class _StudentExamPageState extends State<StudentExamPage> {
   // Doubts: questionId -> bool
   final Map<String, bool> _doubts = {};
 
-  // Countdown Timer
+  // Countdown Timer (ValueNotifier to avoid rebuilding the entire page every second!)
   Timer? _timer;
-  int _remainingSeconds = 3600; // Default 60 minutes
+  late final ValueNotifier<int> _remainingSecondsNotifier = ValueNotifier<int>(3600);
   bool _isSubmitting = false;
 
   // Draft Debounce Timer
@@ -78,27 +78,64 @@ class _StudentExamPageState extends State<StudentExamPage> {
   void dispose() {
     _timer?.cancel();
     _draftDebounceTimer?.cancel();
+    _remainingSecondsNotifier.dispose();
     for (var controller in _essayControllers.values) {
       controller.dispose();
     }
     super.dispose();
   }
 
+  String _lastSavedStateFingerprint = '';
+
   void _triggerDraftAutoSave() {
     _draftDebounceTimer?.cancel();
-    _draftDebounceTimer = Timer(const Duration(milliseconds: 800), () {
+    // Debounce 3 seconds after user stops typing essay
+    _draftDebounceTimer = Timer(const Duration(seconds: 3), () {
       _saveDraftToFirestore();
+    });
+  }
+
+  String _getDraftFingerprint() {
+    final answersForStorage = <String, dynamic>{};
+    final essayAnswersForStorage = <String, String>{};
+
+    for (var q in _questions) {
+      final qId = q['id'].toString();
+      final isEssay = _isEssayQuestion(q);
+      if (isEssay) {
+        final essayText = (_essayAnswers[qId] ?? '').trim();
+        if (essayText.isNotEmpty) {
+          answersForStorage[qId] = essayText;
+          essayAnswersForStorage[qId] = essayText;
+        }
+      } else {
+        final selectedIdx = _answers[qId];
+        if (selectedIdx != null) {
+          final label = String.fromCharCode(65 + selectedIdx);
+          answersForStorage[qId] = label;
+        }
+      }
+    }
+
+    return jsonEncode({
+      'answers': answersForStorage,
+      'essayAnswers': essayAnswersForStorage,
+      'doubts': _doubts,
     });
   }
 
   /// Saves current draft state to Firestore with isCompleted = false
   Future<void> _saveDraftToFirestore() async {
     if (widget.studentId.isEmpty || widget.schoolId.isEmpty || widget.eventId.isEmpty) {
-      debugPrint('⚠️ Draft save skipped: studentId/schoolId/eventId is empty');
       return;
     }
     if (_questions.isEmpty) {
-      debugPrint('⚠️ Draft save skipped: questions not loaded yet');
+      return;
+    }
+
+    final currentFingerprint = _getDraftFingerprint();
+    if (currentFingerprint == _lastSavedStateFingerprint) {
+      debugPrint('ℹ️ Draft state unchanged since last save. Skipping Firestore write.');
       return;
     }
 
@@ -128,13 +165,13 @@ class _StudentExamPageState extends State<StudentExamPage> {
         } else {
           final selectedIdx = _answers[qId];
           if (selectedIdx != null) {
-            final label = String.fromCharCode(65 + selectedIdx); // 0->A, 1->B
+            final label = String.fromCharCode(65 + selectedIdx);
             answersForStorage[qId] = label;
           }
         }
       }
 
-      debugPrint('💾 Saving draft to submissions/$docId  MC:${answersForStorage.length}  Essay:${essayAnswersForStorage.length}');
+      debugPrint('💾 Saving draft to submissions/$docId MC:${answersForStorage.length} Essay:${essayAnswersForStorage.length}');
 
       await subRef.set({
         'studentId': widget.studentId,
@@ -151,6 +188,7 @@ class _StudentExamPageState extends State<StudentExamPage> {
         'isCompleted': false,
       }, SetOptions(merge: true));
 
+      _lastSavedStateFingerprint = currentFingerprint;
       debugPrint('✅ Draft saved successfully');
     } catch (e) {
       debugPrint('❌ Error saving draft: $e');
@@ -236,9 +274,9 @@ class _StudentExamPageState extends State<StudentExamPage> {
       totalSecs = 3600;
     }
 
-    _remainingSeconds = totalSecs;
+    _remainingSecondsNotifier.value = totalSecs;
 
-    if (_remainingSeconds <= 0) {
+    if (_remainingSecondsNotifier.value <= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _handleTimeExpired();
       });
@@ -246,10 +284,8 @@ class _StudentExamPageState extends State<StudentExamPage> {
     }
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingSeconds > 0) {
-        setState(() {
-          _remainingSeconds--;
-        });
+      if (_remainingSecondsNotifier.value > 0) {
+        _remainingSecondsNotifier.value--;
       } else {
         _timer?.cancel();
         _handleTimeExpired();
@@ -257,206 +293,284 @@ class _StudentExamPageState extends State<StudentExamPage> {
     });
   }
 
+  bool _isAngkatanMatch(String qAngkatan, String studentAngkatan, String studentClass) {
+    final qClean = qAngkatan.trim().toLowerCase();
+    if (qClean.isEmpty || qClean == 'semua' || qClean == 'all' || qClean == '-') {
+      return true; // Universal question for all grade levels
+    }
+
+    final sAngClean = studentAngkatan.trim().toLowerCase();
+    final sClassClean = studentClass.trim().toLowerCase();
+
+    // Exact match
+    if (sAngClean.isNotEmpty && qClean == sAngClean) return true;
+    if (sClassClean.isNotEmpty && qClean == sClassClean) return true;
+
+    // Substring match
+    if (sAngClean.isNotEmpty && (qClean.contains(sAngClean) || sAngClean.contains(qClean))) return true;
+    if (sClassClean.isNotEmpty && (qClean.contains(sClassClean) || sClassClean.contains(qClean))) return true;
+
+    // Extract numbers (e.g. '7' from '7-A' or 'kelas 7')
+    final RegExp numReg = RegExp(r'\d+');
+    final qNum = numReg.firstMatch(qClean)?.group(0);
+    final sAngNum = numReg.firstMatch(sAngClean)?.group(0);
+    final sClassNum = numReg.firstMatch(sClassClean)?.group(0);
+
+    if (qNum != null && qNum.isNotEmpty) {
+      if (sAngNum != null && sAngNum == qNum) return true;
+      if (sClassNum != null && sClassNum == qNum) return true;
+    }
+
+    return false;
+  }
+
   Future<void> _loadQuestions() async {
     setState(() => _isLoading = true);
     try {
       final db = FirebaseFirestore.instance;
-
-      debugPrint('📚 Loading questions...');
-      debugPrint('   schoolId  : ${widget.schoolId}');
-      debugPrint('   eventId   : ${widget.eventId}');
-      debugPrint('   subjectId : ${widget.subjectId}');
-      debugPrint('   angkatan  : "${widget.angkatan}"');
-
-      final qSnap = await db
+      final eventRef = db
           .collection('schools')
           .doc(widget.schoolId)
           .collection('events')
-          .doc(widget.eventId)
-          .collection('subjects')
-          .doc(widget.subjectId)
-          .collection('questions')
-          .get();
+          .doc(widget.eventId);
 
-      debugPrint('   total docs in Firestore: ${qSnap.docs.length}');
+      debugPrint('📚 Loading questions for student exam...');
+      debugPrint('   schoolId   : ${widget.schoolId}');
+      debugPrint('   eventId    : ${widget.eventId}');
+      debugPrint('   subjectId  : "${widget.subjectId}"');
+      debugPrint('   subjectName: "${widget.subjectName}"');
+      debugPrint('   angkatan   : "${widget.angkatan}"');
+      debugPrint('   className  : "${widget.className}"');
 
-      if (qSnap.docs.isNotEmpty) {
-        final allDocs = qSnap.docs.map((d) {
-          final data = d.data();
-          data['id'] = d.id;
-          return data;
-        }).toList();
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = [];
 
-        // Filter by angkatan: include soal with no angkatan field OR matching student's angkatan
-        final filtered = widget.angkatan.isEmpty
-            ? allDocs
-            : allDocs.where((q) {
-                final qAng = (q['angkatan'] ?? '').toString().trim();
-                final match = qAng.isEmpty || qAng == widget.angkatan.trim();
-                return match;
-              }).toList();
-
-        // Sort by urutan or index
-        filtered.sort((a, b) {
-          final aIdx = (a['urutan'] ?? a['index'] ?? 9999) as num;
-          final bIdx = (b['urutan'] ?? b['index'] ?? 9999) as num;
-          return aIdx.compareTo(bIdx);
-        });
-
-        _questions = filtered;
-
-        // --- Restore saved draft answers from Firestore ---
-        await _restoreDraftFromFirestore(db);
-
-      } else {
-        debugPrint('   ⚠️ No questions found at this path!');
+      // Path 1: events/{eventId}/subjects/{subjectId}/questions
+      if (widget.subjectId.isNotEmpty) {
+        try {
+          final qSnap1 = await eventRef
+              .collection('subjects')
+              .doc(widget.subjectId)
+              .collection('questions')
+              .get();
+          if (qSnap1.docs.isNotEmpty) {
+            docs = qSnap1.docs;
+            debugPrint('✅ Found ${docs.length} questions in subjects/${widget.subjectId}/questions');
+          }
+        } catch (e) {
+          debugPrint('Path 1 failed: $e');
+        }
       }
+
+      // Path 2: events/{eventId}/subjects/{subjectName}/questions (if subjectName is different)
+      if (docs.isEmpty && widget.subjectName.isNotEmpty) {
+        try {
+          final qSnap2 = await eventRef
+              .collection('subjects')
+              .doc(widget.subjectName)
+              .collection('questions')
+              .get();
+          if (qSnap2.docs.isNotEmpty) {
+            docs = qSnap2.docs;
+            debugPrint('✅ Found ${docs.length} questions in subjects/${widget.subjectName}/questions');
+          }
+        } catch (e) {
+          debugPrint('Path 2 failed: $e');
+        }
+      }
+
+      // Path 3: Direct event subcollection events/{eventId}/questions with filters
+      if (docs.isEmpty) {
+        try {
+          QuerySnapshot<Map<String, dynamic>> qSnap3;
+          if (widget.angkatan.isNotEmpty) {
+            qSnap3 = await eventRef
+                .collection('questions')
+                .where('subjectId', isEqualTo: widget.subjectId)
+                .where('angkatan', isEqualTo: widget.angkatan)
+                .get();
+
+            if (qSnap3.docs.isEmpty) {
+              qSnap3 = await eventRef
+                  .collection('questions')
+                  .where('subjectId', isEqualTo: widget.subjectId)
+                  .get();
+            }
+          } else {
+            qSnap3 = await eventRef
+                .collection('questions')
+                .where('subjectId', isEqualTo: widget.subjectId)
+                .get();
+          }
+
+          if (qSnap3.docs.isNotEmpty) {
+            docs = qSnap3.docs;
+            debugPrint('✅ Found ${docs.length} questions in events/${widget.eventId}/questions (filtered)');
+          }
+        } catch (e) {
+          debugPrint('Path 3 failed: $e');
+        }
+      }
+
+      // Path 4: Unfiltered events/{eventId}/questions
+      if (docs.isEmpty) {
+        try {
+          final qSnap4 = await eventRef.collection('questions').get();
+          if (qSnap4.docs.isNotEmpty) {
+            final matchedDocs = qSnap4.docs.where((d) {
+              final data = d.data();
+              final sId = (data['subjectId'] ?? data['subject'] ?? data['subjectName'] ?? '').toString();
+              return sId == widget.subjectId || sId == widget.subjectName || sId.isEmpty;
+            }).toList();
+
+            docs = matchedDocs.isNotEmpty ? matchedDocs : qSnap4.docs;
+            debugPrint('✅ Found ${docs.length} questions in events/${widget.eventId}/questions (unfiltered)');
+          }
+        } catch (e) {
+          debugPrint('Path 4 failed: $e');
+        }
+      }
+
+      // Path 5: Question banks fallback
+      if (docs.isEmpty) {
+        try {
+          final evSnap = await eventRef.get();
+          final evData = evSnap.data() ?? {};
+          final subjectsList = evData['subjects'] as List? ?? [];
+          String matchedBankId = '';
+
+          for (var s in subjectsList) {
+            if (s is Map && (s['id'] == widget.subjectId || s['name'] == widget.subjectName || s['subjectName'] == widget.subjectName)) {
+              matchedBankId = (s['questionBankId'] ?? s['bankId'] ?? '').toString();
+              break;
+            }
+          }
+
+          if (matchedBankId.isNotEmpty) {
+            final bankSnap = await db
+                .collection('schools')
+                .doc(widget.schoolId)
+                .collection('question_banks')
+                .doc(matchedBankId)
+                .collection('items')
+                .get();
+
+            docs = bankSnap.docs;
+            debugPrint('✅ Found ${docs.length} questions in question_banks/$matchedBankId/items');
+          }
+        } catch (e) {
+          debugPrint('Path 5 failed: $e');
+        }
+      }
+
+      final allQuestions = <Map<String, dynamic>>[];
+      for (var d in docs) {
+        final data = d.data();
+        data['id'] = d.id;
+        allQuestions.add(data);
+      }
+
+      // Filter strictly by student's angkatan & className
+      List<Map<String, dynamic>> filteredQuestions = allQuestions.where((q) {
+        final qAng = (q['angkatan'] ?? q['grade'] ?? q['targetAngkatan'] ?? '').toString();
+        return _isAngkatanMatch(qAng, widget.angkatan, widget.className);
+      }).toList();
+
+      if (filteredQuestions.isNotEmpty) {
+        debugPrint('🎯 Filtered ${filteredQuestions.length} / ${allQuestions.length} questions matching angkatan "${widget.angkatan}" / class "${widget.className}"');
+      } else {
+        debugPrint('⚠️ No questions matched angkatan filter strictly. Using all ${allQuestions.length} questions as fallback.');
+        filteredQuestions = allQuestions;
+      }
+
+      // Sort by urutan/order/index
+      filteredQuestions.sort((a, b) {
+        final orderA = (a['urutan'] as num?) ?? (a['order'] as num?) ?? (a['index'] as num?) ?? 999;
+        final orderB = (b['urutan'] as num?) ?? (b['order'] as num?) ?? (b['index'] as num?) ?? 999;
+        return orderA.compareTo(orderB);
+      });
+
+      _questions = filteredQuestions;
+
+      // Load draft submission if exists
+      if (widget.studentId.isNotEmpty) {
+        final docId = '${widget.studentId}_${widget.subjectId}';
+        final subSnap = await db
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('events')
+            .doc(widget.eventId)
+            .collection('submissions')
+            .doc(docId)
+            .get();
+
+        if (subSnap.exists) {
+          final subData = subSnap.data() ?? {};
+          final rawAnswers = subData['answers'] as Map<String, dynamic>? ?? {};
+          final rawEssayAnswers = subData['essayAnswers'] as Map<String, dynamic>? ?? {};
+          final rawDoubts = subData['doubts'] as Map<String, dynamic>? ?? {};
+
+          for (var entry in rawAnswers.entries) {
+            final qId = entry.key;
+            final val = entry.value;
+
+            // Find question to check type
+            final qMatch = _questions.firstWhere((q) => q['id'].toString() == qId, orElse: () => {});
+            if (qMatch.isNotEmpty && _isEssayQuestion(qMatch)) {
+              _essayAnswers[qId] = val.toString();
+            } else if (val is String && val.length == 1) {
+              final code = val.codeUnitAt(0);
+              if (code >= 65 && code <= 90) { // A-Z
+                _answers[qId] = code - 65;
+              } else if (code >= 97 && code <= 122) { // a-z
+                _answers[qId] = code - 97;
+              }
+            } else if (val is num) {
+              _answers[qId] = val.toInt();
+            }
+          }
+
+          for (var entry in rawEssayAnswers.entries) {
+            _essayAnswers[entry.key] = entry.value.toString();
+          }
+
+          for (var entry in rawDoubts.entries) {
+            _doubts[entry.key] = entry.value == true;
+          }
+        }
+      }
+
+      _lastSavedStateFingerprint = _getDraftFingerprint();
+      debugPrint('✅ Loaded ${_questions.length} questions successfully!');
     } catch (e) {
       debugPrint('❌ Error loading questions: $e');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
-
-        // SnackBar must run after the new exam Scaffold has been built
-        // (cannot call ScaffoldMessenger on the loading Scaffold's context)
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          final restoredCount = _answeredCount;
-          if (restoredCount > 0) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.cloud_done_rounded, color: Colors.white, size: 18),
-                    const SizedBox(width: 10),
-                    Text('Draf dipulihkan: $restoredCount soal terjawab'),
-                  ],
-                ),
-                backgroundColor: const Color(0xFF059669),
-                duration: const Duration(seconds: 4),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            );
-          }
-        });
       }
     }
   }
 
-  /// Fetches and restores draft data from Firestore submissions collection.
-  Future<void> _restoreDraftFromFirestore(FirebaseFirestore db) async {
-    if (widget.studentId.isEmpty || widget.schoolId.isEmpty) {
-      debugPrint('⚠️ Draft restore skipped: studentId or schoolId is empty');
-      return;
-    }
-
-    final docId = '${widget.studentId}_${widget.subjectId}';
-    debugPrint('📥 Looking for draft at: schools/${widget.schoolId}/events/${widget.eventId}/submissions/$docId');
-
-    try {
-      final subDoc = await db
-          .collection('schools')
-          .doc(widget.schoolId)
-          .collection('events')
-          .doc(widget.eventId)
-          .collection('submissions')
-          .doc(docId)
-          .get();
-
-      if (!subDoc.exists) {
-        debugPrint('   ℹ️ No draft found – fresh exam');
-        return;
-      }
-
-      final subData = subDoc.data();
-      if (subData == null) {
-        debugPrint('   ⚠️ Draft doc exists but data is null');
-        return;
-      }
-
-      final isCompleted = subData['isCompleted'] == true;
-      debugPrint('   📄 Draft found (isCompleted=$isCompleted)');
-
-      // Restore multiple-choice answers (stored as single letter: "A", "B", etc.)
-      final rawAnswers = subData['answers'];
-      if (rawAnswers is Map) {
-        rawAnswers.forEach((k, v) {
-          final qIdStr = k.toString();
-          if (v is String && v.length == 1) {
-            final charCode = v.toUpperCase().codeUnitAt(0);
-            if (charCode >= 65 && charCode <= 90) {
-              _answers[qIdStr] = charCode - 65; // "A"->0, "B"->1 ...
-            }
-          } else if (v is num) {
-            _answers[qIdStr] = v.toInt();
-          }
-        });
-      }
-
-      // Restore essay answers
-      final rawEssay = subData['essayAnswers'];
-      if (rawEssay is Map) {
-        rawEssay.forEach((k, v) {
-          _essayAnswers[k.toString()] = v.toString();
-        });
-      }
-
-      // Restore doubt flags
-      final rawDoubts = subData['doubts'];
-      if (rawDoubts is Map) {
-        rawDoubts.forEach((k, v) {
-          _doubts[k.toString()] = v == true;
-        });
-      }
-
-      // Sync any already-created essay controllers with restored text
-      _essayAnswers.forEach((qId, restoredText) {
-        final ctrl = _essayControllers[qId];
-        if (ctrl != null && ctrl.text != restoredText) {
-          ctrl.text = restoredText;
-        }
-      });
-
-      debugPrint('✅ Draft restored: ${_answers.length} MC, ${_essayAnswers.length} Essay, ${_doubts.length} Doubts');
-    } catch (e) {
-      debugPrint('❌ Error restoring draft: $e');
-    }
-  }
-
-
-  /// Triggered automatically when countdown timer reaches 00:00
-  Future<void> _handleTimeExpired() async {
+  void _handleTimeExpired() {
     if (_isSubmitting) return;
-    _isSubmitting = true;
-
-    await _saveAnswersToFirestore();
+    _timer?.cancel();
+    _saveAnswersToFirestore(autoSubmitted: true);
 
     if (mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFEF2F2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.timer_off_rounded, color: Color(0xFFEF4444), size: 28),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text('Waktu Ujian Habis!', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A))),
-              ),
+              const Icon(Icons.timer_off_rounded, color: Color(0xFFDC2626), size: 28),
+              const SizedBox(width: 10),
+              Text('Waktu Ujian Habis', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18)),
             ],
           ),
           content: Text(
-            'Durasi pengerjaan ujian untuk mata pelajaran ${widget.subjectName} telah selesai. Seluruh jawaban Anda telah tersimpan secara otomatis.',
-            style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF475569), height: 1.5),
+            'Waktu pengerjaan mata pelajaran ${widget.subjectName} telah selesai. Jawaban Anda telah tersimpan otomatis oleh sistem.',
+            style: GoogleFonts.inter(fontSize: 14, height: 1.5),
           ),
           actions: [
             ElevatedButton(
@@ -465,12 +579,11 @@ class _StudentExamPageState extends State<StudentExamPage> {
                 Navigator.of(context).pop();
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF10B981),
+                backgroundColor: const Color(0xFF0F172A),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: Text('Kembali ke Dashboard', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              child: const Text('Kembali ke Dashboard'),
             ),
           ],
         ),
@@ -478,30 +591,22 @@ class _StudentExamPageState extends State<StudentExamPage> {
     }
   }
 
-  /// Saves student submission to Firestore
-  Future<void> _saveAnswersToFirestore() async {
+  Future<void> _saveAnswersToFirestore({bool autoSubmitted = false}) async {
+    _isSubmitting = true;
+    _timer?.cancel();
+    _draftDebounceTimer?.cancel();
+
     try {
       final db = FirebaseFirestore.instance;
-      final subRef = db
-          .collection('schools')
-          .doc(widget.schoolId)
-          .collection('events')
-          .doc(widget.eventId)
-          .collection('submissions')
-          .doc('${widget.studentId}_${widget.subjectId}');
-
-      int totalPoints = 0;
-      int earnedPoints = 0;
+      final docId = '${widget.studentId}_${widget.subjectId}';
 
       final answersForStorage = <String, dynamic>{};
       final essayAnswersForStorage = <String, String>{};
 
       for (var q in _questions) {
         final qId = q['id'].toString();
-        final points = (q['points'] as num?)?.toInt() ?? 10;
-        totalPoints += points;
-
         final isEssay = _isEssayQuestion(q);
+
         if (isEssay) {
           final essayText = (_essayAnswers[qId] ?? '').trim();
           if (essayText.isNotEmpty) {
@@ -509,27 +614,22 @@ class _StudentExamPageState extends State<StudentExamPage> {
             essayAnswersForStorage[qId] = essayText;
           }
         } else {
-          final correctOptionLabel = (q['correctOption'] ?? '').toString().trim().toUpperCase();
-          final selectedOptionIdx = _answers[qId];
-
-          if (selectedOptionIdx != null) {
-            final label = String.fromCharCode(65 + selectedOptionIdx); // 0->A, 1->B
+          final selectedIdx = _answers[qId];
+          if (selectedIdx != null) {
+            final label = String.fromCharCode(65 + selectedIdx);
             answersForStorage[qId] = label;
-
-            if (correctOptionLabel.isNotEmpty) {
-              final opts = _parseOptions(q['options']);
-              final correctIdx = correctOptionLabel.codeUnitAt(0) - 'A'.codeUnitAt(0);
-              if (correctIdx >= 0 && correctIdx < opts.length && selectedOptionIdx == correctIdx) {
-                earnedPoints += points;
-              }
-            }
           }
         }
       }
 
-      final scorePercent = totalPoints > 0 ? ((earnedPoints / totalPoints) * 100).round() : 0;
-
-      await subRef.set({
+      await db
+          .collection('schools')
+          .doc(widget.schoolId)
+          .collection('events')
+          .doc(widget.eventId)
+          .collection('submissions')
+          .doc(docId)
+          .set({
         'studentId': widget.studentId,
         'studentName': widget.studentName,
         'nis': widget.nis,
@@ -539,19 +639,18 @@ class _StudentExamPageState extends State<StudentExamPage> {
         'subjectName': widget.subjectName,
         'answers': answersForStorage,
         'essayAnswers': essayAnswersForStorage,
-        'doubts': _doubts.map((k, v) => MapEntry(k, v)),
-        'earnedPoints': earnedPoints,
-        'totalPoints': totalPoints,
-        'score': scorePercent,
+        'doubts': Map<String, dynamic>.from(_doubts),
         'submittedAt': FieldValue.serverTimestamp(),
         'isCompleted': true,
+        'autoSubmitted': autoSubmitted,
       }, SetOptions(merge: true));
+
+      debugPrint('✅ Final submission saved to Firestore!');
     } catch (e) {
-      debugPrint("Error saving answers: $e");
+      debugPrint('❌ Error saving final submission: $e');
     }
   }
 
-  /// Manual Submit Dialog
   Future<void> _showSubmitConfirmationDialog() async {
     final unansweredCount = _questions.length - _answeredCount;
 
@@ -563,14 +662,14 @@ class _StudentExamPageState extends State<StudentExamPage> {
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: const BoxDecoration(
-                color: Color(0xFFECFDF5),
-                shape: BoxShape.circle,
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.task_alt_rounded, color: Color(0xFF10B981), size: 26),
+              child: const Icon(Icons.assignment_turned_in_rounded, color: Color(0xFF059669), size: 24),
             ),
             const SizedBox(width: 12),
-            Text('Kumpulkan Ujian?', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A))),
+            Text('Kumpulkan Ujian?', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18)),
           ],
         ),
         content: Column(
@@ -578,58 +677,74 @@ class _StudentExamPageState extends State<StudentExamPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Apakah Anda yakin ingin mengumpulkan lembar jawaban ujian ${widget.subjectName}?',
-              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF475569), height: 1.5),
+              'Apakah Anda yakin ingin mengakhiri dan mengumpulkan jawaban mata pelajaran ${widget.subjectName}?',
+              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF334155), height: 1.5),
             ),
-            const SizedBox(height: 14),
-            if (unansweredCount > 0)
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Total Soal:', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B))),
+                      Text('${_questions.length} Soal', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Telah Dijawab:', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B))),
+                      Text('$_answeredCount Soal', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF059669))),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Belum Dijawab:', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B))),
+                      Text('$unansweredCount Soal', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: unansweredCount > 0 ? const Color(0xFFDC2626) : const Color(0xFF64748B))),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (unansweredCount > 0) ...[
+              const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFEF2F2),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0xFFFCA5A5)),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 22),
-                    const SizedBox(width: 10),
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 20),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Masih ada $unansweredCount soal yang belum dijawab!',
-                        style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF991B1B)),
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF6EE7B7)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 22),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Semua ${_questions.length} soal telah dijawab dengan lengkap.',
-                        style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF065F46)),
+                        'Masih ada $unansweredCount soal yang belum Anda jawab!',
+                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF991B1B)),
                       ),
                     ),
                   ],
                 ),
               ),
+            ],
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Batal', style: GoogleFonts.inter(color: const Color(0xFF64748B), fontWeight: FontWeight.bold)),
+            child: Text('Periksa Kembali', style: GoogleFonts.inter(color: const Color(0xFF64748B), fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
@@ -662,12 +777,11 @@ class _StudentExamPageState extends State<StudentExamPage> {
     }
   }
 
-  /// Intercept Back Navigation Dialog (Beautiful & Modern UI)
   Future<void> _showBackNavigationWarningDialog() async {
     if (_isSubmitting) return;
 
     final unansweredCount = _questions.length - _answeredCount;
-    final timeFormatted = _formatTime(_remainingSeconds);
+    final timeFormatted = _formatRemainingTime(_remainingSecondsNotifier.value);
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -681,7 +795,6 @@ class _StudentExamPageState extends State<StudentExamPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Top Warning Banner with Gradient Header
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
@@ -729,8 +842,6 @@ class _StudentExamPageState extends State<StudentExamPage> {
                   ],
                 ),
               ),
-
-              // Dialog Content Body
               Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
@@ -748,132 +859,107 @@ class _StudentExamPageState extends State<StudentExamPage> {
                     Text(
                       'Jika Anda keluar dari halaman ini sekarang, sistem akan otomatis mengumpulkan jawaban Anda dan mengunci mata pelajaran ini.',
                       style: GoogleFonts.inter(
-                        fontSize: 13.5,
-                        color: const Color(0xFF475569),
-                        height: 1.55,
+                        fontSize: 13,
+                        color: const Color(0xFF64748B),
+                        height: 1.5,
                       ),
                     ),
                     const SizedBox(height: 18),
-
-                    // Progress & Time Summary Pills
                     Container(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF8FAFC),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      child: Row(
+                      child: Column(
                         children: [
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  'Terjawab',
-                                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '$_answeredCount / ${_questions.length}',
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                    color: const Color(0xFF0F172A),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(width: 1, height: 32, color: const Color(0xFFCBD5E1)),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  'Sisa Waktu',
-                                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  timeFormatted,
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                    color: const Color(0xFFDC2626),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Warning Alert Chip
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF2F2),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFFCA5A5)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.lock_clock_rounded, color: Color(0xFFDC2626), size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              unansweredCount > 0
-                                  ? 'Ada $unansweredCount soal belum dijawab & tidak bisa dikerjakan ulang!'
-                                  : 'Ujian akan langsung diselesaikan & dikunci permanen.',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF991B1B),
-                                height: 1.35,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.timer_outlined, size: 16, color: Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  Text('Sisa Waktu:', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B))),
+                                ],
                               ),
-                            ),
+                              Text(timeFormatted, style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                            ],
+                          ),
+                          const Divider(height: 20, color: Color(0xFFE2E8F0)),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.help_outline_rounded, size: 16, color: Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  Text('Belum Dijawab:', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B))),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: unansweredCount > 0 ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  '$unansweredCount dari ${_questions.length}',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: unansweredCount > 0 ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 24),
-
-                    // Action Buttons (Primary: Lanjutkan Ujian, Secondary Danger: Ya, Keluar & Kumpulkan)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
-                        label: Text(
-                          'Lanjutkan Mengerjakan Ujian',
-                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            child: Text(
+                              'Lanjutkan Ujian',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: const Color(0xFF0F172A),
+                              ),
+                            ),
+                          ),
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0F172A),
-                          foregroundColor: Colors.white,
-                          elevation: 2,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              backgroundColor: const Color(0xFFDC2626),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            child: Text(
+                              'Keluar & Kumpulkan',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        icon: const Icon(Icons.exit_to_app_rounded, size: 16, color: Color(0xFFDC2626)),
-                        label: Text(
-                          'Ya, Keluar & Kumpulkan Jawaban',
-                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFFDC2626)),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFFCA5A5)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
@@ -884,213 +970,152 @@ class _StudentExamPageState extends State<StudentExamPage> {
       ),
     );
 
-    if (confirm == true && mounted) {
-      setState(() => _isSubmitting = true);
-      await _saveAnswersToFirestore();
-
+    if (confirm == true) {
+      await _saveAnswersToFirestore(autoSubmitted: true);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Ujian telah dikumpulkan secara otomatis.'),
-            backgroundColor: Color(0xFFDC2626),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
         Navigator.of(context).pop();
       }
     }
   }
 
-  /// Opens bottom sheet with grid view of all questions
   void _showQuestionGridBottomSheet() {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        height: MediaQuery.of(context).size.height * 0.72,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          children: [
-            // Handle bar
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 44,
-              height: 5,
-              decoration: BoxDecoration(
-                color: const Color(0xFFCBD5E1),
-                borderRadius: BorderRadius.circular(10),
-              ),
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Daftar Lembar Soal',
-                        style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Progres: $_answeredCount dari ${_questions.length} Soal Terjawab',
-                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                      ),
-                    ],
-                  ),
-                  Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(Icons.close_rounded, size: 20, color: Color(0xFF64748B)),
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: Color(0xFFE2E8F0)),
-            // Legend Bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              color: const Color(0xFFF8FAFC),
-              child: Wrap(
-                spacing: 16,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  _buildLegendItem(const Color(0xFFD1FAE5), const Color(0xFF34D399), 'Terjawab'),
-                  _buildLegendItem(const Color(0xFFFEF3C7), const Color(0xFFFBBF24), 'Ragu-Ragu'),
-                  _buildLegendItem(const Color(0xFFF1F5F9), const Color(0xFFCBD5E1), 'Belum Diisi'),
-                  _buildLegendItem(const Color(0xFF0F172A), const Color(0xFF0F172A), 'Sedang Dibuka'),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: Color(0xFFE2E8F0)),
-            // Grid View
-            Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.all(20),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 5,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 1,
                 ),
-                itemCount: _questions.length,
-                itemBuilder: (context, idx) {
-                  final itemQ = _questions[idx];
-                  final itemQId = itemQ['id'].toString();
-                  final isEssay = _isEssayQuestion(itemQ);
-
-                  final isAnswered = isEssay
-                      ? (_essayAnswers[itemQId] ?? '').trim().isNotEmpty
-                      : _answers.containsKey(itemQId);
-
-                  final isDoubt = _doubts[itemQId] == true;
-                  final isCurrent = idx == _currentIndex;
-
-                  Color boxColor = const Color(0xFFF1F5F9);
-                  Color textColor = const Color(0xFF475569);
-                  Border border = Border.all(color: const Color(0xFFCBD5E1));
-
-                  if (isDoubt) {
-                    boxColor = const Color(0xFFFEF3C7);
-                    textColor = const Color(0xFFD97706);
-                    border = Border.all(color: const Color(0xFFFBBF24), width: 1.5);
-                  } else if (isAnswered) {
-                    boxColor = const Color(0xFFD1FAE5);
-                    textColor = const Color(0xFF047857);
-                    border = Border.all(color: const Color(0xFF34D399), width: 1.5);
-                  }
-
-                  if (isCurrent) {
-                    boxColor = const Color(0xFF0F172A);
-                    textColor = Colors.white;
-                    border = Border.all(color: const Color(0xFF0F172A), width: 2);
-                  }
-
-                  return InkWell(
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      setState(() => _currentIndex = idx);
-                    },
-                    borderRadius: BorderRadius.circular(14),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
+                const SizedBox(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Navigasi Nomor Soal',
+                      style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: boxColor,
-                        borderRadius: BorderRadius.circular(14),
-                        border: border,
-                        boxShadow: isCurrent
-                            ? [
-                                BoxShadow(
-                                  color: const Color(0xFF0F172A).withValues(alpha: 0.2),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ]
-                            : null,
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '${idx + 1}',
-                                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 16, color: textColor),
-                              ),
-                              if (isEssay)
-                                Container(
-                                  margin: const EdgeInsets.only(top: 2),
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: isCurrent ? Colors.white.withValues(alpha: 0.2) : const Color(0xFFEEF2FF),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'ESAI',
-                                    style: GoogleFonts.inter(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 8,
-                                      color: isCurrent ? Colors.white : const Color(0xFF4338CA),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          if (isDoubt)
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: Icon(Icons.bookmark_rounded, size: 14, color: isCurrent ? const Color(0xFFFBBF24) : const Color(0xFFD97706)),
-                            ),
-                        ],
+                      child: Text(
+                        '$_answeredCount / ${_questions.length} Terisi',
+                        style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF047857)),
                       ),
                     ),
-                  );
-                },
-              ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Legend
+                Row(
+                  children: [
+                    _buildLegendItem('Sudah Diisi', const Color(0xFFD1FAE5), const Color(0xFF34D399), const Color(0xFF047857)),
+                    const SizedBox(width: 12),
+                    _buildLegendItem('Ragu-ragu', const Color(0xFFFEF3C7), const Color(0xFFFBBF24), const Color(0xFFD97706)),
+                    const SizedBox(width: 12),
+                    _buildLegendItem('Belum Diisi', const Color(0xFFF1F5F9), const Color(0xFFCBD5E1), const Color(0xFF64748B)),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.5,
+                  ),
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    itemCount: _questions.length,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 5,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 1.0,
+                    ),
+                    itemBuilder: (context, idx) {
+                      final itemQ = _questions[idx];
+                      final itemQId = itemQ['id'].toString();
+                      final itemIsEssay = _isEssayQuestion(itemQ);
+
+                      final isAnswered = itemIsEssay
+                          ? (_essayAnswers[itemQId] ?? '').trim().isNotEmpty
+                          : _answers.containsKey(itemQId);
+
+                      final isDoubt = _doubts[itemQId] == true;
+                      final isCurrent = idx == _currentIndex;
+
+                      Color boxColor = const Color(0xFFF1F5F9);
+                      Color textColor = const Color(0xFF475569);
+                      Border border = Border.all(color: const Color(0xFFCBD5E1));
+
+                      if (isDoubt) {
+                        boxColor = const Color(0xFFFEF3C7);
+                        textColor = const Color(0xFFD97706);
+                        border = Border.all(color: const Color(0xFFFBBF24), width: 1.5);
+                      } else if (isAnswered) {
+                        boxColor = const Color(0xFFD1FAE5);
+                        textColor = const Color(0xFF047857);
+                        border = Border.all(color: const Color(0xFF34D399), width: 1.5);
+                      }
+
+                      if (isCurrent) {
+                        boxColor = const Color(0xFF0F172A);
+                        textColor = Colors.white;
+                        border = Border.all(color: const Color(0xFF0F172A), width: 2);
+                      }
+
+                      return InkWell(
+                        onTap: () {
+                          setState(() => _currentIndex = idx);
+                          Navigator.of(context).pop();
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: boxColor,
+                            borderRadius: BorderRadius.circular(12),
+                            border: border,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${idx + 1}',
+                              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 15, color: textColor),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildLegendItem(Color bg, Color border, String label) {
+  Widget _buildLegendItem(String label, Color bg, Color borderColor, Color textColor) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 14,
@@ -1098,86 +1123,76 @@ class _StudentExamPageState extends State<StudentExamPage> {
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: border, width: 1.5),
+            border: Border.all(color: borderColor),
           ),
         ),
         const SizedBox(width: 6),
-        Text(label, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF475569))),
+        Text(
+          label,
+          style: GoogleFonts.inter(fontSize: 12, color: textColor, fontWeight: FontWeight.w600),
+        ),
       ],
     );
   }
 
-  String _formatTime(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    final mm = m.toString().padLeft(2, '0');
-    final ss = s.toString().padLeft(2, '0');
-    return '$mm:$ss';
+  List<String> _parseOptions(dynamic rawOptions) {
+    final List<String> list = [];
+    if (rawOptions is List) {
+      for (var item in rawOptions) {
+        list.add(item.toString());
+      }
+    } else if (rawOptions is Map) {
+      final sortedKeys = rawOptions.keys.map((k) => k.toString()).toList()..sort();
+      for (var k in sortedKeys) {
+        list.add(rawOptions[k].toString());
+      }
+    }
+    return list;
   }
 
-  List<String> _parseOptions(dynamic raw) {
-    if (raw == null) return ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'];
+  Widget _buildImageWidget(String urlStr, {double? height, BoxFit fit = BoxFit.contain}) {
+    final clean = urlStr.trim();
+    if (clean.isEmpty) return const SizedBox();
 
-    if (raw is List) {
-      return raw.map((o) => o.toString()).toList();
-    }
-
-    if (raw is Map) {
-      final sortedEntries = raw.entries.toList()
-        ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
-      return sortedEntries.map((e) => e.value.toString()).toList();
-    }
-
-    return ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D'];
-  }
-
-  Widget _buildImageWidget(String url, {double? width, double? height, BoxFit fit = BoxFit.contain}) {
-    final cleanUrl = url.trim();
-    if (cleanUrl.isEmpty) return const SizedBox();
-
-    if (cleanUrl.startsWith('data:image/')) {
+    if (clean.startsWith('data:image')) {
       try {
-        final parts = cleanUrl.split(',');
-        if (parts.length > 1) {
-          final base64Content = parts[1];
-          final bytes = base64Decode(base64Content);
-          return Image.memory(
-            bytes,
-            width: width,
-            height: height,
-            fit: fit,
-            errorBuilder: (context, error, stackTrace) => const SizedBox(),
-          );
+        final commaIdx = clean.indexOf(',');
+        if (commaIdx != -1) {
+          final base64Str = clean.substring(commaIdx + 1);
+          final bytes = base64Decode(base64Str);
+          return Image.memory(bytes, height: height, fit: fit);
         }
       } catch (e) {
-        debugPrint('Error decoding base64 image: $e');
-        return const SizedBox();
+        debugPrint("Error decoding base64 image: $e");
       }
     }
 
-    if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
       return Image.network(
-        cleanUrl,
-        width: width,
+        clean,
         height: height,
         fit: fit,
-        errorBuilder: (context, error, stackTrace) => const SizedBox(),
+        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, size: 40, color: Colors.grey),
       );
     }
 
-    // Direct raw base64 string fallback
-    try {
-      final bytes = base64Decode(cleanUrl);
-      return Image.memory(
-        bytes,
-        width: width,
-        height: height,
-        fit: fit,
-        errorBuilder: (context, error, stackTrace) => const SizedBox(),
-      );
-    } catch (_) {
-      return const SizedBox();
+    return const SizedBox();
+  }
+
+  String _formatRemainingTime(int seconds) {
+    if (seconds <= 0) return '00:00:00';
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+
+    final hh = h.toString().padLeft(2, '0');
+    final mm = m.toString().padLeft(2, '0');
+    final ss = s.toString().padLeft(2, '0');
+
+    if (h > 0) {
+      return '$hh:$mm:$ss';
     }
+    return '$mm:$ss';
   }
 
   @override
@@ -1291,7 +1306,6 @@ class _StudentExamPageState extends State<StudentExamPage> {
     final qId = currentQuestion['id'].toString();
     final isEssay = _isEssayQuestion(currentQuestion);
     final options = _parseOptions(currentQuestion['options']);
-    final isUrgent = _remainingSeconds < 300; // Less than 5 mins
     final progressPercent = _questions.isNotEmpty ? (_answeredCount / _questions.length) : 0.0;
 
     return PopScope(
@@ -1320,42 +1334,69 @@ class _StudentExamPageState extends State<StudentExamPage> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  widget.subjectName,
-                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.white),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.subjectName,
+                      style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '${widget.studentName} (${widget.className})',
+                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           actions: [
-            // Live Timer Badge
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: isUrgent ? const Color(0xFFDC2626) : const Color(0xFF064E3B),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: isUrgent ? Colors.redAccent : const Color(0xFF34D399), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: (isUrgent ? Colors.red : const Color(0xFF10B981)).withValues(alpha: 0.25),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+            // Live Timer Badge (Wrapped in ValueListenableBuilder so only THIS widget rebuilds every second!)
+            ValueListenableBuilder<int>(
+              valueListenable: _remainingSecondsNotifier,
+              builder: (context, remainingSecs, child) {
+                final isUrgent = remainingSecs < 300; // Less than 5 mins
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isUrgent ? const Color(0xFFDC2626) : const Color(0xFF064E3B),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: isUrgent ? Colors.redAccent : const Color(0xFF34D399), width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (isUrgent ? Colors.red : const Color(0xFF10B981)).withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.timer_outlined, size: 16, color: isUrgent ? Colors.white : const Color(0xFFA7F3D0)),
-                  const SizedBox(width: 6),
-                  Text(
-                    _formatTime(_remainingSeconds),
-                    style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.white, letterSpacing: 0.5),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isUrgent ? Icons.timer_outlined : Icons.timer_rounded,
+                        size: 16,
+                        color: isUrgent ? Colors.white : const Color(0xFFA7F3D0),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _formatRemainingTime(remainingSecs),
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                          color: Colors.white,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
             const SizedBox(width: 16),
           ],
@@ -1367,10 +1408,10 @@ class _StudentExamPageState extends State<StudentExamPage> {
               value: progressPercent,
               backgroundColor: const Color(0xFFE2E8F0),
               valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
-              minHeight: 3,
+              minHeight: 3.5,
             ),
 
-            // Question Navigation Grid Bar
+            // Question Navigation Bar (Scrollable Number Bar)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
@@ -1424,7 +1465,6 @@ class _StudentExamPageState extends State<StudentExamPage> {
 
                           return InkWell(
                             onTap: () {
-                              _saveDraftToFirestore();
                               setState(() => _currentIndex = idx);
                             },
                             borderRadius: BorderRadius.circular(10),
@@ -1495,12 +1535,54 @@ class _StudentExamPageState extends State<StudentExamPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Header Chips Row (Soal #N & Badge Type)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF047857), Color(0xFF0F766E)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  'Soal Nomor ${_currentIndex + 1}',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: isEssay ? const Color(0xFFEEF2FF) : const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: isEssay ? const Color(0xFFC7D2FE) : const Color(0xFFCBD5E1),
+                                  ),
+                                ),
+                                child: Text(
+                                  isEssay ? 'Esai / Uraian' : 'Pilihan Ganda',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: isEssay ? const Color(0xFF4338CA) : const Color(0xFF475569),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
                           Text(
                             (currentQuestion['text'] ?? currentQuestion['questionText'] ?? currentQuestion['soal'] ?? '').toString().trim().isEmpty
                                 ? 'Soal Ujian'
                                 : (currentQuestion['text'] ?? currentQuestion['questionText'] ?? currentQuestion['soal']).toString(),
                             style: GoogleFonts.plusJakartaSans(
-                              fontSize: 16,
+                              fontSize: 16.5,
                               fontWeight: FontWeight.w600,
                               color: const Color(0xFF0F172A),
                               height: 1.65,
@@ -1596,41 +1678,6 @@ class _StudentExamPageState extends State<StudentExamPage> {
                                   borderSide: const BorderSide(color: Color(0xFF4338CA), width: 1.8),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      (_essayAnswers[qId] ?? '').trim().isNotEmpty ? Icons.cloud_done_rounded : Icons.edit_off_rounded,
-                                      size: 15,
-                                      color: (_essayAnswers[qId] ?? '').trim().isNotEmpty ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Text(
-                                      (_essayAnswers[qId] ?? '').trim().isNotEmpty ? 'Tersimpan otomatis' : 'Belum diisi',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: (_essayAnswers[qId] ?? '').trim().isNotEmpty ? const Color(0xFF059669) : const Color(0xFF94A3B8),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF1F5F9),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    '${(_essayAnswers[qId] ?? '').length} Karakter',
-                                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF64748B)),
-                                  ),
-                                ),
-                              ],
                             ),
                           ],
                         ),
@@ -1768,7 +1815,6 @@ class _StudentExamPageState extends State<StudentExamPage> {
                     child: OutlinedButton.icon(
                       onPressed: _currentIndex > 0
                           ? () {
-                              _saveDraftToFirestore();
                               setState(() => _currentIndex--);
                             }
                           : null,
@@ -1829,7 +1875,6 @@ class _StudentExamPageState extends State<StudentExamPage> {
                     child: ElevatedButton.icon(
                       onPressed: _currentIndex < _questions.length - 1
                           ? () {
-                              _saveDraftToFirestore();
                               setState(() => _currentIndex++);
                             }
                           : _showSubmitConfirmationDialog,
@@ -1862,4 +1907,3 @@ class _StudentExamPageState extends State<StudentExamPage> {
     );
   }
 }
-

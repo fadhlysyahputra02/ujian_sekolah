@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/event_exam_service.dart';
+import '../../../core/widgets/app_splash_loader.dart';
 import 'event_editor_wizard.dart';
 import 'admin_full_schedule_page.dart';
 
@@ -185,9 +186,9 @@ class _EventListScreenState extends State<EventListScreen> {
   @override
   Widget build(BuildContext context) {
     if (widget.schoolId.isEmpty) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF8FAFC),
-        body: Center(child: CircularProgressIndicator()),
+      return const AppContentLoader(
+        title: 'Memuat Profil Sekolah...',
+        subtitle: 'Menyiapkan ruang ujian',
       );
     }
     final dateFormat = DateFormat('dd MMM yyyy');
@@ -201,7 +202,10 @@ class _EventListScreenState extends State<EventListScreen> {
         builder: (context, snapshot) {
           if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const AppContentLoader(
+              title: 'Memuat Event Ujian...',
+              subtitle: 'Mengambil daftar pelaksanaan ujian dari database',
+            );
           }
 
           final events = snapshot.data ?? [];

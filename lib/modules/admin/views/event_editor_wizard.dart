@@ -121,10 +121,85 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
   bool _isSavingDraft = false;
   String _draftStatus = ''; // 'saving', 'saved', ''
 
+  // Real school students grouped by class name
+  Map<String, List<Map<String, dynamic>>> _classRealStudentsMap = {};
+  Map<String, List<Map<String, dynamic>>> get classRealStudentsMap => _classRealStudentsMap;
+  List<Map<String, dynamic>> get rooms => _rooms;
+  Map<String, List<Map<String, dynamic>>> get roomAssignments => _roomAssignments;
+
+  Future<void> _loadRealSchoolStudents() async {
+    if (_classRealStudentsMap.isNotEmpty) return;
+    try {
+      // 1. Fetch Classes mapping (studentIds -> className)
+      final classSnap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(widget.schoolId)
+          .collection('classes')
+          .get();
+
+      final Map<String, String> studentIdToClassName = {};
+      for (var cDoc in classSnap.docs) {
+        final cData = cDoc.data();
+        final cName = (cData['name'] ?? cDoc.id).toString().trim();
+        final sIds = cData['studentIds'];
+        if (sIds is List) {
+          for (var sId in sIds) {
+            studentIdToClassName[sId.toString()] = cName;
+          }
+        }
+      }
+
+      // 2. Fetch Students
+      final snap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(widget.schoolId)
+          .collection('students')
+          .get();
+
+      final Map<String, List<Map<String, dynamic>>> map = {};
+      for (var doc in snap.docs) {
+        final data = doc.data();
+        if (data['archived'] == true || data['disabled'] == true) continue;
+
+        final sName = (data['displayName'] ?? data['name'] ?? data['fullName'] ?? '').toString().trim();
+        final sNis = (data['nis'] ?? '').toString().trim();
+        final sClass = (data['className'] ?? data['classId'] ?? studentIdToClassName[doc.id] ?? 'Siswa').toString().trim();
+
+        if (sName.isNotEmpty) {
+          final item = {
+            'studentId': doc.id,
+            'studentName': sName,
+            'displayName': sName,
+            'nis': sNis,
+            'className': sClass,
+          };
+          map.putIfAbsent(sClass, () => []).add(item);
+
+          final cleanKey = sClass.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+          if (cleanKey.isNotEmpty && cleanKey != sClass) {
+            map.putIfAbsent(cleanKey, () => []).add(item);
+          }
+        }
+      }
+
+      map.forEach((cName, list) {
+        list.sort((a, b) => naturalCompare(a['studentName'] as String, b['studentName'] as String));
+      });
+
+      _classRealStudentsMap = map;
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('⚠️ Error loading real students for wizard denah: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initOrLoadDraft());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initOrLoadDraft();
+      _loadRealSchoolStudents();
+    });
   }
 
   /// Check whether each unique subject in timetable has questions in DB.
@@ -1481,8 +1556,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     for (var classGroup in assignedClassesInRoom) {
       final className = (classGroup['className'] ?? classGroup['classId'] ?? 'Kelas').toString().trim();
       final count = (classGroup['count'] as num?)?.toInt() ?? 0;
-      final realList = classRealStudents[className] ?? [];
-      final skipIndex = skipCountMap[className] ?? 0;
+      final cleanClass = className.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+      final realList = classRealStudents[className] ?? classRealStudents[cleanClass] ?? [];
+      final skipIndex = skipCountMap[className] ?? skipCountMap[cleanClass] ?? 0;
 
       for (int i = 0; i < count; i++) {
         final targetIndex = skipIndex + i;
@@ -1493,12 +1569,11 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         String angkatan = '';
         String gender = 'M';
         String participantNumber = '2026-${className.replaceAll(' ', '')}-$paddedIndex';
-
         String studentId = '';
 
         if (targetIndex < realList.length) {
           final r = realList[targetIndex];
-          studentId = (r['studentId'] ?? '').toString();
+          studentId = (r['studentId'] ?? r['id'] ?? '').toString();
           studentName = (r['displayName'] ?? r['studentName'] ?? '').toString();
           nis = (r['nis'] ?? '').toString();
           angkatan = (r['angkatan'] ?? '').toString();
@@ -1509,11 +1584,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             participantNumber = nis;
           }
         } else {
-          final authName = _getAuthenticStudentNameAZ(className, targetIndex);
-          studentName = authName['displayName']!;
-          nis = authName['nis']!;
-          angkatan = authName['angkatan']!;
-          gender = authName['gender']!;
+          studentName = 'Siswa $className #${i + 1}';
+          nis = paddedIndex;
         }
 
         studentPool.add({

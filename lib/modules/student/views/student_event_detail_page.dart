@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -111,20 +112,18 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         _myClassId ??= _myClassName;
 
         // Process Event Doc Date Range
-        if (eventDoc.exists) {
-          final eData = eventDoc.data() as Map<String, dynamic>?;
-          if (eData != null) {
-            final sd = eData['startDate'];
-            final ed = eData['endDate'];
-            DateTime? start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
-            DateTime? end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
-            _eventStartDate = start;
-            final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
-            if (start != null && end != null) {
-              _eventDateRange = '${dateFormat.format(start)} - ${dateFormat.format(end)}';
-            } else {
-              _eventDateRange = 'Tanggal belum diatur';
-            }
+        final Map<String, dynamic> evData = eventDoc.exists ? (eventDoc.data() as Map<String, dynamic>? ?? {}) : {};
+        if (evData.isNotEmpty) {
+          final sd = evData['startDate'];
+          final ed = evData['endDate'];
+          DateTime? start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
+          DateTime? end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
+          _eventStartDate = start;
+          final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
+          if (start != null && end != null) {
+            _eventDateRange = '${dateFormat.format(start)} - ${dateFormat.format(end)}';
+          } else {
+            _eventDateRange = 'Tanggal belum diatur';
           }
         }
 
@@ -248,6 +247,27 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         );
 
         await Future.wait(parallelTasks);
+
+        if (_allocatedSeat == null) {
+          final allStudentsSnap = await FirebaseFirestore.instance
+              .collection('schools')
+              .doc(_schoolId)
+              .collection('students')
+              .get();
+
+          _allocatedSeat = _synthesizeStudentSeatLocation(
+            evData: evData,
+            allStudentDocs: allStudentsSnap.docs,
+            myStudentId: doc.id,
+            myNis: _student?.nis ?? '',
+            myName: _student?.displayName ?? '',
+            myClassName: _myClassName ?? '',
+          );
+          if (_allocatedSeat != null) {
+            debugPrint('🎯 Synthesized seat for ${_student?.displayName}: Room ${_allocatedSeat!['roomName']}, Seat #${_allocatedSeat!['seatNumber']}');
+          }
+        }
+
         _myTimetable = filteredTimetable;
       }
     } catch (e) {
@@ -569,7 +589,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                               QrImageView(
                                 data: qrDataString,
                                 version: QrVersions.auto,
-                                size: 56.0,
+                                size: 90.0,
                                 padding: EdgeInsets.zero,
                                 backgroundColor: Colors.white,
                               ),
@@ -785,7 +805,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     child: QrImageView(
                       data: qrData,
                       version: QrVersions.auto,
-                      size: 220.0,
+                      size: 320.0,
                       backgroundColor: Colors.white,
                     ),
                   ),
@@ -857,6 +877,381 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     );
   }
 
+  int _naturalCompare(String a, String b) {
+    final re = RegExp(r'(\d+)|(\D+)');
+    final matchesA = re.allMatches(a).toList();
+    final matchesB = re.allMatches(b).toList();
+
+    for (int i = 0; i < min(matchesA.length, matchesB.length); i++) {
+      final strA = matchesA[i].group(0)!;
+      final strB = matchesB[i].group(0)!;
+
+      final numA = int.tryParse(strA);
+      final numB = int.tryParse(strB);
+
+      if (numA != null && numB != null) {
+        final cmp = numA.compareTo(numB);
+        if (cmp != 0) return cmp;
+      } else {
+        final cmp = strA.toLowerCase().compareTo(strB.toLowerCase());
+        if (cmp != 0) return cmp;
+      }
+    }
+    return matchesA.length.compareTo(matchesB.length);
+  }
+
+  Map<String, dynamic>? _synthesizeStudentSeatLocation({
+    required Map<String, dynamic> evData,
+    required List<QueryDocumentSnapshot> allStudentDocs,
+    required String myStudentId,
+    required String myNis,
+    required String myName,
+    required String myClassName,
+  }) {
+    try {
+      final roomsList = <Map<String, dynamic>>[];
+      final rawRooms = evData['rooms'];
+      if (rawRooms is List) {
+        for (var r in rawRooms) {
+          if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
+        }
+      }
+
+      final draftState = evData['draftState'] as Map<String, dynamic>?;
+      final rawRoomAssignments = draftState?['step6']?['roomAssignments'] as Map<String, dynamic>? ??
+          draftState?['roomAssignments'] as Map<String, dynamic>? ??
+          evData['roomAssignments'] as Map<String, dynamic>? ??
+          {};
+
+      if (roomsList.isEmpty || rawRoomAssignments.isEmpty) return null;
+
+      final Map<String, List<Map<String, dynamic>>> classRealStudents = {};
+      for (var sDoc in allStudentDocs) {
+        final sData = sDoc.data() as Map<String, dynamic>;
+        if (sData['archived'] == true || sData['disabled'] == true) continue;
+
+        final sName = (sData['displayName'] ?? sData['name'] ?? sData['fullName'] ?? '').toString().trim();
+        final sNis = (sData['nis'] ?? sData['nisn'] ?? '').toString().trim();
+        final sClass = (sData['className'] ?? sData['classId'] ?? sData['class'] ?? sData['kelas'] ?? '').toString().trim();
+
+        if (sName.isNotEmpty) {
+          final cKey = sClass.isNotEmpty ? sClass : 'Siswa';
+          final item = {
+            'studentId': sDoc.id,
+            'displayName': sName,
+            'studentName': sName,
+            'nis': sNis,
+            'className': cKey,
+          };
+          classRealStudents.putIfAbsent(cKey, () => []).add(item);
+          final cleanKey = cKey.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+          if (cleanKey.isNotEmpty && cleanKey != cKey) {
+            classRealStudents.putIfAbsent(cleanKey, () => []).add(item);
+          }
+        }
+      }
+
+      classRealStudents.forEach((cName, list) {
+        list.sort((a, b) => _naturalCompare((a['studentName'] as String), (b['studentName'] as String)));
+      });
+
+      final skipMap = <String, int>{};
+
+      for (var room in roomsList) {
+        final rId = (room['id'] ?? room['name'] ?? room['code'] ?? '').toString();
+        final rName = (room['name'] ?? room['code'] ?? room['id'] ?? '').toString();
+        final assignments = rawRoomAssignments[rId] as List? ?? rawRoomAssignments[rName] as List? ?? [];
+
+        final assignedClasses = <Map<String, dynamic>>[];
+        for (var a in assignments) {
+          if (a is Map) assignedClasses.add(Map<String, dynamic>.from(a));
+        }
+
+        int seatNum = 1;
+        for (var cGroup in assignedClasses) {
+          final cName = (cGroup['className'] ?? cGroup['classId'] ?? 'Kelas').toString().trim();
+          final count = (cGroup['count'] as num?)?.toInt() ?? 0;
+          final cleanC = cName.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+          final realList = classRealStudents[cName] ?? classRealStudents[cleanC] ?? [];
+          final skipIdx = skipMap[cName] ?? skipMap[cleanC] ?? 0;
+
+          for (int i = 0; i < count; i++) {
+            final targetIdx = skipIdx + i;
+            if (targetIdx < realList.length) {
+              final r = realList[targetIdx];
+              final sId = (r['studentId'] ?? '').toString();
+              final sNis = (r['nis'] ?? '').toString();
+              final sName = (r['displayName'] ?? r['studentName'] ?? '').toString();
+
+              if ((myStudentId.isNotEmpty && sId == myStudentId) ||
+                  (myNis.isNotEmpty && sNis == myNis) ||
+                  (myName.isNotEmpty && sName.toLowerCase() == myName.toLowerCase())) {
+                return {
+                  'roomId': rId,
+                  'roomName': rName,
+                  'roomCode': (room['code'] ?? rName).toString(),
+                  'seatNumber': seatNum,
+                  'participantNumber': sNis.isNotEmpty ? sNis : myStudentId,
+                  'className': cName,
+                  'studentId': myStudentId,
+                  'studentName': myName,
+                  'nis': myNis,
+                };
+              }
+            }
+            seatNum++;
+          }
+          skipMap[cName] = (skipMap[cName] ?? 0) + count;
+          if (cleanC.isNotEmpty && cleanC != cName) {
+            skipMap[cleanC] = (skipMap[cleanC] ?? 0) + count;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error synthesizing seat in StudentEventDetailPage: $e');
+    }
+    return null;
+  }
+
+  bool _isSessionExpired(String? dateStr, String? timeStrOrRange) {
+    if (timeStrOrRange == null || timeStrOrRange.trim().isEmpty) return false;
+
+    try {
+      final now = DateTime.now();
+
+      String endTimeStr = timeStrOrRange.trim();
+      if (endTimeStr.contains('-')) {
+        final parts = endTimeStr.split('-');
+        endTimeStr = parts.last.trim();
+        if (endTimeStr.endsWith(')')) {
+          endTimeStr = endTimeStr.substring(0, endTimeStr.length - 1).trim();
+        }
+      }
+
+      final timeParts = endTimeStr.split(':');
+      if (timeParts.length < 2) return false;
+
+      final hour = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[0]) ?? '');
+      final minute = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[1]) ?? '');
+
+      if (hour == null || minute == null) return false;
+
+      DateTime targetDate = DateTime(now.year, now.month, now.day);
+      if (dateStr != null && dateStr.trim().isNotEmpty) {
+        final cleanDate = dateStr.trim();
+        final parsedDirect = DateTime.tryParse(cleanDate);
+        if (parsedDirect != null) {
+          targetDate = DateTime(parsedDirect.year, parsedDirect.month, parsedDirect.day);
+        } else {
+          final yearMatch = RegExp(r'20\d\d').firstMatch(cleanDate);
+          final dayMatch = RegExp(r'\b\d{1,2}\b').firstMatch(cleanDate);
+          if (yearMatch != null && dayMatch != null) {
+            final year = int.parse(yearMatch.group(0)!);
+            final day = int.parse(dayMatch.group(0)!);
+            int month = now.month;
+            final lower = cleanDate.toLowerCase();
+            if (lower.contains('jan')) {
+              month = 1;
+            } else if (lower.contains('feb')) {
+              month = 2;
+            } else if (lower.contains('mar')) {
+              month = 3;
+            } else if (lower.contains('apr')) {
+              month = 4;
+            } else if (lower.contains('mei') || lower.contains('may')) {
+              month = 5;
+            } else if (lower.contains('jun')) {
+              month = 6;
+            } else if (lower.contains('jul')) {
+              month = 7;
+            } else if (lower.contains('agt') || lower.contains('agu') || lower.contains('aug')) {
+              month = 8;
+            } else if (lower.contains('sep')) {
+              month = 9;
+            } else if (lower.contains('okt') || lower.contains('oct')) {
+              month = 10;
+            } else if (lower.contains('nov')) {
+              month = 11;
+            } else if (lower.contains('des') || lower.contains('dec')) {
+              month = 12;
+            }
+
+            targetDate = DateTime(year, month, day);
+          }
+        }
+      }
+
+      final sessionEnd = DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute, 59);
+      return now.isAfter(sessionEnd);
+    } catch (e) {
+      debugPrint('⚠️ Error checking session expired: $e');
+      return false;
+    }
+  }
+
+  void _showExpiredSessionDialog(String subjectName, String sName, String timeLabel) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        clipBehavior: Clip.antiAlias,
+        backgroundColor: Colors.white,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF1F5F9),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.history_toggle_off_rounded, color: Color(0xFF64748B), size: 36),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Sesi Ujian Telah Berakhir',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Waktu pengerjaan untuk mata pelajaran $subjectName ($sName: $timeLabel) telah melewati batas jam pelaksanaan.',
+                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569), height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Murid tidak dapat lagi menekan tombol Kerjakan atau memulai pengerjaan soal pada sesi ini.',
+                style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B), height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Saya Mengerti', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLockedAttendanceDialog(Map<String, dynamic> item) {
+    final subjectName = (item['subjectName'] ?? item['subject'] ?? 'Mata Pelajaran').toString();
+    final sId = item['sessionId']?.toString() ?? '';
+    final session = _sessionMap[sId];
+    final sName = session?['name'] ?? session?['sessionName'] ?? 'Sesi Ujian';
+    final roomName = (_allocatedSeat?['roomCode'] ?? _allocatedSeat?['roomName'] ?? _allocatedSeat?['roomId'] ?? 'Ruangan Ujian').toString();
+    final seatNum = (_allocatedSeat?['seatNumber'] ?? '-').toString();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        clipBehavior: Clip.antiAlias,
+        backgroundColor: Colors.white,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFEF3C7),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.lock_person_rounded, color: Color(0xFFD97706), size: 36),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Akses Ujian Terkunci',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Anda belum dikonfirmasi hadir oleh Pengawas Ruangan untuk mata pelajaran $subjectName.',
+                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569), height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Silakan tunjukkan QR Kartu Ujian Anda kepada Pengawas di ruangan tempat Anda ujian untuk meng-scan presensi dan membuka akses ujian ini.',
+                style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B), height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Ruangan Ujian:', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                        Text(roomName, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Sesi Ujian:', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                        Text(sName, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Nomor Kursi:', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                        Text('No. $seatNum', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF059669))),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Saya Mengerti', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildDayScheduleGroup(String dateKey, List<Map<String, dynamic>> items) {
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
@@ -864,20 +1259,23 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Date Header
+          // Header Tanggal Ujian
           Container(
-            width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: const BoxDecoration(
               color: Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
-              ),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
             ),
             child: Text(
@@ -890,150 +1288,223 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
             ),
           ),
           // Sesi-sesi pada hari ini
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              final sId = item['sessionId']?.toString() ?? '';
-              final session = _sessionMap[sId];
-              final subjectName = item['subjectName'] ?? 'Mata Pelajaran';
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('schools')
+                .doc(_schoolId)
+                .collection('events')
+                .doc(widget.eventId)
+                .collection('attendances')
+                .snapshots(),
+            builder: (context, attSnap) {
+              final attDocs = attSnap.data?.docs ?? [];
 
-              final sName = session?['name'] ?? session?['sessionName'] ?? 'Sesi ${index + 1}';
-              final startTime = (session?['startTime'] ?? '').toString();
-              final endTime = (session?['endTime'] ?? '').toString();
-              final timeLabel = startTime.isNotEmpty ? '$startTime - $endTime' : 'Waktu belum diatur';
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: items.length,
+                separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final sId = item['sessionId']?.toString() ?? '';
+                  final session = _sessionMap[sId];
+                  final subjectName = item['subjectName'] ?? 'Mata Pelajaran';
 
-              final bool isQuestionReady = item['isQuestionReady'] == true;
-              final bool isSubmitted = item['isSubmitted'] == true;
-              final num? submittedScore = item['submittedScore'];
+                  final sName = session?['name'] ?? session?['sessionName'] ?? 'Sesi ${index + 1}';
+                  final startTime = (session?['startTime'] ?? '').toString();
+                  final endTime = (session?['endTime'] ?? '').toString();
+                  final timeLabel = startTime.isNotEmpty ? '$startTime - $endTime' : 'Waktu belum diatur';
 
-              return Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isSubmitted
-                            ? const Color(0xFFD1FAE5)
-                            : (isQuestionReady ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9)),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        isSubmitted
-                            ? Icons.check_circle_rounded
-                            : (isQuestionReady ? Icons.edit_note_rounded : Icons.lock_clock_rounded),
-                        color: isSubmitted
-                            ? const Color(0xFF047857)
-                            : (isQuestionReady ? const Color(0xFF10B981) : const Color(0xFF94A3B8)),
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            subjectName,
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                              color: const Color(0xFF0F172A),
-                            ),
+                  final bool isQuestionReady = item['isQuestionReady'] == true;
+                  final bool isSubmitted = item['isSubmitted'] == true;
+                  final num? submittedScore = item['submittedScore'];
+                  final bool isExpired = _isSessionExpired(dateKey, timeLabel);
+
+                  // Proctor Attendance Realtime Verification Check
+                  bool isAttendedByProctor = false;
+                  for (var doc in attDocs) {
+                    final aData = doc.data() as Map<String, dynamic>? ?? {};
+                    final sIdVal = (aData['studentId'] ?? '').toString();
+                    final sNis = (aData['nis'] ?? '').toString();
+                    final isAtt = aData['isAttended'] == true;
+
+                    if (isAtt && ((sIdVal.isNotEmpty && sIdVal == _student?.id) || (sNis.isNotEmpty && sNis == _student?.nis))) {
+                      isAttendedByProctor = true;
+                      break;
+                    }
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isSubmitted
+                                ? const Color(0xFFD1FAE5)
+                                : (isExpired
+                                    ? const Color(0xFFF1F5F9)
+                                    : (isQuestionReady ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9))),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '$sName ($timeLabel)',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: const Color(0xFF64748B),
-                            ),
+                          child: Icon(
+                            isSubmitted
+                                ? Icons.check_circle_rounded
+                                : (isExpired
+                                    ? Icons.history_toggle_off_rounded
+                                    : (isQuestionReady ? Icons.edit_note_rounded : Icons.lock_clock_rounded)),
+                            color: isSubmitted
+                                ? const Color(0xFF047857)
+                                : (isExpired
+                                    ? const Color(0xFF64748B)
+                                    : (isQuestionReady ? const Color(0xFF10B981) : const Color(0xFF94A3B8))),
+                            size: 22,
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                subjectName,
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: const Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$sName ($timeLabel)',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
 
-                    // Action Button or Status Badge
-                    if (isSubmitted)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFCBD5E1)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF059669)),
-                            const SizedBox(width: 6),
-                            Text(
-                              submittedScore != null ? 'Selesai ($submittedScore)' : 'Sudah Dikumpulkan',
-                              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
+                        // Action Button or Status Badge
+                        if (isSubmitted)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFCBD5E1)),
                             ),
-                          ],
-                        ),
-                      )
-                    else if (isQuestionReady)
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          final sid = (item['subjectId'] ?? subjectName).toString();
-                          debugPrint('🚀 Navigating to StudentExamPage');
-                          debugPrint('   subjectId  : "$sid"');
-                          debugPrint('   subjectName: "$subjectName"');
-                          debugPrint('   angkatan   : "${_student?.angkatan}"');
-                          debugPrint('   className  : "$_myClassName"');
-                          debugPrint('   item keys  : ${item.keys.toList()}');
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => StudentExamPage(
-                                schoolId: _schoolId,
-                                eventId: widget.eventId,
-                                eventName: widget.eventName,
-                                subjectId: sid,
-                                subjectName: subjectName.toString(),
-                                studentId: _student?.id ?? '',
-                                studentName: _student?.displayName ?? 'Siswa',
-                                nis: _student?.nis ?? '',
-                                className: _myClassName ?? '',
-                                angkatan: _student?.angkatan ?? '',
-                                sessionName: sName,
-                                startTimeStr: startTime,
-                                endTimeStr: endTime,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF059669)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  submittedScore != null ? 'Selesai ($submittedScore)' : 'Sudah Dikumpulkan',
+                                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (isExpired)
+                          OutlinedButton.icon(
+                            onPressed: () => _showExpiredSessionDialog(subjectName.toString(), sName, timeLabel),
+                            icon: const Icon(Icons.history_toggle_off_rounded, size: 14, color: Color(0xFF64748B)),
+                            label: Text(
+                              'Waktu Sesi Berakhir',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF64748B),
                               ),
                             ),
-                          ).then((_) => _loadStudentAndEventDetails());
-                        },
-                        icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
-                        label: const Text('Kerjakan'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      )
-                    else
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          'Soal Belum Siap',
-                          style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                  ],
-                ),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF1F5F9),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          )
+                        else if (isQuestionReady) ...[
+                          if (isAttendedByProctor)
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                final sid = (item['subjectId'] ?? subjectName).toString();
+                                debugPrint('🚀 Navigating to StudentExamPage');
+                                debugPrint('   subjectId  : "$sid"');
+                                debugPrint('   subjectName: "$subjectName"');
+                                debugPrint('   angkatan   : "${_student?.angkatan}"');
+                                debugPrint('   className  : "$_myClassName"');
+                                debugPrint('   item keys  : ${item.keys.toList()}');
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => StudentExamPage(
+                                      schoolId: _schoolId,
+                                      eventId: widget.eventId,
+                                      eventName: widget.eventName,
+                                      subjectId: sid,
+                                      subjectName: subjectName.toString(),
+                                      studentId: _student?.id ?? '',
+                                      studentName: _student?.displayName ?? 'Siswa',
+                                      nis: _student?.nis ?? '',
+                                      className: _myClassName ?? '',
+                                      angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty) ? _student!.angkatan : (_myClassName ?? ''),
+                                      sessionName: sName,
+                                      startTimeStr: startTime,
+                                      endTimeStr: endTime,
+                                    ),
+                                  ),
+                                ).then((_) => _loadStudentAndEventDetails());
+                              },
+                              icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
+                              label: const Text('Kerjakan'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            )
+                          else
+                            OutlinedButton.icon(
+                              onPressed: () => _showLockedAttendanceDialog(item),
+                              icon: const Icon(Icons.lock_rounded, size: 14, color: Color(0xFFD97706)),
+                              label: Text(
+                                'Belum Scan QR',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFFD97706),
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFEF3C7),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                side: const BorderSide(color: Color(0xFFFBBF24)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                        ] else
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              'Soal Belum Siap',
+                              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               );
             },
           ),

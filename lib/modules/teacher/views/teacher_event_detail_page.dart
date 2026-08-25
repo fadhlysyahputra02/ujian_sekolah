@@ -12,6 +12,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
 
+import '../../../core/utils/url_history_helper.dart';
+
 class TeacherEventDetailPage extends StatefulWidget {
   final String eventId;
   final String eventName;
@@ -45,7 +47,13 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    int initialIdx = 0;
+    if (widget.tabName == 'pengawas') {
+      initialIdx = 1;
+    } else if (widget.tabName == 'koreksi' || widget.tabName == 'soal') {
+      initialIdx = 2;
+    }
+    _tabController = TabController(length: 3, vsync: this, initialIndex: initialIdx);
     _tabController.addListener(_handleTabSelection);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkPermissions());
   }
@@ -57,7 +65,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       int targetIdx = 0;
       if (widget.tabName == 'pengawas') {
         targetIdx = 1;
-      } else if (widget.tabName == 'ringkasan' || widget.tabName == 'koreksi') {
+      } else if (widget.tabName == 'koreksi' || widget.tabName == 'soal') {
         targetIdx = 2;
       }
       if (_tabController.index != targetIdx) {
@@ -84,11 +92,17 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       targetTab = 'koreksi';
     }
 
-    if (widget.tabName != targetTab && mounted) {
-      final nameParam = Uri.encodeComponent(widget.eventName);
-      context.go('/teacher/event/${widget.eventId}/$targetTab?name=$nameParam');
+    if (kIsWeb) {
+      try {
+        final nameParam = Uri.encodeComponent(widget.eventName);
+        final newUrl = '/#/teacher/event/${widget.eventId}/$targetTab?name=$nameParam';
+        updateWebUrlHistory(newUrl);
+      } catch (_) {}
     }
   }
+
+  static final Map<String, Map<String, dynamic>> _detailCache = {};
+  static final Map<String, DateTime> _detailCacheTime = {};
 
   Future<void> _checkPermissions() async {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -109,6 +123,36 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     if (_schoolId.isEmpty || uid.isEmpty) {
       debugPrint("Cannot check permissions: schoolId or uid is empty");
       if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    final cacheKey = '${_schoolId}_${widget.eventId}_$uid';
+    final now = DateTime.now();
+
+    if (_detailCache.containsKey(cacheKey) &&
+        _detailCacheTime.containsKey(cacheKey) &&
+        now.difference(_detailCacheTime[cacheKey]!).inMinutes < 5) {
+      final cached = _detailCache[cacheKey]!;
+      _teacher = cached['teacher'] as Teacher?;
+      _timetableSubcollection = List<Map<String, dynamic>>.from(cached['timetableSubcollection'] ?? []);
+      _sessionsSubcollection = List<Map<String, dynamic>>.from(cached['sessionsSubcollection'] ?? []);
+      _isPembuatSoal = cached['isPembuatSoal'] == true;
+      _isPengawas = cached['isPengawas'] == true;
+
+      if (mounted) {
+        if (widget.tabName != null) {
+          if (widget.tabName == 'pengawas') {
+            _tabController.index = 1;
+          } else if (widget.tabName == 'koreksi' || widget.tabName == 'soal') {
+            _tabController.index = 2;
+          } else if (widget.tabName == 'buatsoal' || widget.tabName == 'ringkasan') {
+            _tabController.index = 0;
+          }
+        }
         setState(() {
           _isLoading = false;
         });
@@ -219,6 +263,15 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
             }
           } catch (_) {}
         }
+
+        _detailCache[cacheKey] = {
+          'teacher': _teacher,
+          'timetableSubcollection': _timetableSubcollection,
+          'sessionsSubcollection': _sessionsSubcollection,
+          'isPembuatSoal': _isPembuatSoal,
+          'isPengawas': _isPengawas,
+        };
+        _detailCacheTime[cacheKey] = DateTime.now();
       }
     } catch (e) {
       debugPrint("Error checking teacher permissions: $e");
@@ -227,9 +280,9 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         if (widget.tabName != null) {
           if (widget.tabName == 'pengawas') {
             _tabController.index = 1;
-          } else if (widget.tabName == 'soal') {
+          } else if (widget.tabName == 'koreksi' || widget.tabName == 'soal') {
             _tabController.index = 2;
-          } else if (widget.tabName == 'ringkasan') {
+          } else if (widget.tabName == 'buatsoal' || widget.tabName == 'ringkasan') {
             _tabController.index = 0;
           }
         }
@@ -2526,7 +2579,13 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         badgeIcon = Icons.schedule_rounded;
     }
 
+    final bool isSessionEnded = _isSessionExpired(dateLabel, sessionLabel);
+
     void navigateToProctorRoom() {
+      if (isSessionEnded) {
+        _showProctorExpiredDialog(context, cleanRoomName, sessionLabel);
+        return;
+      }
       context.go(
         '/teacher/event/${widget.eventId}/proctor-room/$roomId?dayIndex=$dayIndex&sessionIndex=$sessionIndex&docId=$docId',
       );
@@ -2598,21 +2657,21 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: badgeBg,
+                        color: isSessionEnded ? const Color(0xFFFEF2F2) : badgeBg,
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: badgeBorder),
+                        border: Border.all(color: isSessionEnded ? const Color(0xFFFCA5A5) : badgeBorder),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(badgeIcon, size: 13, color: badgeText),
+                          Icon(isSessionEnded ? Icons.history_toggle_off_rounded : badgeIcon, size: 13, color: isSessionEnded ? const Color(0xFFDC2626) : badgeText),
                           const SizedBox(width: 5),
                           Text(
-                            displayStatus,
+                            isSessionEnded ? 'Sesi Selesai' : displayStatus,
                             style: GoogleFonts.inter(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: badgeText,
+                              color: isSessionEnded ? const Color(0xFFDC2626) : badgeText,
                             ),
                           ),
                         ],
@@ -2636,21 +2695,23 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                            gradient: LinearGradient(
+                              colors: isSessionEnded
+                                  ? [const Color(0xFF64748B), const Color(0xFF94A3B8)]
+                                  : [const Color(0xFF4F46E5), const Color(0xFF6366F1)],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                                color: (isSessionEnded ? const Color(0xFF64748B) : const Color(0xFF4F46E5)).withValues(alpha: 0.25),
                                 blurRadius: 8,
                                 offset: const Offset(0, 3),
                               ),
                             ],
                           ),
-                          child: const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 22),
+                          child: Icon(isSessionEnded ? Icons.history_toggle_off_rounded : Icons.meeting_room_rounded, color: Colors.white, size: 22),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -2746,7 +2807,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        if (displayStatus == 'Sedang Berlangsung' && !docId.startsWith('grid_'))
+                        if (displayStatus == 'Sedang Berlangsung' && !docId.startsWith('grid_') && !isSessionEnded)
                           OutlinedButton.icon(
                             onPressed: () => _updateProctorStatus(docId, 'Selesai'),
                             icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
@@ -2764,22 +2825,22 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         ElevatedButton(
                           onPressed: navigateToProctorRoom,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF4F46E5),
+                            backgroundColor: isSessionEnded ? const Color(0xFF64748B) : const Color(0xFF4F46E5),
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            elevation: 2,
-                            shadowColor: const Color(0xFF4F46E5).withValues(alpha: 0.4),
+                            elevation: isSessionEnded ? 0 : 2,
+                            shadowColor: isSessionEnded ? Colors.transparent : const Color(0xFF4F46E5).withValues(alpha: 0.4),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                'Masuk ke Ruangan',
+                                isSessionEnded ? 'Sesi Selesai (Kadaluarsa)' : 'Masuk ke Ruangan',
                                 style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700),
                               ),
                               const SizedBox(width: 8),
-                              const Icon(Icons.arrow_forward_rounded, size: 16),
+                              Icon(isSessionEnded ? Icons.lock_clock_rounded : Icons.arrow_forward_rounded, size: 16),
                             ],
                           ),
                         ),
@@ -2796,6 +2857,142 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   }
 
 
+
+  bool _isSessionExpired(String? dateStr, String? timeStrOrRange) {
+    if (timeStrOrRange == null || timeStrOrRange.trim().isEmpty) return false;
+
+    try {
+      final now = DateTime.now();
+
+      String endTimeStr = timeStrOrRange.trim();
+      if (endTimeStr.contains('-')) {
+        final parts = endTimeStr.split('-');
+        endTimeStr = parts.last.trim();
+        if (endTimeStr.endsWith(')')) {
+          endTimeStr = endTimeStr.substring(0, endTimeStr.length - 1).trim();
+        }
+      }
+
+      final timeParts = endTimeStr.split(':');
+      if (timeParts.length < 2) return false;
+
+      final hour = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[0]) ?? '');
+      final minute = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[1]) ?? '');
+
+      if (hour == null || minute == null) return false;
+
+      DateTime targetDate = DateTime(now.year, now.month, now.day);
+      if (dateStr != null && dateStr.trim().isNotEmpty) {
+        final cleanDate = dateStr.trim();
+        final parsedDirect = DateTime.tryParse(cleanDate);
+        if (parsedDirect != null) {
+          targetDate = DateTime(parsedDirect.year, parsedDirect.month, parsedDirect.day);
+        } else {
+          final yearMatch = RegExp(r'20\d\d').firstMatch(cleanDate);
+          final dayMatch = RegExp(r'\b\d{1,2}\b').firstMatch(cleanDate);
+          if (yearMatch != null && dayMatch != null) {
+            final year = int.parse(yearMatch.group(0)!);
+            final day = int.parse(dayMatch.group(0)!);
+            int month = now.month;
+            final lower = cleanDate.toLowerCase();
+            if (lower.contains('jan')) {
+              month = 1;
+            } else if (lower.contains('feb')) {
+              month = 2;
+            } else if (lower.contains('mar')) {
+              month = 3;
+            } else if (lower.contains('apr')) {
+              month = 4;
+            } else if (lower.contains('mei') || lower.contains('may')) {
+              month = 5;
+            } else if (lower.contains('jun')) {
+              month = 6;
+            } else if (lower.contains('jul')) {
+              month = 7;
+            } else if (lower.contains('agt') || lower.contains('agu') || lower.contains('aug')) {
+              month = 8;
+            } else if (lower.contains('sep')) {
+              month = 9;
+            } else if (lower.contains('okt') || lower.contains('oct')) {
+              month = 10;
+            } else if (lower.contains('nov')) {
+              month = 11;
+            } else if (lower.contains('des') || lower.contains('dec')) {
+              month = 12;
+            }
+
+            targetDate = DateTime(year, month, day);
+          }
+        }
+      }
+
+      final sessionEnd = DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute, 59);
+      return now.isAfter(sessionEnd);
+    } catch (e) {
+      debugPrint('⚠️ Error checking session expired: $e');
+      return false;
+    }
+  }
+
+  void _showProctorExpiredDialog(BuildContext context, String roomName, String sessionLabel) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        clipBehavior: Clip.antiAlias,
+        backgroundColor: Colors.white,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFEF2F2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.block_rounded, color: Color(0xFFDC2626), size: 36),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Sesi Pengawasan Berakhir',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Waktu pelaksanaan pengawasan untuk $roomName ($sessionLabel) telah melewati batas jam berakhirnya sesi.',
+                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569), height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Pengawas maupun siswa tidak dapat lagi masuk ke dalam ruangan pengawas atau melakukan presensi pada sesi ini.',
+                style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B), height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Saya Mengerti', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   String _getNamaHari(int day) {
     switch (day) {

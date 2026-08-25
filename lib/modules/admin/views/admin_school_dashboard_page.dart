@@ -9,6 +9,8 @@ import '../../../core/models/student.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/constants/app_version.dart';
+import '../../../core/widgets/app_splash_loader.dart';
 import '../../../core/utils/file_saver.dart';
 import '../widgets/teacher_form_dialog.dart';
 import '../widgets/student_form_dialog.dart';
@@ -966,12 +968,9 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     }
     final schoolId = authService.schoolId ?? '';
     if (schoolId.isEmpty) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4F46E5)),
-          ),
-        ),
+      return const AppSplashScreen(
+        title: 'SesiCermat Admin',
+        subtitle: 'Memuat profil sekolah administrator...',
       );
     }
     final size = MediaQuery.of(context).size;
@@ -1074,32 +1073,46 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                       ),
                       // Sidebar Footer
                       const Divider(color: Color(0xFF1E293B), indent: 16, endIndent: 16),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: InkWell(
-                          onTap: () => authService.signOut(),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                            child: Row(
-                              mainAxisAlignment: size.width > 1150 ? MainAxisAlignment.start : MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 20),
-                                if (size.width > 1150) ...[
-                                  const SizedBox(width: 12),
-                                  const Text(
-                                    'Keluar',
-                                    style: TextStyle(
-                                      color: Color(0xFFF87171),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ],
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            InkWell(
+                              onTap: () => authService.signOut(),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                child: Row(
+                                  mainAxisAlignment: size.width > 1150 ? MainAxisAlignment.start : MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 20),
+                                    if (size.width > 1150) ...[
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Keluar',
+                                        style: TextStyle(
+                                          color: Color(0xFFF87171),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 4),
+                            Text(
+                              AppVersion.version,
+                              style: const TextStyle(
+                                color: Color(0xFF64748B),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -1158,33 +1171,47 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               ),
               actions: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                  child: InkWell(
-                    onTap: () => authService.signOut(),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                  padding: const EdgeInsets.only(right: 12.0, top: 4.0, bottom: 4.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      InkWell(
+                        onTap: () => authService.signOut(),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 16),
-                          SizedBox(width: 6),
-                          Text(
-                            'Keluar',
-                            style: TextStyle(
-                              color: Color(0xFFF87171),
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
                           ),
-                        ],
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 14),
+                              SizedBox(width: 4),
+                              Text(
+                                'Keluar',
+                                style: TextStyle(
+                                  color: Color(0xFFF87171),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 2),
+                      Text(
+                        AppVersion.version,
+                        style: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
           ],
@@ -1288,7 +1315,10 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       builder: (context, snapshot) {
         if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const AppContentLoader(
+            title: 'Memuat Data Kelas...',
+            subtitle: 'Mengambil daftar kelas dari database',
+          );
         }
         final classes = snapshot.data ?? [];
 
@@ -1675,7 +1705,10 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF4F46E5)));
+          return const AppContentLoader(
+            title: 'Memuat Ringkasan...',
+            subtitle: 'Mengambil statistik profil sekolah',
+          );
         }
 
         final schoolData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
@@ -2257,7 +2290,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       stream: _adminUserService.streamTeachers(schoolId),
       builder: (context, snapshot) {
         if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const AppContentLoader(
+            title: 'Memuat Data Murid...',
+            subtitle: 'Mengambil daftar murid dari database',
+          );
+        }
  
         final allTeachers = snapshot.data ?? [];
 
@@ -2614,7 +2652,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           stream: _adminUserService.streamStudents(schoolId),
           builder: (context, snapshot) {
             if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
-            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const AppContentLoader(
+                title: 'Memuat Mata Pelajaran...',
+                subtitle: 'Mengambil daftar mata pelajaran dari database',
+              );
+            }
 
             final allStudents = snapshot.data ?? [];
 
@@ -3229,7 +3272,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       stream: _adminUserService.streamSubjects(schoolId),
       builder: (context, snapshot) {
         if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const AppContentLoader(
+            title: 'Memuat Pengaturan...',
+            subtitle: 'Menyiapkan konfigurasi profil sekolah',
+          );
+        }
 
         final allSubjects = snapshot.data ?? [];
 

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/school_service.dart';
+import '../../../core/constants/app_version.dart';
 import 'school_list_page.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -311,41 +312,55 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildLogoutTile(AuthService authService, {required bool extended}) {
-    return InkWell(
-      onTap: () => authService.signOut(),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: extended ? 14 : 0,
-          vertical: 12,
-        ),
-        child: Row(
-          mainAxisAlignment:
-              extended ? MainAxisAlignment.start : MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.logout_rounded,
-                  color: Color(0xFFFCA5A5), size: 16),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () => authService.signOut(),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: extended ? 14 : 0,
+              vertical: 12,
             ),
-            if (extended) ...[
-              const SizedBox(width: 12),
-              Text(
-                'Keluar',
-                style: GoogleFonts.inter(
-                  color: const Color(0xFFFCA5A5),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
+            child: Row(
+              mainAxisAlignment:
+                  extended ? MainAxisAlignment.start : MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.logout_rounded,
+                      color: Color(0xFFFCA5A5), size: 16),
                 ),
-              ),
-            ],
-          ],
+                if (extended) ...[
+                  const SizedBox(width: 12),
+                  Text(
+                    'Keluar',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFFCA5A5),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
-      ),
+        const SizedBox(height: 6),
+        Text(
+          AppVersion.version,
+          style: GoogleFonts.inter(
+            color: const Color(0xFF64748B),
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 

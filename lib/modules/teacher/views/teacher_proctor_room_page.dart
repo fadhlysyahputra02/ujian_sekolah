@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:sys_exam_school/core/services/auth_service.dart';
 import 'package:sys_exam_school/core/utils/natural_sort.dart';
@@ -35,6 +37,40 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   String _selectedClassFilter = 'Semua Kelas';
   List<Map<String, dynamic>> _timetableSubcollection = [];
   List<Map<String, dynamic>> _sessionsSubcollection = [];
+  final Map<String, bool> _localAttendedMap = {};
+
+  Future<void> _fetchAttendances() async {
+    try {
+      final schoolId = _resolvedSchoolId ?? '';
+      if (schoolId.isEmpty) return;
+      final snap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('events')
+          .doc(widget.eventId)
+          .collection('attendances')
+          .get();
+
+      for (var doc in snap.docs) {
+        final d = doc.data();
+        final isAtt = d['isAttended'] == true || d['attended'] == true;
+        if (isAtt) {
+          final sId = (d['studentId'] ?? d['id'] ?? '').toString().trim().toLowerCase();
+          final sNis = (d['nis'] ?? '').toString().trim().toLowerCase();
+          final sName = (d['studentName'] ?? d['displayName'] ?? '').toString().trim().toLowerCase();
+          final sSeatNum = d['seatNumber'];
+
+          if (sId.isNotEmpty) _localAttendedMap[sId] = true;
+          if (sNis.isNotEmpty) _localAttendedMap[sNis] = true;
+          if (sName.isNotEmpty) _localAttendedMap[sName] = true;
+          if (sSeatNum != null) _localAttendedMap['seat_$sSeatNum'] = true;
+        }
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('⚠️ Error fetching attendances: $e');
+    }
+  }
 
   // Distinct class color palette
   static const List<Map<String, Color>> _classColorPalette = [
@@ -221,6 +257,27 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
       final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
       final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
 
+      final sId = studentId.toLowerCase();
+      final sNis = nis.toLowerCase();
+      final sName = name.toLowerCase();
+
+      seatData['isAttended'] = isAttended;
+      seatData['attended'] = isAttended;
+
+      if (isAttended) {
+        if (sId.isNotEmpty) _localAttendedMap[sId] = true;
+        if (sNis.isNotEmpty) _localAttendedMap[sNis] = true;
+        if (sName.isNotEmpty) _localAttendedMap[sName] = true;
+        if (seatNum > 0) _localAttendedMap['seat_$seatNum'] = true;
+      } else {
+        if (sId.isNotEmpty) _localAttendedMap.remove(sId);
+        if (sNis.isNotEmpty) _localAttendedMap.remove(sNis);
+        if (sName.isNotEmpty) _localAttendedMap.remove(sName);
+        if (seatNum > 0) _localAttendedMap.remove('seat_$seatNum');
+      }
+
+      if (mounted) setState(() {});
+
       final docKey = studentId.isNotEmpty
           ? '${roomId}_$studentId'
           : (nis.isNotEmpty ? '${roomId}_$nis' : '${roomId}_seat_$seatNum');
@@ -254,14 +311,158 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     }
   }
 
+  void _processScannedQr({
+    required String rawData,
+    required String schoolId,
+    required String eventId,
+    required String roomId,
+    required Set<String> roomAliases,
+    required Map<int, Map<String, dynamic>> seatMap,
+    required StateSetter setDialogState,
+  }) {
+    if (rawData.isEmpty) return;
+
+    debugPrint('=================== 🔍 QR SCAN DETECTED ===================');
+    debugPrint('📷 Raw Barcode Content: "$rawData"');
+
+    String scannedStudentId = '';
+    String scannedNis = '';
+    String scannedParticipantNumber = '';
+    String scannedName = '';
+    String scannedRoomName = '';
+
+    try {
+      if (rawData.trim().startsWith('{') && rawData.trim().endsWith('}')) {
+        final Map<String, dynamic> parsedJson = jsonDecode(rawData);
+        scannedStudentId = (parsedJson['studentId'] ?? parsedJson['id'] ?? '').toString().trim();
+        scannedNis = (parsedJson['nis'] ?? '').toString().trim();
+        scannedParticipantNumber = (parsedJson['participantNumber'] ?? '').toString().trim();
+        scannedName = (parsedJson['studentName'] ?? parsedJson['name'] ?? '').toString().trim();
+        scannedRoomName = (parsedJson['roomName'] ?? parsedJson['roomId'] ?? '').toString().trim();
+      } else {
+        scannedStudentId = rawData.trim();
+        scannedNis = rawData.trim();
+      }
+    } catch (e) {
+      scannedStudentId = rawData.trim();
+      scannedNis = rawData.trim();
+    }
+
+    if (scannedRoomName.isNotEmpty) {
+      final cleanScannedRoom = scannedRoomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+      bool isRoomMatch = roomAliases.any((alias) {
+        final cleanAlias = alias.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+        return cleanAlias == cleanScannedRoom || cleanAlias.contains(cleanScannedRoom) || cleanScannedRoom.contains(cleanAlias);
+      });
+      if (!isRoomMatch) {
+        debugPrint('⚠️ Room Mismatch: QR scanned room "$scannedRoomName" does not match current room aliases $roomAliases');
+      }
+    }
+
+    Map<String, dynamic>? matchedSeat;
+    int? matchedSeatNum;
+
+    for (var entry in seatMap.entries) {
+      final s = entry.value;
+      final sId = (s['studentId'] ?? s['id'] ?? '').toString().trim();
+      final sNis = (s['nis'] ?? '').toString().trim();
+      final sPart = (s['participantNumber'] ?? '').toString().trim();
+      final sName = (s['displayName'] ?? s['studentName'] ?? '').toString().trim();
+
+      bool isMatch = false;
+      if (scannedStudentId.isNotEmpty && (sId.toLowerCase() == scannedStudentId.toLowerCase() || sId.toLowerCase().contains(scannedStudentId.toLowerCase()))) {
+        isMatch = true;
+      } else if (scannedNis.isNotEmpty && sNis.toLowerCase() == scannedNis.toLowerCase()) {
+        isMatch = true;
+      } else if (scannedParticipantNumber.isNotEmpty && sPart.toLowerCase() == scannedParticipantNumber.toLowerCase()) {
+        isMatch = true;
+      } else if (scannedName.isNotEmpty && sName.toLowerCase() == scannedName.toLowerCase()) {
+        isMatch = true;
+      }
+
+      if (isMatch) {
+        matchedSeat = s;
+        matchedSeatNum = entry.key;
+        break;
+      }
+    }
+
+    if (matchedSeat != null && matchedSeatNum != null) {
+      final name = (matchedSeat['displayName'] ?? matchedSeat['studentName'] ?? 'Siswa').toString();
+      final isAlreadyAttended = matchedSeat['isAttended'] == true;
+
+      if (!isAlreadyAttended) {
+        setDialogState(() {
+          matchedSeat!['isAttended'] = true;
+        });
+        final mId = (matchedSeat['studentId'] ?? '').toString().toLowerCase();
+        final mNis = (matchedSeat['nis'] ?? '').toString().toLowerCase();
+        final mName = (matchedSeat['displayName'] ?? matchedSeat['studentName'] ?? '').toString().toLowerCase();
+        if (mId.isNotEmpty) _localAttendedMap[mId] = true;
+        if (mNis.isNotEmpty) _localAttendedMap[mNis] = true;
+        if (mName.isNotEmpty) _localAttendedMap[mName] = true;
+        _localAttendedMap['seat_$matchedSeatNum'] = true;
+
+        if (mounted) setState(() {});
+
+        _markStudentAttendance(
+          schoolId: schoolId,
+          eventId: eventId,
+          roomId: roomId,
+          seatData: matchedSeat,
+          isAttended: true,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Presensi Berhasil! Siswa "$name" (Meja #$matchedSeatNum) ditandai HADIR!'),
+            backgroundColor: const Color(0xFF059669),
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ℹ️ Siswa "$name" (Meja #$matchedSeatNum) sudah melakukan presensi sebelumnya.'),
+            backgroundColor: const Color(0xFF0284C7),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ QR tidak cocok dengan daftar murid di ruangan ini. ID/NIS: "${scannedStudentId.isNotEmpty ? scannedStudentId : rawData}"'),
+          backgroundColor: const Color(0xFFDC2626),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   void _showQrScanDialog({
     required String schoolId,
     required String eventId,
     required String roomId,
+    required Set<String> roomAliases,
     required Map<int, Map<String, dynamic>> seatMap,
   }) {
     final TextEditingController searchCtrl = TextEditingController();
+    final MobileScannerController scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.front,
+      torchEnabled: false,
+      formats: const [BarcodeFormat.qrCode],
+    );
+
     String query = '';
+    int activeTab = 0; // 0: Kamera QR, 1: Cari Manual
+    bool isMirrorMode = true;
+    bool isTorchOn = false;
+    DateTime lastScanTime = DateTime.now().subtract(const Duration(seconds: 5));
 
     showDialog(
       context: context,
@@ -285,10 +486,11 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
             clipBehavior: Clip.antiAlias,
             backgroundColor: Colors.white,
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 500, maxHeight: 620),
+              constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
+                  // Dialog Header
                   Row(
                     children: [
                       Container(
@@ -325,46 +527,198 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Scanner Viewfinder Banner
+                  // Mode Selector Tabs
                   Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.center_focus_strong_rounded, color: Color(0xFF34D399), size: 24),
-                        ),
-                        const SizedBox(width: 14),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Arahkan QR Card Siswa / Ketik Nama/NIS',
-                                style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          child: InkWell(
+                            onTap: () {
+                              setDialogState(() => activeTab = 0);
+                              scannerController.start();
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: activeTab == 0 ? Colors.white : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: activeTab == 0
+                                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    : [],
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Presensi otomatis realtime di denah ruangan',
-                                style: GoogleFonts.inter(color: const Color(0xFF94A3B8), fontSize: 11),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.camera_front_rounded, size: 18, color: activeTab == 0 ? const Color(0xFF059669) : const Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Kamera QR',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: activeTab == 0 ? FontWeight.bold : FontWeight.w600,
+                                      color: activeTab == 0 ? const Color(0xFF059669) : const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              setDialogState(() => activeTab = 1);
+                              scannerController.stop();
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: activeTab == 1 ? Colors.white : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: activeTab == 1
+                                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    : [],
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.search_rounded, size: 18, color: activeTab == 1 ? const Color(0xFF059669) : const Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Cari Manual',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: activeTab == 1 ? FontWeight.bold : FontWeight.w600,
+                                      color: activeTab == 1 ? const Color(0xFF059669) : const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 14),
+
+                  if (activeTab == 0) ...[
+                    // Tab 0: Live Camera Scanner Preview (Mirror Mode Default)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        height: 230,
+                        width: double.infinity,
+                        color: Colors.black,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Transform(
+                              alignment: Alignment.center,
+                              transform: isMirrorMode ? Matrix4.rotationY(pi) : Matrix4.identity(),
+                              child: MobileScanner(
+                                controller: scannerController,
+                                onDetect: (capture) {
+                                  final now = DateTime.now();
+                                  if (now.difference(lastScanTime).inMilliseconds < 1500) return;
+                                  final barcodes = capture.barcodes;
+                                  for (final barcode in barcodes) {
+                                    final rawValue = barcode.rawValue;
+                                    if (rawValue != null && rawValue.isNotEmpty) {
+                                      lastScanTime = now;
+                                      _processScannedQr(
+                                        rawData: rawValue,
+                                        schoolId: schoolId,
+                                        eventId: eventId,
+                                        roomId: roomId,
+                                        roomAliases: roomAliases,
+                                        seatMap: seatMap,
+                                        setDialogState: setDialogState,
+                                      );
+                                      break;
+                                    }
+                                  }
+                                },
+                              ),
+                            ),
+
+                            // Camera Viewfinder Target Frame
+                            Container(
+                              width: 170,
+                              height: 170,
+                              decoration: BoxDecoration(
+                                border: Border.all(color: const Color(0xFF10B981), width: 2.5),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+
+                            // Controls Row (Mirror & Flash Toggles)
+                            Positioned(
+                              top: 10,
+                              right: 10,
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    onPressed: () {
+                                      setDialogState(() => isMirrorMode = !isMirrorMode);
+                                    },
+                                    icon: Icon(
+                                      isMirrorMode ? Icons.flip_camera_ios_rounded : Icons.camera_rear_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: Colors.black45,
+                                    ),
+                                    tooltip: isMirrorMode ? 'Mode Mirror: Aktif' : 'Mode Mirror: Nonaktif',
+                                  ),
+                                  const SizedBox(width: 6),
+                                  IconButton(
+                                    onPressed: () async {
+                                      await scannerController.toggleTorch();
+                                      setDialogState(() => isTorchOn = !isTorchOn);
+                                    },
+                                    icon: Icon(
+                                      isTorchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                                      color: isTorchOn ? const Color(0xFFF59E0B) : Colors.white,
+                                      size: 20,
+                                    ),
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: Colors.black45,
+                                    ),
+                                    tooltip: 'Senter Kamera',
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            Positioned(
+                              bottom: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  isMirrorMode ? '📷 Kamera Mirror Aktif' : '📷 Tampilan Kamera Normal',
+                                  style: GoogleFonts.inter(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
                   // Search Field
                   TextField(
@@ -516,7 +870,10 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           );
         },
       ),
-    );
+    ).then((_) async {
+      await scannerController.stop();
+      scannerController.dispose();
+    });
   }
 
   Map<String, Color> _getClassColorScheme(String className, List<String> roomClasses) {
@@ -539,6 +896,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
       _isResolvingSchool = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _fetchTimetableSubcollection();
+        _fetchAttendances();
       });
     }
 
@@ -968,9 +1326,21 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                     rLayouts.forEach((k, v) {
                       if (v is Map) {
                         final kStr = k.toString().replaceAll('layout_', '');
-                        if (roomAliases.contains(kStr) || kStr == widget.roomId || kStr == roomName || kStr == roomCode) {
-                          final arr = v['arrange']?.toString();
-                          if (arr != null && arr.isNotEmpty) activeAllocMode = arr;
+                        final kClean = kStr.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                        bool isMatch = roomAliases.contains(kStr) || roomAliases.contains(k.toString());
+                        if (!isMatch) {
+                          for (var norm in normalizedAliases) {
+                            if (kClean == norm || (norm.length > 2 && kClean.contains(norm)) || (kClean.length > 2 && norm.contains(kClean))) {
+                              isMatch = true;
+                              break;
+                            }
+                          }
+                        }
+                        if (isMatch) {
+                          final cols = (v['colsPerPair'] ?? v['columns'] ?? v['totalColumns'] ?? v['cols'] as num?)?.toInt();
+                          if (cols != null && cols > 0) configuredColumns = cols;
+                          final arr = v['arrange'] ?? v['arrangeMode'];
+                          if (arr != null && arr.toString().isNotEmpty) activeAllocMode = arr.toString();
                           final s = (v['seed'] as num?)?.toInt();
                           if (s != null) activeAllocSeed = s;
                         }
@@ -1146,6 +1516,23 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                             });
                           }
 
+                          seatMap.forEach((seatNum, sData) {
+                            final sId = (sData['studentId'] ?? sData['id'] ?? '').toString().trim().toLowerCase();
+                            final sNis = (sData['nis'] ?? '').toString().trim().toLowerCase();
+                            final sName = (sData['displayName'] ?? sData['studentName'] ?? '').toString().trim().toLowerCase();
+
+                            bool isAtt = sData['isAttended'] == true ||
+                                (sId.isNotEmpty && _localAttendedMap[sId] == true) ||
+                                (sNis.isNotEmpty && _localAttendedMap[sNis] == true) ||
+                                (sName.isNotEmpty && _localAttendedMap[sName] == true) ||
+                                _localAttendedMap['seat_$seatNum'] == true;
+
+                            if (isAtt) {
+                              sData['isAttended'] = true;
+                              sData['attended'] = true;
+                            }
+                          });
+
                       // Max seat index & total capacity
                   final maxAllocatedNum = seatMap.keys.isNotEmpty ? seatMap.keys.reduce((a, b) => a > b ? a : b) : 0;
                   final totalChairs = roomCapacity > 0 ? roomCapacity : (maxAllocatedNum > 0 ? maxAllocatedNum : 30);
@@ -1229,7 +1616,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                       return LayoutBuilder(
                         builder: (context, constraints) {
                           final isDesktop = constraints.maxWidth >= 900;
-                          final gridColumns = isDesktop ? configuredColumns : (constraints.maxWidth >= 600 ? 5 : 2);
+                          final gridColumns = configuredColumns > 0 ? configuredColumns : 4;
 
                           return SingleChildScrollView(
                             padding: EdgeInsets.symmetric(
@@ -1277,9 +1664,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 _buildSearchFilterBar(classSet: classSet),
                                 const SizedBox(height: 20),
 
-                                // 5. Grid Header Title & Legend
+                                // 5. Grid Header Title (Legend removed as requested)
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       'Denah Bangku & Posisi Murid (Pola $configuredColumns Kolom • ${filteredSeatIndices.length} Kursi)',
@@ -1288,13 +1674,6 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                         fontWeight: FontWeight.w800,
                                         color: const Color(0xFF0F172A),
                                       ),
-                                    ),
-                                    Row(
-                                      children: [
-                                        _buildLegendItem(color: const Color(0xFF0F172A), label: 'Meja Terisi'),
-                                        const SizedBox(width: 12),
-                                        _buildLegendItem(color: const Color(0xFFCBD5E1), label: 'Meja Kosong'),
-                                      ],
                                     ),
                                   ],
                                 ),
@@ -1645,6 +2024,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                       schoolId: schoolId,
                       eventId: widget.eventId,
                       roomId: widget.roomId,
+                      roomAliases: {widget.roomId, roomName},
                       seatMap: seatMap,
                     ),
                     icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
@@ -1880,75 +2260,71 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   }
 
   Widget _buildSearchFilterBar({required Set<String> classSet}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              onChanged: (val) => setState(() => _searchQuery = val),
-              decoration: InputDecoration(
-                hintText: 'Cari murid berdasarkan nama lengkap, kelas, atau nomor meja...',
-                hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
-                prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B)),
-                border: InputBorder.none,
-                isDense: true,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 480),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 260,
+              child: TextField(
+                onChanged: (val) => setState(() => _searchQuery = val),
+                decoration: InputDecoration(
+                  hintText: 'Cari nama, kelas, meja...',
+                  hintStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+                  prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B), size: 18),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedClassFilter,
-                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
-                items: classSet.map((cName) {
-                  return DropdownMenuItem<String>(
-                    value: cName,
-                    child: Text(cName),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedClassFilter = val);
-                },
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedClassFilter,
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
+                  items: classSet.map((cName) {
+                    return DropdownMenuItem<String>(
+                      value: cName,
+                      child: Text(cName),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setState(() => _selectedClassFilter = val);
+                  },
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildLegendItem({required Color color, required String label}) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.w600),
-        ),
-      ],
-    );
-  }
+
 
   Widget _buildSeatCard({
     required int seatNum,
