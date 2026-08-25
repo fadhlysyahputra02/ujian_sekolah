@@ -639,6 +639,24 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                     final aData = aDoc.data() as Map<String, dynamic>;
                     final isAtt = aData['isAttended'] == true || aData['attended'] == true;
                     if (isAtt) {
+                      final aRoomId = (aData['roomId'] ?? aData['room'] ?? '').toString().trim();
+                      if (aRoomId.isNotEmpty) {
+                        final cleanARoom = aRoomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                        final cleanWidgetRoom = widget.roomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                        final cleanRoomName = roomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+
+                        bool roomMatches = cleanARoom == cleanWidgetRoom ||
+                            cleanARoom == cleanRoomName ||
+                            cleanWidgetRoom.contains(cleanARoom) ||
+                            cleanARoom.contains(cleanWidgetRoom) ||
+                            cleanRoomName.contains(cleanARoom) ||
+                            cleanARoom.contains(cleanRoomName);
+
+                        if (!roomMatches) {
+                          continue; // Skip attendance document if it belongs to ANOTHER room!
+                        }
+                      }
+
                       final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
                       final sNis = (aData['nis'] ?? '').toString().toLowerCase();
                       final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
@@ -646,7 +664,10 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                       if (sId.isNotEmpty) _localAttendedMap[sId] = true;
                       if (sNis.isNotEmpty) _localAttendedMap[sNis] = true;
                       if (sName.isNotEmpty) _localAttendedMap[sName] = true;
-                      if (seatNum != null && seatNum > 0) _localAttendedMap['seat_$seatNum'] = true;
+                      if (seatNum != null && seatNum > 0) {
+                        _localAttendedMap['${widget.roomId}_seat_$seatNum'] = true;
+                        _localAttendedMap['seat_${widget.roomId}_$seatNum'] = true;
+                      }
                     }
                   }
 
@@ -791,7 +812,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 if ((sId.isNotEmpty && _localAttendedMap[sId] == true) ||
                                     (sNis.isNotEmpty && _localAttendedMap[sNis] == true) ||
                                     (sName.isNotEmpty && _localAttendedMap[sName] == true) ||
-                                    (_localAttendedMap['seat_$seatNum'] == true)) {
+                                    (_localAttendedMap['${widget.roomId}_seat_$seatNum'] == true) ||
+                                    (_localAttendedMap['seat_${widget.roomId}_$seatNum'] == true)) {
                                   isAttended = true;
                                 }
 

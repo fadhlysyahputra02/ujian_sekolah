@@ -115,12 +115,19 @@ class TeacherProctorController {
         if (sId.isNotEmpty) localAttendedMap[sId] = true;
         if (sNis.isNotEmpty) localAttendedMap[sNis] = true;
         if (sName.isNotEmpty) localAttendedMap[sName] = true;
-        if (seatNum > 0) localAttendedMap['seat_$seatNum'] = true;
+        if (seatNum > 0) {
+          localAttendedMap['${roomId}_seat_$seatNum'] = true;
+          localAttendedMap['seat_${roomId}_$seatNum'] = true;
+        }
       } else {
         if (sId.isNotEmpty) localAttendedMap.remove(sId);
         if (sNis.isNotEmpty) localAttendedMap.remove(sNis);
         if (sName.isNotEmpty) localAttendedMap.remove(sName);
-        if (seatNum > 0) localAttendedMap.remove('seat_$seatNum');
+        if (seatNum > 0) {
+          localAttendedMap.remove('${roomId}_seat_$seatNum');
+          localAttendedMap.remove('seat_${roomId}_$seatNum');
+          localAttendedMap.remove('seat_$seatNum');
+        }
       }
 
       seatNotifier.value++;
@@ -255,7 +262,8 @@ class TeacherProctorController {
         if (mId.isNotEmpty) localAttendedMap[mId] = true;
         if (mNis.isNotEmpty) localAttendedMap[mNis] = true;
         if (mName.isNotEmpty) localAttendedMap[mName] = true;
-        localAttendedMap['seat_$matchedSeatNum'] = true;
+        localAttendedMap['${roomId}_seat_$matchedSeatNum'] = true;
+        localAttendedMap['seat_${roomId}_$matchedSeatNum'] = true;
 
         seatNotifier.value++;
 
