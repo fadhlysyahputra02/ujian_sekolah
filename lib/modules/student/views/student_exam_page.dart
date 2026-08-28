@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../core/widgets/app_refresh_indicator.dart';
 
 class StudentExamPage extends StatefulWidget {
   final String schoolId;
@@ -180,7 +181,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         ]);
       }
 
-      // Primary write
+      // Primary write (1 document per student)
       final ref = db
           .collection('schools')
           .doc(widget.schoolId)
@@ -190,32 +191,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           .doc(studentDocId);
 
       await ref.set(data, SetOptions(merge: true));
-
-      // Backup write to NIS if different
-      if (widget.nis.trim().isNotEmpty && widget.nis.trim() != studentDocId) {
-        final nisRef = db
-            .collection('schools')
-            .doc(widget.schoolId)
-            .collection('events')
-            .doc(widget.eventId)
-            .collection('realtime_control')
-            .doc(widget.nis.trim());
-        await nisRef.set(data, SetOptions(merge: true));
-      }
-
-      // Backup write to clean name if different
-      final cleanName = widget.studentName.trim().toLowerCase().replaceAll(' ', '').replaceAll('.', '').replaceAll('-', '');
-      if (cleanName.isNotEmpty && cleanName != studentDocId) {
-        final nameRef = db
-            .collection('schools')
-            .doc(widget.schoolId)
-            .collection('events')
-            .doc(widget.eventId)
-            .collection('realtime_control')
-            .doc(cleanName);
-        await nameRef.set(data, SetOptions(merge: true));
-      }
-
       debugPrint('⚡ Realtime control updated: $status for docId=$studentDocId');
     } catch (e) {
       debugPrint('❌ Error updating realtime control: $e');
@@ -1650,9 +1625,14 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
             // Main Question Content Body
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
+              child: AppRefreshIndicator(
+                onRefresh: () async {
+                  await _loadQuestions();
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Question Box Card
@@ -1932,6 +1912,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                 ),
               ),
             ),
+          ),
 
             // Bottom Bar Navigation Dock (Sebelumnya, Ragu-Ragu, Selanjutnya)
             Container(

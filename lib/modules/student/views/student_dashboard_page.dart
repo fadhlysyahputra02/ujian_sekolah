@@ -6,8 +6,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/network_service.dart';
 import '../../../core/models/student.dart';
 import '../../../core/constants/app_version.dart';
+import '../../../core/widgets/app_refresh_indicator.dart';
 
 class StudentDashboardPage extends StatefulWidget {
   final String? tabName;
@@ -218,6 +220,39 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
             padding: const EdgeInsets.only(right: 16.0),
             child: Row(
               children: [
+                Consumer<NetworkService>(
+                  builder: (context, net, _) {
+                    final isOnline = net.isOnline;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isOnline ? const Color(0xFF065F46).withValues(alpha: 0.3) : const Color(0xFF991B1B).withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                            size: 12,
+                            color: isOnline ? const Color(0xFF34D399) : const Color(0xFFFCA5A5),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isOnline ? 'Online' : 'Offline',
+                            style: GoogleFonts.inter(
+                              color: isOnline ? const Color(0xFF34D399) : const Color(0xFFFCA5A5),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -270,24 +305,29 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
           ),
         ],
       ),
-      body: FadeTransition(
-        opacity: _fadeAnim,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(20.0),
-          child: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 900),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Card Utama: Profile Banner & Details
-                  _buildStudentHeaderCard(),
-                  const SizedBox(height: 28),
+      body: AppRefreshIndicator(
+        onRefresh: () async {
+          await _loadStudentProfile();
+        },
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+            padding: const EdgeInsets.all(20.0),
+            child: Center(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Card Utama: Profile Banner & Details
+                    _buildStudentHeaderCard(),
+                    const SizedBox(height: 28),
 
-                  // Event Cards Section
-                  _buildEventCardsList(schoolId),
-                ],
+                    // Event Cards Section
+                    _buildEventCardsList(schoolId),
+                  ],
+                ),
               ),
             ),
           ),

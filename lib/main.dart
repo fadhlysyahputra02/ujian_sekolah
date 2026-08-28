@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/services/auth_service.dart';
+import 'core/services/network_service.dart';
+import 'core/widgets/global_network_status_overlay.dart';
 import 'core/routes/app_router.dart';
 import 'firebase_options.dart';
 
@@ -54,8 +56,11 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<AuthService>.value(
-      value: _authService,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthService>.value(value: _authService),
+        ChangeNotifierProvider<NetworkService>(create: (_) => NetworkService()),
+      ],
       child: MaterialApp.router(
         title: 'SesiCermat',
         debugShowCheckedModeBanner: false,
@@ -83,6 +88,9 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
         ),
+        builder: (context, child) {
+          return GlobalNetworkStatusOverlay(child: child ?? const SizedBox());
+        },
         routerConfig: _router,
       ),
     );

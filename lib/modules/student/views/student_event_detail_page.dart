@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/student.dart';
+import '../../../core/widgets/app_refresh_indicator.dart';
 import 'student_exam_page.dart';
 
 class StudentEventDetailPage extends StatefulWidget {
@@ -391,64 +392,73 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           ],
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Card dengan QR (Dapat diklik memperbesar), Nama Event, Tanggal Event, No Peserta, Ruangan, No Kursi
-            _buildParticipantCard(
-              roomName: roomName,
-              seatNumber: seatNumber,
-              participantNumber: participantNumber,
-              dateRange: _eventDateRange,
-              qrDataString: qrDataString,
-            ),
-            const SizedBox(height: 28),
+      body: AppRefreshIndicator(
+        onRefresh: () async {
+          setState(() {
+            _isLoading = true;
+          });
+          await _loadStudentAndEventDetails();
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Card dengan QR (Dapat diklik memperbesar), Nama Event, Tanggal Event, No Peserta, Ruangan, No Kursi
+              _buildParticipantCard(
+                roomName: roomName,
+                seatNumber: seatNumber,
+                participantNumber: participantNumber,
+                dateRange: _eventDateRange,
+                qrDataString: qrDataString,
+              ),
+              const SizedBox(height: 28),
 
-            // Schedule Section Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD1FAE5),
-                    borderRadius: BorderRadius.circular(10),
+              // Schedule Section Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD1FAE5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.calendar_month_rounded, color: Color(0xFF10B981), size: 20),
                   ),
-                  child: const Icon(Icons.calendar_month_rounded, color: Color(0xFF10B981), size: 20),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  'Jadwal Ujian Anda',
-                  style: GoogleFonts.inter(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1E293B),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Jadwal Ujian Anda',
+                    style: GoogleFonts.inter(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF1E293B),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+                ],
+              ),
+              const SizedBox(height: 16),
 
-            if (_myTimetable.isEmpty)
-              _buildEmptySchedule()
-            else
-              ...sortedDateKeys.map((dateKey) {
-                final group = dateGroupMap[dateKey]!;
-                final dateStr = group['dateStr'] as String;
-                final dayItems = group['items'] as List<Map<String, dynamic>>;
+              if (_myTimetable.isEmpty)
+                _buildEmptySchedule()
+              else
+                ...sortedDateKeys.map((dateKey) {
+                  final group = dateGroupMap[dateKey]!;
+                  final dateStr = group['dateStr'] as String;
+                  final dayItems = group['items'] as List<Map<String, dynamic>>;
 
-                dayItems.sort((a, b) {
-                  final sessA = _sessionMap[a['sessionId']];
-                  final sessB = _sessionMap[b['sessionId']];
-                  final startA = sessA?['startTime']?.toString() ?? '';
-                  final startB = sessB?['startTime']?.toString() ?? '';
-                  return startA.compareTo(startB);
-                });
+                  dayItems.sort((a, b) {
+                    final sessA = _sessionMap[a['sessionId']];
+                    final sessB = _sessionMap[b['sessionId']];
+                    final startA = sessA?['startTime']?.toString() ?? '';
+                    final startB = sessB?['startTime']?.toString() ?? '';
+                    return startA.compareTo(startB);
+                  });
 
-                return _buildDayScheduleGroup(dateStr, dayItems);
-              }),
-          ],
+                  return _buildDayScheduleGroup(dateStr, dayItems);
+                }),
+            ],
+          ),
         ),
       ),
     );
