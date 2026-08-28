@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/school_service.dart';
 import '../../../core/constants/app_version.dart';
+import '../../../core/widgets/app_splash_loader.dart';
 import 'school_list_page.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -59,6 +60,12 @@ class _DashboardPageState extends State<DashboardPage>
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    if (authService.isLoading) {
+      return const AppSplashScreen(
+        title: 'SesiCermat SuperAdmin',
+        subtitle: 'Memuat sesi super admin...',
+      );
+    }
     if (authService.role != 'super_admin') {
       return const Scaffold(
         body: Center(

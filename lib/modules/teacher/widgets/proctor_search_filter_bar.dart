@@ -7,6 +7,8 @@ class ProctorSearchFilterBar extends StatelessWidget {
   final Set<String> classSet;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onClassFilterChanged;
+  final VoidCallback? onShowExitLogs;
+  final int exitLogCount;
 
   const ProctorSearchFilterBar({
     super.key,
@@ -15,6 +17,8 @@ class ProctorSearchFilterBar extends StatelessWidget {
     required this.classSet,
     required this.onSearchChanged,
     required this.onClassFilterChanged,
+    this.onShowExitLogs,
+    this.exitLogCount = 0,
   });
 
   @override
@@ -51,7 +55,55 @@ class ProctorSearchFilterBar extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
+          if (onShowExitLogs != null) ...[
+            ElevatedButton.icon(
+              onPressed: onShowExitLogs,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: exitLogCount > 0 ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
+                foregroundColor: exitLogCount > 0 ? const Color(0xFFDC2626) : const Color(0xFF475569),
+                elevation: 0,
+                side: BorderSide(
+                  color: exitLogCount > 0 ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0),
+                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              icon: Icon(
+                Icons.history_rounded,
+                size: 16,
+                color: exitLogCount > 0 ? const Color(0xFFDC2626) : const Color(0xFF475569),
+              ),
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Riwayat Keluar App',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: exitLogCount > 0 ? const Color(0xFFDC2626) : const Color(0xFF475569),
+                    ),
+                  ),
+                  if (exitLogCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC2626),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$exitLogCount',
+                        style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(

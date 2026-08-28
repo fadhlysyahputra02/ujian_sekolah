@@ -132,6 +132,10 @@ service cloud.firestore {
         match /attendances/{attendanceId} {
           allow read, write: if true;
         }
+
+        match /realtime_control/{controlId} {
+          allow read, write: if true;
+        }
       }
 
       // Sub-collection for event drafts (wizard auto-save)

@@ -341,6 +341,40 @@ class TeacherProctorController {
     }
   }
 
+  static Future<bool> resetRealtimeControlWarning({
+    required String schoolId,
+    required String eventId,
+    required Map<String, dynamic> seatData,
+  }) async {
+    try {
+      final studentId = (seatData['studentId'] ?? seatData['id'] ?? '').toString();
+      final nis = (seatData['nis'] ?? '').toString();
+      final docId = studentId.isNotEmpty ? studentId : nis;
+      if (docId.isEmpty) return false;
+
+      final ref = FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('events')
+          .doc(eventId)
+          .collection('realtime_control')
+          .doc(docId);
+
+      await ref.set({
+        'isLeftApp': false,
+        'status': 'in_progress',
+        'resetAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      seatData['isLeftApp'] = false;
+      seatData['status'] = 'in_progress';
+      return true;
+    } catch (e) {
+      debugPrint('Error resetting realtime control warning: $e');
+      return false;
+    }
+  }
+
   static void showStudentDetailModal({
     required BuildContext context,
     required int seatNum,
@@ -360,6 +394,8 @@ class TeacherProctorController {
     final angkatan = (seatData['angkatan'] ?? '-').toString();
     final rawGender = (seatData['gender'] ?? '').toString().toUpperCase();
     final genderText = (rawGender == 'F' || rawGender == 'P') ? 'Perempuan (P)' : (rawGender == 'M' || rawGender == 'L') ? 'Laki-laki (L)' : '-';
+    final bool isCompleted = seatData['isCompleted'] == true || seatData['status'] == 'completed';
+    final bool isLeftApp = !isCompleted && (seatData['isLeftApp'] == true || seatData['status'] == 'left_app');
 
     showModalBottomSheet(
       context: context,
@@ -389,10 +425,16 @@ class TeacherProctorController {
               children: [
                 CircleAvatar(
                   radius: 28,
-                  backgroundColor: scheme['bg'],
+                  backgroundColor: isCompleted
+                      ? const Color(0xFF10B981)
+                      : (isLeftApp ? const Color(0xFFEF4444) : scheme['bg']),
                   child: Text(
                     name.isNotEmpty ? name[0].toUpperCase() : 'S',
-                    style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold, color: scheme['primary']),
+                    style: GoogleFonts.inter(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: (isCompleted || isLeftApp) ? Colors.white : scheme['primary'],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -432,11 +474,15 @@ class TeacherProctorController {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: isAttended ? const Color(0xFF059669) : scheme['primary'],
+                    color: isCompleted
+                        ? const Color(0xFF10B981)
+                        : (isLeftApp ? const Color(0xFFEF4444) : (isAttended ? const Color(0xFF059669) : scheme['primary'])),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    isAttended ? 'HADIR (#$seatNum)' : 'Meja #$seatNum',
+                    isCompleted
+                        ? 'SELESAI (#$seatNum)'
+                        : (isLeftApp ? 'KELUAR APP! (#$seatNum)' : (isAttended ? 'HADIR (#$seatNum)' : 'Meja #$seatNum')),
                     style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
                 ),
@@ -516,6 +562,295 @@ class TeacherProctorController {
                   ),
                 ),
               ],
+            ),
+            if (isLeftApp) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        Navigator.of(ctx).pop();
+                        await resetRealtimeControlWarning(
+                          schoolId: schoolId,
+                          eventId: eventId,
+                          seatData: seatData,
+                        );
+                        seatNotifier.value++;
+                        triggerScanFeedback(isSuccess: true);
+                      },
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Reset Peringatan Keluar App'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFD97706),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  static void showExitAppLogsModal({
+    required BuildContext context,
+    required String schoolId,
+    required String eventId,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(ctx).size.height * 0.75,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.history_toggle_off_rounded, color: Color(0xFFDC2626), size: 24),
+                    ),
+                    const SizedBox(width: 14),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Riwayat Keluar Aplikasi',
+                          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Daftar murid yang terdeteksi meminimalkan / keluar aplikasi saat ujian',
+                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('schools')
+                    .doc(schoolId)
+                    .collection('events')
+                    .doc(eventId)
+                    .collection('realtime_control')
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final docs = snapshot.data?.docs ?? [];
+                  final logsList = <Map<String, dynamic>>[];
+
+                  for (var doc in docs) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final isLeftApp = data['isLeftApp'] == true || data['status'] == 'left_app';
+                    final leftAppCount = (data['leftAppCount'] as num?)?.toInt() ?? (isLeftApp ? 1 : 0);
+                    final logs = data['logs'] as List? ?? [];
+                    final hasLogs = logs.isNotEmpty || isLeftApp || leftAppCount > 0;
+
+                    if (hasLogs) {
+                      logsList.add({
+                        'docId': doc.id,
+                        'studentId': data['studentId'] ?? '',
+                        'studentName': data['studentName'] ?? data['nis'] ?? 'Siswa',
+                        'nis': data['nis'] ?? '',
+                        'className': data['className'] ?? '',
+                        'isLeftApp': isLeftApp,
+                        'leftAppCount': leftAppCount > 0 ? leftAppCount : 1,
+                        'status': data['status'] ?? (isLeftApp ? 'left_app' : 'in_progress'),
+                        'lastLeftAppAt': data['lastLeftAppAt'],
+                        'updatedAt': data['updatedAt'],
+                        'logs': logs,
+                      });
+                    }
+                  }
+
+                  if (logsList.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFF0FDF4),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.verified_user_rounded, size: 48, color: Color(0xFF10B981)),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Belum Ada Peringatan Keluar App',
+                            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Semua murid mengerjakan ujian dengan tertib di dalam aplikasi.',
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.separated(
+                    itemCount: logsList.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final item = logsList[index];
+                      final isCurrentlyOut = item['isLeftApp'] == true;
+                      final studentName = item['studentName'].toString();
+                      final className = item['className'].toString();
+                      final nis = item['nis'].toString();
+                      final count = item['leftAppCount'];
+
+                      DateTime? lastTime;
+                      if (item['lastLeftAppAt'] is Timestamp) {
+                        lastTime = (item['lastLeftAppAt'] as Timestamp).toDate();
+                      } else if (item['updatedAt'] is Timestamp) {
+                        lastTime = (item['updatedAt'] as Timestamp).toDate();
+                      }
+
+                      final timeStr = lastTime != null
+                          ? '${lastTime.hour.toString().padLeft(2, '0')}:${lastTime.minute.toString().padLeft(2, '0')}:${lastTime.second.toString().padLeft(2, '0')} WIB'
+                          : 'Baru saja';
+
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isCurrentlyOut ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isCurrentlyOut ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 22,
+                              backgroundColor: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFFF59E0B),
+                              child: Icon(
+                                isCurrentlyOut ? Icons.warning_amber_rounded : Icons.history_rounded,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          studentName,
+                                          style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFF10B981),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          isCurrentlyOut ? 'SEDANG DILUAR APP' : 'KEMBALI KE APP',
+                                          style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.white),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Kelas $className • NIS: $nis',
+                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.history_rounded, size: 13, color: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFFD97706)),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Terdeteksi $count kali keluar • Waktu: $timeStr',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            IconButton(
+                              tooltip: 'Reset Peringatan',
+                              icon: const Icon(Icons.refresh_rounded, color: Color(0xFFD97706)),
+                              onPressed: () async {
+                                await resetRealtimeControlWarning(
+                                  schoolId: schoolId,
+                                  eventId: eventId,
+                                  seatData: item,
+                                );
+                                triggerScanFeedback(isSuccess: true);
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
           ],
         ),

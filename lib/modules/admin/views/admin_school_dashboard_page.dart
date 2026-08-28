@@ -958,6 +958,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    if (authService.isLoading) {
+      return const AppSplashScreen(
+        title: 'SesiCermat Admin',
+        subtitle: 'Memuat sesi administrator...',
+      );
+    }
     final role = authService.role;
     if (role != 'school_admin' && role != 'super_admin') {
       return const Scaffold(

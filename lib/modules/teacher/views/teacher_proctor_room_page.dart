@@ -677,6 +677,48 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                         .doc(schoolId)
                         .collection('events')
                         .doc(widget.eventId)
+                        .collection('realtime_control')
+                        .snapshots(),
+                    builder: (context, realtimeSnap) {
+                      final realtimeMap = <String, Map<String, dynamic>>{};
+                      final realtimeDocs = realtimeSnap.data?.docs ?? [];
+                      for (var doc in realtimeDocs) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        final sId = (data['studentId'] ?? doc.id).toString().toLowerCase();
+                        final sNis = (data['nis'] ?? '').toString().toLowerCase();
+                        final sName = (data['studentName'] ?? '').toString().toLowerCase();
+                        if (sId.isNotEmpty) realtimeMap[sId] = data;
+                        if (sNis.isNotEmpty) realtimeMap[sNis] = data;
+                        if (sName.isNotEmpty) realtimeMap[sName] = data;
+                      }
+
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('schools')
+                            .doc(schoolId)
+                            .collection('events')
+                            .doc(widget.eventId)
+                            .collection('submissions')
+                            .snapshots(),
+                        builder: (context, subSnap) {
+                          final submissionsMap = <String, Map<String, dynamic>>{};
+                          final subDocs = subSnap.data?.docs ?? [];
+                          for (var doc in subDocs) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final sId = (data['studentId'] ?? '').toString().toLowerCase();
+                            final sNis = (data['nis'] ?? '').toString().toLowerCase();
+                            final sName = (data['studentName'] ?? '').toString().toLowerCase();
+                            if (sId.isNotEmpty) submissionsMap[sId] = data;
+                            if (sNis.isNotEmpty) submissionsMap[sNis] = data;
+                            if (sName.isNotEmpty) submissionsMap[sName] = data;
+                          }
+
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('schools')
+                        .doc(schoolId)
+                        .collection('events')
+                        .doc(widget.eventId)
                         .collection('allocations')
                         .snapshots(),
                     builder: (context, allocSnap) {
@@ -802,7 +844,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 }
                               }
 
-                              // Ensure attendance state synced into seatMap entries
+                              // Ensure attendance state & realtime control synced into seatMap entries
                               seatMap.forEach((seatNum, sData) {
                                 final sId = (sData['studentId'] ?? sData['id'] ?? '').toString().toLowerCase();
                                 final sNis = (sData['nis'] ?? '').toString().toLowerCase();
@@ -817,8 +859,35 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                   isAttended = true;
                                 }
 
-                                sData['isAttended'] = isAttended;
-                                sData['attended'] = isAttended;
+                                final cleanName = sName.replaceAll(' ', '').replaceAll('.', '').replaceAll('-', '');
+
+                                Map<String, dynamic>? rtData = (sId.isNotEmpty ? realtimeMap[sId] : null) ??
+                                    (sNis.isNotEmpty ? realtimeMap[sNis] : null) ??
+                                    (sName.isNotEmpty ? realtimeMap[sName] : null) ??
+                                    (cleanName.isNotEmpty ? realtimeMap[cleanName] : null);
+
+                                Map<String, dynamic>? subData = (sId.isNotEmpty ? submissionsMap[sId] : null) ??
+                                    (sNis.isNotEmpty ? submissionsMap[sNis] : null) ??
+                                    (sName.isNotEmpty ? submissionsMap[sName] : null) ??
+                                    (cleanName.isNotEmpty ? submissionsMap[cleanName] : null);
+
+                                bool isCompleted = (rtData?['isCompleted'] == true) ||
+                                    (rtData?['status'] == 'completed') ||
+                                    (subData?['isCompleted'] == true);
+
+                                bool isLeftApp = !isCompleted &&
+                                    ((rtData?['isLeftApp'] == true) || (rtData?['status'] == 'left_app'));
+
+                                bool isWorking = (rtData?['isWorking'] == true) ||
+                                    (rtData?['status'] == 'in_progress') ||
+                                    (rtData?['status'] == 'working');
+
+                                sData['isAttended'] = isAttended || isCompleted || isLeftApp || isWorking;
+                                sData['attended'] = isAttended || isCompleted || isLeftApp || isWorking;
+                                sData['isCompleted'] = isCompleted;
+                                sData['isLeftApp'] = isLeftApp;
+                                sData['isWorking'] = isWorking;
+                                sData['status'] = rtData?['status'] ?? (isCompleted ? 'completed' : (isLeftApp ? 'left_app' : (isWorking ? 'in_progress' : 'normal')));
                               });
 
                               final filledSeatsCount = seatMap.values.where((s) => (s['displayName'] ?? s['studentName'] ?? s['name'] ?? '').toString().isNotEmpty).length;
@@ -943,13 +1012,24 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                             ),
                                             const SizedBox(height: 20),
 
-                                            // 4. Search Bar & Class Filter Dropdown (Gambar 1 exact feature)
+                                            // 4. Search Bar, Class Filter & Riwayat Keluar App Button
                                             ProctorSearchFilterBar(
                                               searchQuery: _searchQuery,
                                               selectedClassFilter: _selectedClassFilter,
                                               classSet: roomClassesSet,
                                               onSearchChanged: (val) => setState(() => _searchQuery = val),
                                               onClassFilterChanged: (val) => setState(() => _selectedClassFilter = val),
+                                              onShowExitLogs: () => TeacherProctorController.showExitAppLogsModal(
+                                                context: context,
+                                                schoolId: schoolId,
+                                                eventId: widget.eventId,
+                                              ),
+                                              exitLogCount: realtimeDocs.where((doc) {
+                                                final d = doc.data() as Map<String, dynamic>;
+                                                final isLeftApp = d['isLeftApp'] == true || d['status'] == 'left_app';
+                                                final count = (d['leftAppCount'] as num?)?.toInt() ?? 0;
+                                                return isLeftApp || count > 0;
+                                              }).length,
                                             ),
                                             const SizedBox(height: 20),
 
@@ -1052,9 +1132,13 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
             },
           );
         },
-      );
-    },
-  ),
-);
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
   }
 }

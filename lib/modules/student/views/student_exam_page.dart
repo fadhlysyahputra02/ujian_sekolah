@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class StudentExamPage extends StatefulWidget {
@@ -42,7 +43,7 @@ class StudentExamPage extends StatefulWidget {
   State<StudentExamPage> createState() => _StudentExamPageState();
 }
 
-class _StudentExamPageState extends State<StudentExamPage> {
+class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingObserver {
   bool _isLoading = true;
   List<Map<String, dynamic>> _questions = [];
   int _currentIndex = 0;
@@ -70,12 +71,34 @@ class _StudentExamPageState extends State<StudentExamPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    SystemChannels.lifecycle.setMessageHandler((msg) async {
+      debugPrint('📱 SystemChannels.lifecycle message: $msg');
+      if (_isSubmitting) return msg;
+      if (msg == 'AppLifecycleState.paused' ||
+          msg == 'AppLifecycleState.inactive' ||
+          msg == 'AppLifecycleState.hidden' ||
+          msg == 'AppLifecycleState.detached' ||
+          msg == 'inactive' ||
+          msg == 'paused' ||
+          msg == 'hidden') {
+        debugPrint('⚠️ Lifecycle trigger: Student exited app / switched tab!');
+        _updateRealtimeControlStatus('left_app');
+      } else if (msg == 'AppLifecycleState.resumed' || msg == 'resumed') {
+        debugPrint('✅ Lifecycle trigger: Student returned to app!');
+        _updateRealtimeControlStatus('in_progress');
+      }
+      return msg;
+    });
+
     _calculateDurationAndStartTimer();
     _loadQuestions();
+    _updateRealtimeControlStatus('in_progress');
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _draftDebounceTimer?.cancel();
     _remainingSecondsNotifier.dispose();
@@ -83,6 +106,120 @@ class _StudentExamPageState extends State<StudentExamPage> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    debugPrint('📱 AppLifecycleState changed: $state');
+    if (_isSubmitting) return;
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      debugPrint('⚠️ Lifecycle trigger (Observer): Student exited app!');
+      _updateRealtimeControlStatus('left_app');
+    } else if (state == AppLifecycleState.resumed) {
+      debugPrint('✅ Lifecycle trigger (Observer): Student returned to app!');
+      _updateRealtimeControlStatus('in_progress');
+    }
+  }
+
+  Future<void> _updateRealtimeControlStatus(String status) async {
+    if (widget.schoolId.isEmpty || widget.eventId.isEmpty) return;
+
+    String studentDocId = widget.studentId.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
+    if (studentDocId.isEmpty) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+
+      final isLeftApp = (status == 'left_app');
+      final isCompleted = (status == 'completed');
+
+      final data = <String, dynamic>{
+        'studentId': widget.studentId,
+        'studentName': widget.studentName,
+        'nis': widget.nis,
+        'className': widget.className,
+        'subjectId': widget.subjectId,
+        'subjectName': widget.subjectName,
+        'status': status,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (isLeftApp) {
+        data['isLeftApp'] = true;
+        data['isWorking'] = false;
+        data['isCompleted'] = false;
+        data['lastLeftAppAt'] = FieldValue.serverTimestamp();
+        data['leftAppCount'] = FieldValue.increment(1);
+        data['logs'] = FieldValue.arrayUnion([
+          {
+            'event': 'left_app',
+            'timestamp': DateTime.now().toIso8601String(),
+          }
+        ]);
+      } else if (isCompleted) {
+        data['isLeftApp'] = false;
+        data['isWorking'] = false;
+        data['isCompleted'] = true;
+        data['completedAt'] = FieldValue.serverTimestamp();
+      } else {
+        // in_progress / working
+        data['isLeftApp'] = false;
+        data['isCompleted'] = false;
+        data['isWorking'] = true;
+        data['logs'] = FieldValue.arrayUnion([
+          {
+            'event': 'returned',
+            'timestamp': DateTime.now().toIso8601String(),
+          }
+        ]);
+      }
+
+      // Primary write
+      final ref = db
+          .collection('schools')
+          .doc(widget.schoolId)
+          .collection('events')
+          .doc(widget.eventId)
+          .collection('realtime_control')
+          .doc(studentDocId);
+
+      await ref.set(data, SetOptions(merge: true));
+
+      // Backup write to NIS if different
+      if (widget.nis.trim().isNotEmpty && widget.nis.trim() != studentDocId) {
+        final nisRef = db
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('events')
+            .doc(widget.eventId)
+            .collection('realtime_control')
+            .doc(widget.nis.trim());
+        await nisRef.set(data, SetOptions(merge: true));
+      }
+
+      // Backup write to clean name if different
+      final cleanName = widget.studentName.trim().toLowerCase().replaceAll(' ', '').replaceAll('.', '').replaceAll('-', '');
+      if (cleanName.isNotEmpty && cleanName != studentDocId) {
+        final nameRef = db
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('events')
+            .doc(widget.eventId)
+            .collection('realtime_control')
+            .doc(cleanName);
+        await nameRef.set(data, SetOptions(merge: true));
+      }
+
+      debugPrint('⚡ Realtime control updated: $status for docId=$studentDocId');
+    } catch (e) {
+      debugPrint('❌ Error updating realtime control: $e');
+    }
   }
 
   String _lastSavedStateFingerprint = '';
@@ -644,6 +781,8 @@ class _StudentExamPageState extends State<StudentExamPage> {
         'isCompleted': true,
         'autoSubmitted': autoSubmitted,
       }, SetOptions(merge: true));
+
+      await _updateRealtimeControlStatus('completed');
 
       debugPrint('✅ Final submission saved to Firestore!');
     } catch (e) {
