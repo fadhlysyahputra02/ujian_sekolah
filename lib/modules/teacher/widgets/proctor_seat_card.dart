@@ -141,7 +141,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
     final bool isCompleted = _isCompleted;
     final bool isLeftApp = _shouldBlink;
     final status = (seatData['status'] ?? '').toString();
-    final bool isWorking = seatData['isWorking'] == true || status == 'in_progress' || status == 'working' || isAttended;
+    final bool isWorking = seatData['isWorking'] == true || status == 'in_progress' || status == 'working';
 
     return AnimatedBuilder(
       animation: _blinkAnimation,
@@ -177,8 +177,20 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
               offset: const Offset(0, 3),
             )
           ];
+        } else if (isAttended) {
+          // 3. Murid sudah scan / hadir (STANDBY) -> SOLID warna kelasnya
+          bgColor = scheme['primary']!;
+          borderColor = scheme['primary']!.withValues(alpha: 0.8);
+          textColor = Colors.white;
+          boxShadow = [
+            BoxShadow(
+              color: scheme['primary']!.withValues(alpha: 0.35),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            )
+          ];
         } else {
-          // 3. Belum mengerjakan & belum hadir -> Light class background
+          // 4. Belum mengerjakan & belum hadir -> Light class background
           bgColor = scheme['bg']!;
           borderColor = scheme['border']!;
           textColor = const Color(0xFF0F172A);

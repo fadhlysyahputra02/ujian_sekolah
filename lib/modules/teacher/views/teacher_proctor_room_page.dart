@@ -488,6 +488,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               }
 
               final matchedSubjects = <String>[];
+              final matchedSubjectIds = <String>{};
 
               for (var tItem in timetableList) {
                 final tSessionId = (tItem['sessionId'] ?? tItem['session_id'] ?? '').toString();
@@ -512,6 +513,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
                 if (isMatch) {
                   final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString().trim();
+                  final subjId = (tItem['subjectId'] ?? tItem['id'] ?? '').toString().trim().toLowerCase();
                   final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString().trim();
                   final cId = (tItem['classId'] ?? '').toString().trim();
 
@@ -531,6 +533,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                     }
                     if (classMatched && !matchedSubjects.contains(subj)) {
                       matchedSubjects.add(subj);
+                      if (subjId.isNotEmpty) matchedSubjectIds.add(subjId);
                     }
                   }
                 }
@@ -552,9 +555,15 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                     final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
                     for (var sId in schedSubjectIds) {
                       String foundName = sId.toString();
+                      final cleanSId = sId.toString().toLowerCase().trim();
+                      if (cleanSId.isNotEmpty) matchedSubjectIds.add(cleanSId);
                       for (var sItem in subjectsList) {
                         if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId || sItem['name'] == sId)) {
                           foundName = sItem['name'] ?? sId.toString();
+                          final sItemCode = (sItem['code'] ?? '').toString().toLowerCase().trim();
+                          final sItemName = (sItem['name'] ?? '').toString().toLowerCase().trim();
+                          if (sItemCode.isNotEmpty) matchedSubjectIds.add(sItemCode);
+                          if (sItemName.isNotEmpty) matchedSubjectIds.add(sItemName);
                           break;
                         }
                       }
@@ -687,8 +696,28 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                     builder: (context, realtimeSnap) {
                       final realtimeMap = <String, Map<String, dynamic>>{};
                       final realtimeDocs = realtimeSnap.data?.docs ?? [];
+                      final cleanActiveSubjectNames = matchedSubjects.map((s) => s.toLowerCase().trim()).toSet();
+
                       for (var doc in realtimeDocs) {
                         final data = doc.data() as Map<String, dynamic>;
+                        final rtSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
+                        final rtSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
+
+                        bool subjectMatches = false;
+                        if (matchedSubjects.isEmpty) {
+                          subjectMatches = true;
+                        } else {
+                          if (cleanActiveSubjectNames.contains(rtSubjName) ||
+                              matchedSubjectIds.contains(rtSubjId) ||
+                              matchedSubjectIds.contains(rtSubjName)) {
+                            subjectMatches = true;
+                          }
+                        }
+
+                        if (!subjectMatches) {
+                          continue; // Skip realtime states for other subjects!
+                        }
+
                         final sId = (data['studentId'] ?? doc.id).toString().toLowerCase();
                         final sNis = (data['nis'] ?? '').toString().toLowerCase();
                         final sName = (data['studentName'] ?? '').toString().toLowerCase();
@@ -710,6 +739,24 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                           final subDocs = subSnap.data?.docs ?? [];
                           for (var doc in subDocs) {
                             final data = doc.data() as Map<String, dynamic>;
+                            final subSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
+                            final subSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
+
+                            bool subjectMatches = false;
+                            if (matchedSubjects.isEmpty) {
+                              subjectMatches = true;
+                            } else {
+                              if (cleanActiveSubjectNames.contains(subSubjName) ||
+                                  matchedSubjectIds.contains(subSubjId) ||
+                                  matchedSubjectIds.contains(subSubjName)) {
+                                subjectMatches = true;
+                              }
+                            }
+
+                            if (!subjectMatches) {
+                              continue; // Skip submissions for other subjects!
+                            }
+
                             final sId = (data['studentId'] ?? '').toString().toLowerCase();
                             final sNis = (data['nis'] ?? '').toString().toLowerCase();
                             final sName = (data['studentName'] ?? '').toString().toLowerCase();

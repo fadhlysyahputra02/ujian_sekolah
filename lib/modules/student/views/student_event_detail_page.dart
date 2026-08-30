@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -33,6 +34,12 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   String? _myClassId;
   String? _myClassName;
 
+  // Periodic timer that ticks every 30s to re-evaluate session time-based buttons
+  Timer? _clockTimer;
+
+  // Offset between server time and local device time (used for accurate session checks)
+  Duration _serverTimeOffset = Duration.zero;
+
   // Event Date Range
   String _eventDateRange = 'Tanggal belum diatur';
   DateTime? _eventStartDate;
@@ -48,9 +55,23 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   void initState() {
     super.initState();
     _loadStudentAndEventDetails();
+    // Tick every 30 seconds so time-based session buttons update without requiring a manual refresh
+    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadStudentAndEventDetails() async {
+    _allocatedSeat = null;
+    _myClassId = null;
+    _myClassName = null;
+    _sessionMap.clear();
     final authService = Provider.of<AuthService>(context, listen: false);
 
     // Wait for auth to load
@@ -75,6 +96,21 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       final db = FirebaseFirestore.instance;
       final schoolRef = db.collection('schools').doc(_schoolId);
       final eventRef = schoolRef.collection('events').doc(widget.eventId);
+
+      // Fetch server time to calculate offset against device local clock
+      try {
+        final serverTsRef = db.collection('_server_time').doc('now');
+        await serverTsRef.set({'ts': FieldValue.serverTimestamp()});
+        final serverDoc = await serverTsRef.get();
+        final serverTs = serverDoc.data()?['ts'];
+        if (serverTs is Timestamp) {
+          final serverNow = serverTs.toDate();
+          _serverTimeOffset = serverNow.difference(DateTime.now());
+          debugPrint('🕐 Server time offset: ${_serverTimeOffset.inSeconds}s');
+        }
+      } catch (_) {
+        _serverTimeOffset = Duration.zero;
+      }
 
       // PARALLEL BATCH 1: Fetch Student profile, Classes, Event doc, Sessions, Timetable, Allocations concurrently
       final results = await Future.wait([
@@ -346,22 +382,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     final seatNumber = _allocatedSeat?['seatNumber']?.toString() ?? '-';
     final participantNumber = _allocatedSeat?['participantNumber']?.toString() ?? _student?.nis ?? '-';
 
-    // JSON Payload encoded inside QR Code with full student and exam event data
-    final Map<String, dynamic> qrDataMap = {
-      'studentId': _student?.id ?? '',
-      'studentName': _student?.displayName ?? 'Siswa SesiCermat',
-      'nis': _student?.nis ?? '',
-      'className': _myClassName ?? '',
-      'schoolId': _schoolId,
-      'eventId': widget.eventId,
-      'eventName': widget.eventName,
-      'eventDateRange': _eventDateRange,
-      'participantNumber': participantNumber,
-      'roomName': roomName,
-      'seatNumber': seatNumber,
-    };
-    final String qrDataString = jsonEncode(qrDataMap);
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -392,26 +412,25 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           ],
         ),
       ),
-      body: AppRefreshIndicator(
-        onRefresh: () async {
-          setState(() {
-            _isLoading = true;
-          });
-          await _loadStudentAndEventDetails();
-        },
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
+      body: SafeArea(
+        bottom: true,
+        top: false,
+        child: AppRefreshIndicator(
+          onRefresh: () async {
+            await _loadStudentAndEventDetails();
+          },
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+            padding: const EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 40.0),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Card dengan QR (Dapat diklik memperbesar), Nama Event, Tanggal Event, No Peserta, Ruangan, No Kursi
+              // Card tanpa QR, Nama Event, Tanggal Event, No Peserta, Ruangan, No Kursi
               _buildParticipantCard(
                 roomName: roomName,
                 seatNumber: seatNumber,
                 participantNumber: participantNumber,
                 dateRange: _eventDateRange,
-                qrDataString: qrDataString,
               ),
               const SizedBox(height: 28),
 
@@ -455,22 +474,22 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     return startA.compareTo(startB);
                   });
 
-                  return _buildDayScheduleGroup(dateStr, dayItems);
+                  return _buildDayScheduleGroup(dateStr, dayItems, sortedDateKeys.indexOf(dateKey));
                 }),
             ],
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  /// Card Peserta Ujian berisi: QR Code (Click to enlarge), Nama Event Ujian, Tanggal Event, No Peserta, Ruangan, No Kursi
+  /// Card Peserta Ujian berisi: Nama Event Ujian, Tanggal Event, No Peserta, Ruangan, No Kursi
   Widget _buildParticipantCard({
     required String roomName,
     required String seatNumber,
     required String participantNumber,
     required String dateRange,
-    required String qrDataString,
   }) {
     return Container(
       width: double.infinity,
@@ -513,7 +532,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top Header Row: Event Name, Date Range, & Interactive QR Code Box
+                // Top Header Row: Event Name, Date Range
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -566,63 +585,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                             ],
                           ),
                         ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Clickable Interactive QR Code Box
-                    Tooltip(
-                      message: 'Klik untuk memperbesar QR Code',
-                      child: InkWell(
-                        onTap: () => _showEnlargedQrDialog(
-                          context: context,
-                          qrData: qrDataString,
-                          participantNumber: participantNumber,
-                          roomName: roomName,
-                          seatNumber: seatNumber,
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.15),
-                                blurRadius: 10,
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              QrImageView(
-                                data: qrDataString,
-                                version: QrVersions.auto,
-                                size: 90.0,
-                                padding: EdgeInsets.zero,
-                                backgroundColor: Colors.white,
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.zoom_in_rounded, size: 10, color: Color(0xFF0F172A)),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    'PERBESAR',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.w900,
-                                      color: const Color(0xFF0F172A),
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                     ),
                   ],
@@ -743,13 +705,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     );
   }
 
-  /// Dialog untuk memperbesar QR Code peserta
   void _showEnlargedQrDialog({
     required BuildContext context,
     required String qrData,
     required String participantNumber,
     required String roomName,
     required String seatNumber,
+    String? subjectName,
+    String? sessionName,
   }) {
     showDialog(
       context: context,
@@ -780,7 +743,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            'QR Kartu Ujian',
+                            'QR Sesi Ujian',
                             style: GoogleFonts.inter(
                               fontSize: 17,
                               fontWeight: FontWeight.bold,
@@ -841,6 +804,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                         _buildQrDetailRow('No. Peserta', participantNumber),
                         const Divider(height: 16, color: Color(0xFFE2E8F0)),
                         _buildQrDetailRow('Ruangan / Kursi', '$roomName (Kursi $seatNumber)'),
+                        if (subjectName != null) ...[
+                          const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                          _buildQrDetailRow('Mata Pelajaran', subjectName),
+                        ],
+                        if (sessionName != null) ...[
+                          const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                          _buildQrDetailRow('Sesi Ujian', sessionName),
+                        ],
                       ],
                     ),
                   ),
@@ -884,6 +855,164 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           ),
         ),
       ],
+    );
+  }
+
+  void _showSessionGuidelinesDialog({
+    required Map<String, dynamic> item,
+    required String subjectName,
+    required String sName,
+    required String timeLabel,
+  }) {
+    final sId = item['sessionId']?.toString() ?? '';
+    final session = _sessionMap[sId];
+    
+    String durationText = 'Menyesuaikan jadwal';
+    if (session != null) {
+      final startTimeStr = (session['startTime'] ?? '').toString();
+      final endTimeStr = (session['endTime'] ?? '').toString();
+      if (startTimeStr.isNotEmpty && endTimeStr.isNotEmpty) {
+        try {
+          final startParts = startTimeStr.split(':');
+          final endParts = endTimeStr.split(':');
+          final startMin = int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
+          final endMin = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
+          final diff = endMin - startMin;
+          if (diff > 0) {
+            durationText = '$diff Menit';
+          }
+        } catch (_) {}
+      }
+    }
+
+    final questionCount = item['questionCount'] ?? 0;
+    final isReady = item['isQuestionReady'] == true;
+    final questionCountText = isReady ? '$questionCount Butir Soal' : 'Sedang disiapkan';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.menu_book_rounded, color: Color(0xFF2563EB), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Panduan Ujian',
+                      style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                subjectName,
+                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+              ),
+              Text(
+                '$sName ($timeLabel)',
+                style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Color(0xFFE2E8F0)),
+              const SizedBox(height: 12),
+              
+              Row(
+                children: [
+                  const Icon(Icons.timer_rounded, size: 16, color: Color(0xFF64748B)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Durasi Ujian:',
+                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                  ),
+                  const Spacer(),
+                  Text(
+                    durationText,
+                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              
+              Row(
+                children: [
+                  const Icon(Icons.quiz_rounded, size: 16, color: Color(0xFF64748B)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Jumlah Soal:',
+                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                  ),
+                  const Spacer(),
+                  Text(
+                    questionCountText,
+                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Color(0xFFE2E8F0)),
+              const SizedBox(height: 12),
+              
+              Text(
+                'Tata Tertib Ujian:',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF475569)),
+              ),
+              const SizedBox(height: 8),
+              _buildRuleItem('1. Murid dilarang keluar dari aplikasi selama ujian berlangsung.'),
+              _buildRuleItem('2. Jawaban otomatis tersimpan sebagai draf setiap kali Anda memilih opsi.'),
+              _buildRuleItem('3. Pastikan koneksi internet stabil sebelum mengirimkan ujian.'),
+              _buildRuleItem('4. Tombol "Kerjakan" akan otomatis aktif saat waktu sesi dimulai.'),
+              
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Saya Mengerti', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRuleItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), height: 1.4),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1092,7 +1221,9 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       }
 
       final sessionEnd = DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute, 59);
-      return now.isAfter(sessionEnd);
+      // Use server-adjusted time for accurate comparison
+      final serverNow = DateTime.now().add(_serverTimeOffset);
+      return serverNow.isAfter(sessionEnd);
     } catch (e) {
       debugPrint('⚠️ Error checking session expired: $e');
       return false;
@@ -1165,7 +1296,9 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       }
 
       final sessionStart = DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute, 0);
-      return now.isBefore(sessionStart);
+      // Use server-adjusted time for accurate comparison
+      final serverNow = DateTime.now().add(_serverTimeOffset);
+      return serverNow.isBefore(sessionStart);
     } catch (e) {
       debugPrint('⚠️ Error checking session not started: $e');
       return false;
@@ -1335,7 +1468,11 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     );
   }
 
-  Widget _buildDayScheduleGroup(String dateKey, List<Map<String, dynamic>> items) {
+  Widget _buildDayScheduleGroup(String dateKey, List<Map<String, dynamic>> items, int dayIndex) {
+    final roomName = _allocatedSeat?['roomName'] ?? _allocatedSeat?['roomId'] ?? 'Belum Alokasi';
+    final seatNumber = _allocatedSeat?['seatNumber']?.toString() ?? '-';
+    final participantNumber = _allocatedSeat?['participantNumber']?.toString() ?? _student?.nis ?? '-';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
@@ -1406,9 +1543,39 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
                   // Proctor Attendance Realtime Verification Check
                   bool isAttendedByProctor = false;
-                  final itemDay = (item['dayIndex'] ?? item['day'] as num?)?.toInt() ?? 0;
-                  final itemSession = (item['sessionIndex'] ?? item['session'] as num?)?.toInt() ?? 0;
 
+                  int resolvedDayIndex = dayIndex;
+                  final rawDayIdx = (item['dayIndex'] ?? item['day'] as num?)?.toInt();
+                  if (rawDayIdx != null) {
+                    resolvedDayIndex = rawDayIdx;
+                  }
+
+                  int resolvedSessionIndex = 0;
+                  final rawSessionIdx = (item['sessionIndex'] ?? item['session'] ?? session?['sessionIndex'] ?? session?['session'] as num?)?.toInt();
+                  if (rawSessionIdx != null) {
+                    resolvedSessionIndex = rawSessionIdx;
+                  } else {
+                    final match = RegExp(r'Sesi\s*(\d+)', caseSensitive: false).firstMatch(sName);
+                    if (match != null) {
+                      resolvedSessionIndex = (int.tryParse(match.group(1)!) ?? 1) - 1;
+                    } else {
+                      resolvedSessionIndex = index;
+                    }
+                  }
+
+                  // --- DEBUG: log resolved indices for this item ---
+                  debugPrint('📅 Item "$subjectName" → resolvedDay=$resolvedDayIndex, resolvedSess=$resolvedSessionIndex');
+                  for (var doc in attDocs) {
+                    final aData = doc.data() as Map<String, dynamic>? ?? {};
+                    final sIdVal = (aData['studentId'] ?? '').toString();
+                    final sNis = (aData['nis'] ?? '').toString();
+                    final isAtt = aData['isAttended'] == true;
+                    final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
+                    final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
+                    debugPrint('   att doc → day=$aDay sess=$aSess studentId=$sIdVal nis=$sNis isAtt=$isAtt');
+                  }
+
+                  // Attempt 1: Strict match — dayIndex + sessionIndex + student identity
                   for (var doc in attDocs) {
                     final aData = doc.data() as Map<String, dynamic>? ?? {};
                     final sIdVal = (aData['studentId'] ?? '').toString();
@@ -1417,41 +1584,72 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
                     final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
 
-                    if (isAtt && 
-                        aDay == itemDay && 
-                        aSess == itemSession && 
+                    if (isAtt &&
+                        aDay == resolvedDayIndex &&
+                        aSess == resolvedSessionIndex &&
                         ((sIdVal.isNotEmpty && sIdVal == _student?.id) || (sNis.isNotEmpty && sNis == _student?.nis))) {
                       isAttendedByProctor = true;
                       break;
                     }
                   }
 
+                  final Map<String, dynamic> itemQrDataMap = {
+                    'studentId': _student?.id ?? '',
+                    'studentName': _student?.displayName ?? 'Siswa',
+                    'nis': _student?.nis ?? '',
+                    'className': _myClassName ?? '',
+                    'schoolId': _schoolId,
+                    'eventId': widget.eventId,
+                    'eventName': widget.eventName,
+                    'eventDateRange': _eventDateRange,
+                    'participantNumber': participantNumber,
+                    'roomName': roomName,
+                    'seatNumber': seatNumber,
+                    'dayIndex': resolvedDayIndex,
+                    'sessionIndex': resolvedSessionIndex,
+                    'subjectId': item['subjectId'] ?? '',
+                    'subjectName': subjectName.toString(),
+                  };
+                  final String itemQrDataString = jsonEncode(itemQrDataMap);
+
                   return Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: isSubmitted
-                                ? const Color(0xFFD1FAE5)
-                                : (isExpired
-                                    ? const Color(0xFFF1F5F9)
-                                    : (isQuestionReady ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9))),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            isSubmitted
-                                ? Icons.check_circle_rounded
-                                : (isExpired
-                                    ? Icons.history_toggle_off_rounded
-                                    : (isQuestionReady ? Icons.edit_note_rounded : Icons.lock_clock_rounded)),
-                            color: isSubmitted
-                                ? const Color(0xFF047857)
-                                : (isExpired
-                                    ? const Color(0xFF64748B)
-                                    : (isQuestionReady ? const Color(0xFF10B981) : const Color(0xFF94A3B8))),
-                            size: 22,
+                        Tooltip(
+                          message: 'Klik untuk memperbesar QR Code Sesi',
+                          child: GestureDetector(
+                            onTap: () {
+                              _showEnlargedQrDialog(
+                                context: context,
+                                qrData: itemQrDataString,
+                                participantNumber: participantNumber,
+                                roomName: roomName,
+                                seatNumber: seatNumber,
+                                subjectName: subjectName.toString(),
+                                sessionName: sName,
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.05),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                              child: QrImageView(
+                                data: itemQrDataString,
+                                version: QrVersions.auto,
+                                size: 36.0,
+                                padding: EdgeInsets.zero,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -1473,6 +1671,41 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
                                   color: const Color(0xFF64748B),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: isAttendedByProctor
+                                      ? const Color(0xFFD1FAE5)
+                                      : const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isAttendedByProctor
+                                          ? Icons.check_circle_rounded
+                                          : Icons.cancel_rounded,
+                                      size: 11,
+                                      color: isAttendedByProctor
+                                          ? const Color(0xFF065F46)
+                                          : const Color(0xFFD97706),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      isAttendedByProctor ? 'Sudah Scan' : 'Belum Scan',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                        color: isAttendedByProctor
+                                            ? const Color(0xFF065F46)
+                                            : const Color(0xFFD97706),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -1501,25 +1734,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                               ],
                             ),
                           )
-                        else if (isNotStarted)
-                          OutlinedButton.icon(
-                            onPressed: null,
-                            icon: const Icon(Icons.alarm_on_rounded, size: 14, color: Color(0xFF64748B)),
-                            label: Text(
-                              'Sesi Belum Mulai',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF64748B),
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              backgroundColor: const Color(0xFFF1F5F9),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              side: const BorderSide(color: Color(0xFFCBD5E1)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          )
                         else if (isExpired)
                           OutlinedButton.icon(
                             onPressed: () => _showExpiredSessionDialog(subjectName.toString(), sName, timeLabel),
@@ -1527,10 +1741,9 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                             label: Text(
                               'Waktu Sesi Berakhir',
                               style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF64748B),
-                              ),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF64748B)),
                             ),
                             style: OutlinedButton.styleFrom(
                               backgroundColor: const Color(0xFFF1F5F9),
@@ -1539,68 +1752,95 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                           )
-                        else if (isQuestionReady) ...[
-                          if (isAttendedByProctor)
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                final sid = (item['subjectId'] ?? subjectName).toString();
-                                debugPrint('🚀 Navigating to StudentExamPage');
-                                debugPrint('   subjectId  : "$sid"');
-                                debugPrint('   subjectName: "$subjectName"');
-                                debugPrint('   angkatan   : "${_student?.angkatan}"');
-                                debugPrint('   className  : "$_myClassName"');
-                                debugPrint('   item keys  : ${item.keys.toList()}');
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => StudentExamPage(
-                                      schoolId: _schoolId,
-                                      eventId: widget.eventId,
-                                      eventName: widget.eventName,
-                                      subjectId: sid,
-                                      subjectName: subjectName.toString(),
-                                      studentId: _student?.id ?? '',
-                                      studentName: _student?.displayName ?? 'Siswa',
-                                      nis: _student?.nis ?? '',
-                                      className: _myClassName ?? '',
-                                      angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty) ? _student!.angkatan : (_myClassName ?? ''),
-                                      sessionName: sName,
-                                      startTimeStr: startTime,
-                                      endTimeStr: endTime,
-                                    ),
-                                  ),
-                                ).then((_) => _loadStudentAndEventDetails());
-                              },
-                              icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
-                              label: const Text('Kerjakan'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF10B981),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            )
-                          else
-                            OutlinedButton.icon(
-                              onPressed: () => _showLockedAttendanceDialog(item),
-                              icon: const Icon(Icons.lock_rounded, size: 14, color: Color(0xFFD97706)),
-                              label: Text(
-                                'Belum Scan QR',
+                        else if (isNotStarted)
+                          OutlinedButton.icon(
+                            onPressed: () => _showSessionGuidelinesDialog(
+                              item: item,
+                              subjectName: subjectName.toString(),
+                              sName: sName,
+                              timeLabel: timeLabel,
+                            ),
+                            icon: const Icon(Icons.menu_book_rounded, size: 14, color: Color(0xFF2563EB)),
+                            label: SizedBox(
+                              width: 130,
+                              child: Text(
+                                'Sesi belum mulai. Klik untuk membaca panduan',
                                 style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  color: const Color(0xFFD97706),
+                                  color: const Color(0xFF2563EB),
                                 ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFEF3C7),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                side: const BorderSide(color: Color(0xFFFBBF24)),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 2,
                               ),
                             ),
-                        ] else
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: const Color(0xFFEFF6FF),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              side: const BorderSide(color: Color(0xFF93C5FD)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          )
+                        else if (!isAttendedByProctor)
+                          OutlinedButton.icon(
+                            onPressed: () => _showLockedAttendanceDialog(item),
+                            icon: const Icon(Icons.lock_rounded, size: 14, color: Color(0xFFD97706)),
+                            label: Text(
+                              'Belum Scan QR',
+                              style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFFD97706)),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFEF3C7),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              side: const BorderSide(color: Color(0xFFFBBF24)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          )
+                        else if (isQuestionReady)
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              final sid = (item['subjectId'] ?? subjectName).toString();
+                              debugPrint('🚀 Navigating to StudentExamPage');
+                              debugPrint('   subjectId  : "$sid"');
+                              debugPrint('   subjectName: "$subjectName"');
+                              debugPrint('   angkatan   : "${_student?.angkatan}"');
+                              debugPrint('   className  : "$_myClassName"');
+                              debugPrint('   item keys  : ${item.keys.toList()}');
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => StudentExamPage(
+                                    schoolId: _schoolId,
+                                    eventId: widget.eventId,
+                                    eventName: widget.eventName,
+                                    subjectId: sid,
+                                    subjectName: subjectName.toString(),
+                                    studentId: _student?.id ?? '',
+                                    studentName: _student?.displayName ?? 'Siswa',
+                                    nis: _student?.nis ?? '',
+                                    className: _myClassName ?? '',
+                                    angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty) ? _student!.angkatan : (_myClassName ?? ''),
+                                    sessionName: sName,
+                                    startTimeStr: startTime,
+                                    endTimeStr: endTime,
+                                  ),
+                                ),
+                              ).then((_) => _loadStudentAndEventDetails());
+                            },
+                            icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
+                            label: const Text('Kerjakan'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          )
+                        else
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(

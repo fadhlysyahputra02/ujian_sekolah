@@ -16,10 +16,10 @@ class TeacherProctorController {
       'text': Color(0xFF3730A3),
     },
     {
-      'primary': Color(0xFF059669), // Emerald
-      'bg': Color(0xFFECFDF5),
-      'border': Color(0xFFA7F3D0),
-      'text': Color(0xFF065F46),
+      'primary': Color(0xFFEA580C), // Orange
+      'bg': Color(0xFFFFF7ED),
+      'border': Color(0xFFFFEDD5),
+      'text': Color(0xFF9A3412),
     },
     {
       'primary': Color(0xFFD97706), // Amber
@@ -197,20 +197,33 @@ class TeacherProctorController {
     String scannedParticipantNumber = '';
     String scannedName = '';
     String scannedRoomName = '';
+    int? scannedDayIndex;
+    int? scannedSessionIndex;
 
     try {
-      if (rawData.trim().startsWith('{') && rawData.trim().endsWith('}')) {
-        final Map<String, dynamic> parsedJson = jsonDecode(rawData);
+      final trimmed = rawData.trim();
+      // Clean newlines/carriage returns that might have been introduced during console prints or rendering
+      final sanitized = trimmed.replaceAll('\n', '').replaceAll('\r', '').trim();
+      
+      if (sanitized.startsWith('{') && sanitized.endsWith('}')) {
+        final Map<String, dynamic> parsedJson = jsonDecode(sanitized);
         scannedStudentId = (parsedJson['studentId'] ?? parsedJson['id'] ?? '').toString().trim();
         scannedNis = (parsedJson['nis'] ?? '').toString().trim();
         scannedParticipantNumber = (parsedJson['participantNumber'] ?? '').toString().trim();
         scannedName = (parsedJson['studentName'] ?? parsedJson['name'] ?? '').toString().trim();
         scannedRoomName = (parsedJson['roomName'] ?? parsedJson['roomId'] ?? '').toString().trim();
+        if (parsedJson.containsKey('dayIndex')) {
+          scannedDayIndex = int.tryParse(parsedJson['dayIndex'].toString());
+        }
+        if (parsedJson.containsKey('sessionIndex')) {
+          scannedSessionIndex = int.tryParse(parsedJson['sessionIndex'].toString());
+        }
       } else {
-        scannedStudentId = rawData.trim();
-        scannedNis = rawData.trim();
+        scannedStudentId = trimmed;
+        scannedNis = trimmed;
       }
     } catch (e) {
+      debugPrint('⚠️ Error parsing scanned barcode JSON: $e');
       scannedStudentId = rawData.trim();
       scannedNis = rawData.trim();
     }
@@ -222,8 +235,40 @@ class TeacherProctorController {
         return cleanAlias == cleanScannedRoom || cleanAlias.contains(cleanScannedRoom) || cleanScannedRoom.contains(cleanAlias);
       });
       if (!isRoomMatch) {
-        debugPrint('⚠️ Room Mismatch: QR scanned room "$scannedRoomName" does not match current room aliases $roomAliases');
+        triggerScanFeedback(isSuccess: false);
+        if (onShowFeedback != null) {
+          onShowFeedback(
+            '⚠️ Ruangan tidak sesuai! QR ini untuk "$scannedRoomName".',
+            const Color(0xFFDC2626),
+            Icons.warning_amber_rounded,
+          );
+        }
+        return;
       }
+    }
+
+    if (scannedDayIndex != null && scannedDayIndex != dayIndex) {
+      triggerScanFeedback(isSuccess: false);
+      if (onShowFeedback != null) {
+        onShowFeedback(
+          '⚠️ Hari Ujian tidak sesuai! QR ini untuk Hari ke-${scannedDayIndex + 1}.',
+          const Color(0xFFDC2626),
+          Icons.warning_amber_rounded,
+        );
+      }
+      return;
+    }
+
+    if (scannedSessionIndex != null && scannedSessionIndex != sessionIndex) {
+      triggerScanFeedback(isSuccess: false);
+      if (onShowFeedback != null) {
+        onShowFeedback(
+          '⚠️ Sesi Ujian tidak sesuai! QR ini untuk Sesi ke-${scannedSessionIndex + 1}.',
+          const Color(0xFFDC2626),
+          Icons.warning_amber_rounded,
+        );
+      }
+      return;
     }
 
     Map<String, dynamic>? matchedSeat;
