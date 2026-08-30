@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
 
@@ -720,10 +721,6 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                           style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
                           overflow: TextOverflow.ellipsis,
                         ),
-                        Text(
-                          '${displayAngkatans.length} Angkatan Aktif Terdeteksi',
-                          style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF10B981), fontWeight: FontWeight.w600),
-                        ),
                       ],
                     ),
                   ),
@@ -758,21 +755,6 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                   'Angkatan $ang',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
-                                if (count > 0) ...[
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFECFDF5),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: const Color(0xFFA7F3D0)),
-                                    ),
-                                    child: Text(
-                                      '$count murid',
-                                      style: const TextStyle(fontSize: 10, color: Color(0xFF059669), fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ],
                               ],
                             ),
                           );
@@ -826,48 +808,123 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           return (aUrutan as num).compareTo(bUrutan as num);
         });
 
-        return Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('schools')
+              .doc(_schoolId)
+              .collection('events')
+              .doc(widget.eventId)
+              .collection('subjects')
+              .doc(subjectId)
+              .snapshots(),
+          builder: (context, subjectSnap) {
+            final subData = subjectSnap.data?.data() as Map<String, dynamic>? ?? {};
+            final isRandomized = subData['randomizeQuestions_$angkatan'] == true;
+
+            return Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Text(
-                        'Bank Soal — Angkatan $angkatan',
-                        style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Bank Soal — Angkatan $angkatan',
+                            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Total Soal: ${qDocs.length} butir',
+                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                          ),
+                        ],
                       ),
-                      Text(
-                        'Total Soal: ${qDocs.length} butir',
-                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isRandomized ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isRandomized ? const Color(0xFF93C5FD) : const Color(0xFFCBD5E1),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.shuffle_rounded,
+                                  size: 16,
+                                  color: isRandomized ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Acak Soal Murid',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: isRandomized ? const Color(0xFF1E40AF) : const Color(0xFF475569),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Transform.scale(
+                                  scale: 0.85,
+                                  child: Switch(
+                                    value: isRandomized,
+                                    activeColor: const Color(0xFF2563EB),
+                                    activeTrackColor: const Color(0xFFBFDBFE),
+                                    inactiveThumbColor: const Color(0xFF94A3B8),
+                                    inactiveTrackColor: const Color(0xFFE2E8F0),
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    onChanged: (val) async {
+                                      await FirebaseFirestore.instance
+                                          .collection('schools')
+                                          .doc(_schoolId)
+                                          .collection('events')
+                                          .doc(widget.eventId)
+                                          .collection('subjects')
+                                          .doc(subjectId)
+                                          .set({
+                                            'randomizeQuestions_$angkatan': val,
+                                          }, SetOptions(merge: true));
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: () => _showQuestionDialog(
+                              subjectId: subjectId,
+                              angkatan: angkatan,
+                              questionIndex: qDocs.length,
+                            ),
+                            icon: const Icon(Icons.add_rounded, size: 18),
+                            label: Text(
+                              'Tambah Soal',
+                              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  ElevatedButton.icon(
-                    onPressed: () => _showQuestionDialog(
-                      subjectId: subjectId,
-                      angkatan: angkatan,
-                      questionIndex: qDocs.length,
-                    ),
-                    icon: const Icon(Icons.add_rounded, size: 18),
-                    label: Text(
-                      'Tambah Soal (Angkatan $angkatan)',
-                      style: GoogleFonts.inter(fontWeight: FontWeight.w700),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                    ),
-                  ),
-                ],
-              ),
               const SizedBox(height: 16),
               Expanded(
                 child: qDocs.isEmpty
@@ -951,6 +1008,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
               ),
             ],
           ),
+        );
+          },
         );
       },
     );
@@ -1118,7 +1177,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     }
 
     String correctOption = questionData?['correctOption'] ?? 'A';
-    bool isEditing = isNew;
+    bool isEditing = true;
 
     String? questionImageUrl = questionData?['imageUrl'];
     Map<String, String> optionImages = Map<String, String>.from(questionData?['optionImages'] ?? {});
@@ -1824,26 +1883,36 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                 if (isEditing) ...[
                   TextButton(
                     onPressed: () {
-                      if (isNew) {
-                        Navigator.pop(dialogCtx);
-                      } else {
-                        setDialogState(() => isEditing = false);
-                      }
+                      Navigator.pop(dialogCtx);
                     },
                     child: Text('Batal', style: GoogleFonts.inter(color: const Color(0xFF64748B))),
                   ),
                   ElevatedButton(
                     onPressed: () async {
                       if (formKey.currentState!.validate()) {
+                        final authService = Provider.of<AuthService>(context, listen: false);
+                        String currentUserName = _teacher?.displayName ?? '';
+                        if (currentUserName.isEmpty) {
+                          currentUserName = authService.user?.displayName ?? '';
+                        }
+                        if (currentUserName.isEmpty) {
+                          currentUserName = authService.user?.email ?? 'Guru';
+                        }
+
                         final dataToSave = <String, dynamic>{
                           'text': textController.text.trim(),
                           'type': questionType,
                           'angkatan': angkatan,
                           'imageUrl': questionImageUrl,
                           'updatedAt': FieldValue.serverTimestamp(),
+                          'updatedByName': currentUserName,
+                          'updatedBy': _teacher?.id ?? authService.user?.uid ?? '',
                         };
                         if (isNew) {
                           dataToSave['urutan'] = questionIndex ?? 0;
+                          dataToSave['createdByName'] = currentUserName;
+                          dataToSave['createdBy'] = _teacher?.id ?? authService.user?.uid ?? '';
+                          dataToSave['createdAt'] = FieldValue.serverTimestamp();
                         }
 
                         if (questionType == 'pilihan_ganda') {
@@ -3607,11 +3676,72 @@ class _QuestionCardState extends State<QuestionCard> {
                     ),
                   ],
                 ],
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                const SizedBox(height: 10),
+                Text(
+                  'Riwayat Soal:',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF475569),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.add_circle_outline_rounded, size: 12, color: Color(0xFF10B981)),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Dibuat oleh ${widget.qData['createdByName'] ?? 'Guru'} ${widget.qData['createdAt'] != null ? 'pada ${_formatTimestamp(widget.qData['createdAt'])}' : ''}',
+                          style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFF64748B)),
+                        ),
+                      ],
+                    ),
+                    if (widget.qData['updatedByName'] != null &&
+                        widget.qData['updatedAt'] != null &&
+                        (widget.qData['updatedBy'] != widget.qData['createdBy'] ||
+                         widget.qData['updatedByName'] != widget.qData['createdByName'])) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.edit_rounded, size: 12, color: Color(0xFF3B82F6)),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Diedit oleh ${widget.qData['updatedByName']} pada ${_formatTimestamp(widget.qData['updatedAt'])}',
+                            style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  String _formatTimestamp(dynamic val) {
+    if (val == null) return '';
+    DateTime? dt;
+    if (val is Timestamp) {
+      dt = val.toDate();
+    } else if (val is String) {
+      dt = DateTime.tryParse(val);
+    } else if (val is int) {
+      dt = DateTime.fromMillisecondsSinceEpoch(val);
+    }
+    if (dt == null) return '';
+    try {
+      return DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(dt);
+    } catch (_) {
+      return DateFormat('dd MMM yyyy, HH:mm').format(dt);
+    }
   }
 }

@@ -33,6 +33,8 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
   List<Map<String, dynamic>> _proctorList = [];
   Map<String, String> _proctorGrid = {};
   Map<String, String> _teacherMap = {}; // teacherId -> teacherName
+  Map<String, String> _classMap = {}; // classId -> className
+  Map<String, String> _subjectMap = {}; // subjectId -> subjectName
 
   // Search Query
   String _searchQuery = '';
@@ -85,6 +87,24 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           final data = doc.data();
           final name = (data['displayName'] ?? data['name'] ?? doc.id).toString();
           _teacherMap[doc.id] = name;
+        }
+      } catch (_) {}
+
+      try {
+        final classSnap = await schoolRef.collection('classes').get();
+        for (var doc in classSnap.docs) {
+          final data = doc.data();
+          final name = (data['name'] ?? doc.id).toString();
+          _classMap[doc.id] = name;
+        }
+      } catch (_) {}
+
+      try {
+        final subjectSnap = await schoolRef.collection('subjects').get();
+        for (var doc in subjectSnap.docs) {
+          final data = doc.data();
+          final name = (data['name'] ?? doc.id).toString();
+          _subjectMap[doc.id] = name;
         }
       } catch (_) {}
 
@@ -355,7 +375,10 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           // Resolve Classes in this room for this session
           final Set<String> roomClassSet = {};
           for (var t in matchingTimetable) {
-            final cName = (t['className'] ?? t['classId'] ?? '').toString().trim();
+            final cId = (t['classId'] ?? '').toString().trim();
+            final cName = (t['className'] ?? '').toString().trim().isNotEmpty
+                ? t['className'].toString().trim()
+                : (_classMap[cId] ?? cId);
             if (cName.isNotEmpty) roomClassSet.add(cName);
           }
           if (roomClassSet.isEmpty) {
@@ -377,7 +400,10 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           // Resolve Mapel in this session
           final Set<String> subjectSet = {};
           for (var t in matchingTimetable) {
-            final subName = (t['subjectName'] ?? t['subjectId'] ?? '').toString().trim();
+            final sId = (t['subjectId'] ?? '').toString().trim();
+            final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
+                ? t['subjectName'].toString().trim()
+                : (_subjectMap[sId] ?? sId);
             if (subName.isNotEmpty) subjectSet.add(subName);
           }
 
@@ -428,6 +454,56 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
             }
           }
 
+          // Resolve Guru Pembuat Soal in this session
+          final Map<String, Set<String>> teacherSubjectToClasses = {};
+          for (var t in matchingTimetable) {
+            final cId = (t['classId'] ?? '').toString().trim();
+            final cName = (t['className'] ?? '').toString().trim().isNotEmpty
+                ? t['className'].toString().trim()
+                : (_classMap[cId] ?? cId);
+            if (roomClassSet.contains(cName) || roomClassSet.contains(cId)) {
+              final teachName = (t['teacherName'] ?? '').toString().trim();
+              final sId = (t['subjectId'] ?? '').toString().trim();
+              final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
+                  ? t['subjectName'].toString().trim()
+                  : (_subjectMap[sId] ?? sId);
+              if (teachName.isNotEmpty && subName.isNotEmpty) {
+                final key = '$teachName|$subName';
+                teacherSubjectToClasses.putIfAbsent(key, () => {}).add(cName.isNotEmpty ? cName : cId);
+              }
+            }
+          }
+          if (teacherSubjectToClasses.isEmpty) {
+            for (var t in matchingTimetable) {
+              final teachName = (t['teacherName'] ?? '').toString().trim();
+              final sId = (t['subjectId'] ?? '').toString().trim();
+              final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
+                  ? t['subjectName'].toString().trim()
+                  : (_subjectMap[sId] ?? sId);
+              final cId = (t['classId'] ?? '').toString().trim();
+              final cName = (t['className'] ?? '').toString().trim().isNotEmpty
+                  ? t['className'].toString().trim()
+                  : (_classMap[cId] ?? cId);
+              if (teachName.isNotEmpty && subName.isNotEmpty) {
+                final key = '$teachName|$subName';
+                teacherSubjectToClasses.putIfAbsent(key, () => {}).add(cName.isNotEmpty ? cName : cId);
+              }
+            }
+          }
+
+          final List<String> teacherLabels = [];
+          teacherSubjectToClasses.forEach((key, classes) {
+            final parts = key.split('|');
+            final teachName = parts[0];
+            final subName = parts[1];
+            final classesStr = classes.join(', ');
+            if (classesStr.isNotEmpty) {
+              teacherLabels.add('$teachName ($subName - $classesStr)');
+            } else {
+              teacherLabels.add('$teachName ($subName)');
+            }
+          });
+
           result.add({
             'rowIndex': globalRowIdx++,
             'dayIndex': dayIdx,
@@ -438,6 +514,7 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
             'roomName': rName,
             'classesList': roomClassSet.isNotEmpty ? roomClassSet.join(', ') : '-',
             'mapelList': subjectSet.isNotEmpty ? subjectSet.join(', ') : '-',
+            'guruSoalList': teacherLabels.isNotEmpty ? teacherLabels.join(', ') : '-',
             'pengawasList': proctorName.isNotEmpty ? proctorName : '-',
           });
         }
@@ -475,19 +552,17 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           (row['roomName'] as String).toLowerCase().contains(q) ||
           (row['classesList'] as String).toLowerCase().contains(q) ||
           (row['mapelList'] as String).toLowerCase().contains(q) ||
+          (row['guruSoalList'] as String).toLowerCase().contains(q) ||
           (row['pengawasList'] as String).toLowerCase().contains(q);
     }).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded, size: 18),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -626,6 +701,7 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                     DataColumn(label: Text('Ruangan')),
                     DataColumn(label: Text('Kelas')),
                     DataColumn(label: Text('Mapel')),
+                    DataColumn(label: Text('Guru Pembuat Soal')),
                     DataColumn(label: Text('Pengawas')),
                   ],
                   rows: rows.asMap().entries.map((entry) {
@@ -730,6 +806,20 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                             ),
                           ),
                         ),
+                        // Guru Pembuat Soal
+                        DataCell(
+                          Container(
+                            constraints: const BoxConstraints(minWidth: 140, maxWidth: 200),
+                            child: Text(
+                              row['guruSoalList'] ?? '-',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF475569),
+                              ),
+                            ),
+                          ),
+                        ),
                         // Pengawas
                         DataCell(
                           Container(
@@ -779,7 +869,7 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
               ),
               pw.SizedBox(height: 14),
               pw.Table.fromTextArray(
-                headers: ['Hari', 'Sesi', 'Jam', 'Ruangan', 'Kelas', 'Mapel', 'Pengawas'],
+                headers: ['Hari', 'Sesi', 'Jam', 'Ruangan', 'Kelas', 'Mapel', 'Guru Pembuat Soal', 'Pengawas'],
                 data: rows.asMap().entries.map((entry) {
                   final idx = entry.key;
                   final r = entry.value;
@@ -792,6 +882,7 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                     r['roomName'],
                     r['classesList'],
                     r['mapelList'],
+                    r['guruSoalList'] ?? '-',
                     r['pengawasList'],
                   ];
                 }).toList(),

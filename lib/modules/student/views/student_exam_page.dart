@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -600,6 +601,42 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         final orderB = (b['urutan'] as num?) ?? (b['order'] as num?) ?? (b['index'] as num?) ?? 999;
         return orderA.compareTo(orderB);
       });
+
+      // Check if questions should be randomized
+      bool shouldRandomize = false;
+      try {
+        final subDoc = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('events')
+            .doc(widget.eventId)
+            .collection('subjects')
+            .doc(widget.subjectId)
+            .get();
+        if (subDoc.exists) {
+          final subData = subDoc.data() ?? {};
+          shouldRandomize = subData['randomizeQuestions_${widget.angkatan}'] == true ||
+                            subData['randomizeQuestions'] == true;
+        }
+      } catch (e) {
+        debugPrint('Failed to load subject randomize config: $e');
+      }
+
+      if (shouldRandomize) {
+        // Separate multiple-choice and essay questions
+        final choiceQuestions = filteredQuestions.where((q) => !_isEssayQuestion(q)).toList();
+        final essayQuestions = filteredQuestions.where((q) => _isEssayQuestion(q)).toList();
+
+        // Seed random number generator with studentId's hash to ensure stable random order per student
+        final seed = widget.studentId.trim().hashCode;
+        final random = Random(seed);
+
+        choiceQuestions.shuffle(random);
+        essayQuestions.shuffle(random);
+
+        filteredQuestions = [...choiceQuestions, ...essayQuestions];
+        debugPrint('🔀 Shuffled questions for student ${widget.studentId}: pilihan ganda (${choiceQuestions.length}), essay (${essayQuestions.length})');
+      }
 
       _questions = filteredQuestions;
 

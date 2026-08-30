@@ -14,6 +14,9 @@ class ProctorHeaderBanner extends StatelessWidget {
   final Map<String, bool> localAttendedMap;
   final ValueNotifier<int> seatNotifier;
 
+  final int dayIndex;
+  final int sessionIndex;
+
   const ProctorHeaderBanner({
     super.key,
     required this.roomName,
@@ -26,6 +29,8 @@ class ProctorHeaderBanner extends StatelessWidget {
     required this.seatMap,
     required this.localAttendedMap,
     required this.seatNotifier,
+    this.dayIndex = 0,
+    this.sessionIndex = 0,
   });
 
   @override
@@ -119,6 +124,8 @@ class ProctorHeaderBanner extends StatelessWidget {
                   seatMap: seatMap,
                   localAttendedMap: localAttendedMap,
                   seatNotifier: seatNotifier,
+                  dayIndex: dayIndex,
+                  sessionIndex: sessionIndex,
                 ),
                 icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                 label: const Text('Scan QR Presensi'),

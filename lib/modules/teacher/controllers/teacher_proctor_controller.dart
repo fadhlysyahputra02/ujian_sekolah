@@ -96,6 +96,8 @@ class TeacherProctorController {
     required bool isAttended,
     required Map<String, bool> localAttendedMap,
     required ValueNotifier<int> seatNotifier,
+    int dayIndex = 0,
+    int sessionIndex = 0,
   }) async {
     try {
       final studentId = (seatData['studentId'] ?? '').toString();
@@ -133,8 +135,8 @@ class TeacherProctorController {
       seatNotifier.value++;
 
       final docKey = studentId.isNotEmpty
-          ? '${roomId}_$studentId'
-          : (nis.isNotEmpty ? '${roomId}_$nis' : '${roomId}_seat_$seatNum');
+          ? '${roomId}_${dayIndex}_${sessionIndex}_$studentId'
+          : (nis.isNotEmpty ? '${roomId}_${dayIndex}_${sessionIndex}_$nis' : '${roomId}_${dayIndex}_${sessionIndex}_seat_$seatNum');
 
       final attRef = FirebaseFirestore.instance
           .collection('schools')
@@ -148,6 +150,8 @@ class TeacherProctorController {
         await attRef.set({
           'eventId': eventId,
           'roomId': roomId,
+          'dayIndex': dayIndex,
+          'sessionIndex': sessionIndex,
           'studentId': studentId,
           'studentName': name,
           'nis': nis,
@@ -180,6 +184,8 @@ class TeacherProctorController {
     required Map<String, bool> localAttendedMap,
     required ValueNotifier<int> seatNotifier,
     void Function(String text, Color color, IconData icon)? onShowFeedback,
+    int dayIndex = 0,
+    int sessionIndex = 0,
   }) {
     if (rawData.isEmpty) return;
 
@@ -277,6 +283,8 @@ class TeacherProctorController {
           isAttended: true,
           localAttendedMap: localAttendedMap,
           seatNotifier: seatNotifier,
+          dayIndex: dayIndex,
+          sessionIndex: sessionIndex,
         );
 
         if (onShowFeedback != null) {
@@ -386,6 +394,8 @@ class TeacherProctorController {
     required Map<String, bool> localAttendedMap,
     required ValueNotifier<int> seatNotifier,
     bool isAttended = false,
+    int dayIndex = 0,
+    int sessionIndex = 0,
   }) {
     final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
     final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
@@ -549,6 +559,8 @@ class TeacherProctorController {
                         isAttended: newStatus,
                         localAttendedMap: localAttendedMap,
                         seatNotifier: seatNotifier,
+                        dayIndex: dayIndex,
+                        sessionIndex: sessionIndex,
                       );
                     },
                     icon: Icon(isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded),

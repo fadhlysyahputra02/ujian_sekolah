@@ -12,6 +12,9 @@ class ProctorSeatCard extends StatefulWidget {
   final Map<String, bool> localAttendedMap;
   final ValueNotifier<int> seatNotifier;
 
+  final int dayIndex;
+  final int sessionIndex;
+
   const ProctorSeatCard({
     super.key,
     required this.seatNum,
@@ -22,6 +25,8 @@ class ProctorSeatCard extends StatefulWidget {
     required this.roomId,
     required this.localAttendedMap,
     required this.seatNotifier,
+    this.dayIndex = 0,
+    this.sessionIndex = 0,
   });
 
   @override
@@ -200,6 +205,8 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
               localAttendedMap: widget.localAttendedMap,
               seatNotifier: widget.seatNotifier,
               isAttended: isAttended,
+              dayIndex: widget.dayIndex,
+              sessionIndex: widget.sessionIndex,
             ),
             borderRadius: BorderRadius.circular(16),
             child: AnimatedContainer(

@@ -1099,6 +1099,79 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     }
   }
 
+  bool _isSessionNotStartedYet(String? dateStr, String? timeStrOrRange) {
+    if (timeStrOrRange == null || timeStrOrRange.trim().isEmpty) return false;
+
+    try {
+      final now = DateTime.now();
+
+      String startTimeStr = timeStrOrRange.trim();
+      if (startTimeStr.contains('-')) {
+        final parts = startTimeStr.split('-');
+        startTimeStr = parts.first.trim();
+      }
+
+      final timeParts = startTimeStr.split(':');
+      if (timeParts.length < 2) return false;
+
+      final hour = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[0]) ?? '');
+      final minute = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[1]) ?? '');
+
+      if (hour == null || minute == null) return false;
+
+      DateTime targetDate = DateTime(now.year, now.month, now.day);
+      if (dateStr != null && dateStr.trim().isNotEmpty) {
+        final cleanDate = dateStr.trim();
+        final parsedDirect = DateTime.tryParse(cleanDate);
+        if (parsedDirect != null) {
+          targetDate = DateTime(parsedDirect.year, parsedDirect.month, parsedDirect.day);
+        } else {
+          final yearMatch = RegExp(r'20\d\d').firstMatch(cleanDate);
+          final dayMatch = RegExp(r'\b\d{1,2}\b').firstMatch(cleanDate);
+          if (yearMatch != null && dayMatch != null) {
+            final year = int.parse(yearMatch.group(0)!);
+            final day = int.parse(dayMatch.group(0)!);
+            int month = now.month;
+            final lower = cleanDate.toLowerCase();
+            if (lower.contains('jan')) {
+              month = 1;
+            } else if (lower.contains('feb')) {
+              month = 2;
+            } else if (lower.contains('mar')) {
+              month = 3;
+            } else if (lower.contains('apr')) {
+              month = 4;
+            } else if (lower.contains('mei') || lower.contains('may')) {
+              month = 5;
+            } else if (lower.contains('jun')) {
+              month = 6;
+            } else if (lower.contains('jul')) {
+              month = 7;
+            } else if (lower.contains('agt') || lower.contains('agu') || lower.contains('aug')) {
+              month = 8;
+            } else if (lower.contains('sep')) {
+              month = 9;
+            } else if (lower.contains('okt') || lower.contains('oct')) {
+              month = 10;
+            } else if (lower.contains('nov')) {
+              month = 11;
+            } else if (lower.contains('des') || lower.contains('dec')) {
+              month = 12;
+            }
+
+            targetDate = DateTime(year, month, day);
+          }
+        }
+      }
+
+      final sessionStart = DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute, 0);
+      return now.isBefore(sessionStart);
+    } catch (e) {
+      debugPrint('⚠️ Error checking session not started: $e');
+      return false;
+    }
+  }
+
   void _showExpiredSessionDialog(String subjectName, String sName, String timeLabel) {
     showDialog(
       context: context,
@@ -1329,16 +1402,25 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   final bool isSubmitted = item['isSubmitted'] == true;
                   final num? submittedScore = item['submittedScore'];
                   final bool isExpired = _isSessionExpired(dateKey, timeLabel);
+                  final bool isNotStarted = _isSessionNotStartedYet(dateKey, timeLabel);
 
                   // Proctor Attendance Realtime Verification Check
                   bool isAttendedByProctor = false;
+                  final itemDay = (item['dayIndex'] ?? item['day'] as num?)?.toInt() ?? 0;
+                  final itemSession = (item['sessionIndex'] ?? item['session'] as num?)?.toInt() ?? 0;
+
                   for (var doc in attDocs) {
                     final aData = doc.data() as Map<String, dynamic>? ?? {};
                     final sIdVal = (aData['studentId'] ?? '').toString();
                     final sNis = (aData['nis'] ?? '').toString();
                     final isAtt = aData['isAttended'] == true;
+                    final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
+                    final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
 
-                    if (isAtt && ((sIdVal.isNotEmpty && sIdVal == _student?.id) || (sNis.isNotEmpty && sNis == _student?.nis))) {
+                    if (isAtt && 
+                        aDay == itemDay && 
+                        aSess == itemSession && 
+                        ((sIdVal.isNotEmpty && sIdVal == _student?.id) || (sNis.isNotEmpty && sNis == _student?.nis))) {
                       isAttendedByProctor = true;
                       break;
                     }
@@ -1417,6 +1499,25 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                   style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
                                 ),
                               ],
+                            ),
+                          )
+                        else if (isNotStarted)
+                          OutlinedButton.icon(
+                            onPressed: null,
+                            icon: const Icon(Icons.alarm_on_rounded, size: 14, color: Color(0xFF64748B)),
+                            label: Text(
+                              'Sesi Belum Mulai',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF64748B),
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF1F5F9),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                           )
                         else if (isExpired)

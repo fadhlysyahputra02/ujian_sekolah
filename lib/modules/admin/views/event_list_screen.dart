@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/event_exam_service.dart';
 import '../../../core/widgets/app_splash_loader.dart';
+import 'package:go_router/go_router.dart';
 import 'event_editor_wizard.dart';
 import 'admin_full_schedule_page.dart';
 
@@ -776,15 +777,7 @@ class _EventListScreenState extends State<EventListScreen> {
                                   children: [
                                     ElevatedButton.icon(
                                       onPressed: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) => AdminFullSchedulePage(
-                                              schoolId: widget.schoolId,
-                                              eventId: e['id'],
-                                              eventName: name,
-                                            ),
-                                          ),
-                                        );
+                                        context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
                                       },
                                       icon: const Icon(Icons.calendar_month_rounded, size: 16),
                                       label: const Text('Lihat Jadwal Lengkap'),
@@ -850,15 +843,7 @@ class _EventListScreenState extends State<EventListScreen> {
                                   children: [
                                     OutlinedButton.icon(
                                       onPressed: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) => AdminFullSchedulePage(
-                                              schoolId: widget.schoolId,
-                                              eventId: e['id'],
-                                              eventName: name,
-                                            ),
-                                          ),
-                                        );
+                                        context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
                                       },
                                       icon: const Icon(Icons.calendar_month_rounded, size: 16),
                                       label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),

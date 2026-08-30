@@ -16,6 +16,9 @@ class ProctorQrScanDialog extends StatefulWidget {
   final MobileScannerController scannerController;
   final Future<void> Function() onStopCamera;
 
+  final int dayIndex;
+  final int sessionIndex;
+
   const ProctorQrScanDialog({
     super.key,
     required this.schoolId,
@@ -27,6 +30,8 @@ class ProctorQrScanDialog extends StatefulWidget {
     required this.seatNotifier,
     required this.scannerController,
     required this.onStopCamera,
+    this.dayIndex = 0,
+    this.sessionIndex = 0,
   });
 
   static Future<void> show({
@@ -38,6 +43,8 @@ class ProctorQrScanDialog extends StatefulWidget {
     required Map<int, Map<String, dynamic>> seatMap,
     required Map<String, bool> localAttendedMap,
     required ValueNotifier<int> seatNotifier,
+    int dayIndex = 0,
+    int sessionIndex = 0,
   }) {
     final MobileScannerController scannerController = MobileScannerController(
       detectionSpeed: DetectionSpeed.unrestricted,
@@ -74,6 +81,8 @@ class ProctorQrScanDialog extends StatefulWidget {
           seatNotifier: seatNotifier,
           scannerController: scannerController,
           onStopCamera: stopCamera,
+          dayIndex: dayIndex,
+          sessionIndex: sessionIndex,
         ),
       ),
     ).then((_) async {
@@ -371,6 +380,8 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                                         localAttendedMap: widget.localAttendedMap,
                                         seatNotifier: widget.seatNotifier,
                                         onShowFeedback: _showFeedback,
+                                        dayIndex: widget.dayIndex,
+                                        sessionIndex: widget.sessionIndex,
                                       );
                                       break;
                                     }
@@ -566,6 +577,8 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                                                 isAttended: newStatus,
                                                 localAttendedMap: widget.localAttendedMap,
                                                 seatNotifier: widget.seatNotifier,
+                                                dayIndex: widget.dayIndex,
+                                                sessionIndex: widget.sessionIndex,
                                               );
                                               _showFeedback(
                                                 newStatus

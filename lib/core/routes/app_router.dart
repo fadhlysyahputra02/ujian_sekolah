@@ -12,6 +12,7 @@ import '../../modules/student/views/student_event_detail_page.dart';
 import '../../modules/subscription/views/subscription_blocked_page.dart';
 import '../constants/app_version.dart';
 import '../widgets/app_splash_loader.dart';
+import '../../modules/admin/views/admin_full_schedule_page.dart';
 
 class AppRouter {
   static GoRouter createRouter(AuthService authService) {
@@ -94,6 +95,19 @@ class AppRouter {
         GoRoute(
           path: '/superadmin',
           builder: (context, state) => const DashboardPage(),
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/schedule',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['name'] ?? 'Jadwal Lengkap';
+            final schoolId = authService.schoolId ?? '';
+            return AdminFullSchedulePage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
         ),
         GoRoute(
           path: '/admin/:tab',

@@ -1422,10 +1422,12 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
           .orderBy('name')
           .snapshots(),
       builder: (context, classSnap) {
-        final classes = classSnap.data?.docs
+        final allClasses = classSnap.data?.docs
                 .map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>})
                 .toList() ??
             [];
+        final configuredClassIds = self._timetable.map((t) => t['classId'] as String).toSet();
+        final classes = allClasses.where((c) => configuredClassIds.contains(c['id'] as String)).toList();
 
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
