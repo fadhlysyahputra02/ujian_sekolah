@@ -778,6 +778,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     child: QrImageView(
                       data: qrData,
                       version: QrVersions.auto,
+                      errorCorrectionLevel: QrErrorCorrectLevel.M,
                       size: 320.0,
                       backgroundColor: Colors.white,
                     ),
@@ -1220,7 +1221,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         }
       }
 
-      final sessionEnd = DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute, 59);
+      final sessionEnd = DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute, 0);
       // Use server-adjusted time for accurate comparison
       final serverNow = DateTime.now().add(_serverTimeOffset);
       return serverNow.isAfter(sessionEnd);
@@ -1595,20 +1596,9 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
                   final Map<String, dynamic> itemQrDataMap = {
                     'studentId': _student?.id ?? '',
-                    'studentName': _student?.displayName ?? 'Siswa',
-                    'nis': _student?.nis ?? '',
-                    'className': _myClassName ?? '',
-                    'schoolId': _schoolId,
-                    'eventId': widget.eventId,
-                    'eventName': widget.eventName,
-                    'eventDateRange': _eventDateRange,
-                    'participantNumber': participantNumber,
                     'roomName': roomName,
-                    'seatNumber': seatNumber,
                     'dayIndex': resolvedDayIndex,
                     'sessionIndex': resolvedSessionIndex,
-                    'subjectId': item['subjectId'] ?? '',
-                    'subjectName': subjectName.toString(),
                   };
                   final String itemQrDataString = jsonEncode(itemQrDataMap);
 
@@ -1646,6 +1636,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                               child: QrImageView(
                                 data: itemQrDataString,
                                 version: QrVersions.auto,
+                                errorCorrectionLevel: QrErrorCorrectLevel.M,
                                 size: 36.0,
                                 padding: EdgeInsets.zero,
                               ),
@@ -1782,20 +1773,17 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                             ),
                           )
                         else if (!isAttendedByProctor)
-                          OutlinedButton.icon(
-                            onPressed: () => _showLockedAttendanceDialog(item),
-                            icon: const Icon(Icons.lock_rounded, size: 14, color: Color(0xFFD97706)),
-                            label: Text(
-                              'Belum Scan QR',
-                              style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFFD97706)),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFEF3C7),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              side: const BorderSide(color: Color(0xFFFBBF24)),
+                          ElevatedButton.icon(
+                            onPressed: null,
+                            icon: const Icon(Icons.play_circle_fill_rounded, size: 16, color: Color(0xFF94A3B8)),
+                            label: const Text('Kerjakan'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFE2E8F0),
+                              foregroundColor: const Color(0xFF94A3B8),
+                              disabledBackgroundColor: const Color(0xFFE2E8F0),
+                              disabledForegroundColor: const Color(0xFF94A3B8),
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                           )
