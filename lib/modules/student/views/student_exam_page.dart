@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/widgets/app_refresh_indicator.dart';
+import '../services/student_exam_cache_service.dart';
 
 class StudentExamPage extends StatefulWidget {
   final String schoolId;
@@ -66,8 +67,9 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
   late final ValueNotifier<int> _remainingSecondsNotifier = ValueNotifier<int>(3600);
   bool _isSubmitting = false;
 
-  // Draft Debounce Timer
+  // Draft Debounce & Periodic Sync Timers
   Timer? _draftDebounceTimer;
+  Timer? _periodicSyncTimer;
 
   String _currentRealtimeStatus = 'in_progress';
   DateTime? _lastRealtimeStatusUpdate;
@@ -78,6 +80,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _calculateDurationAndStartTimer();
     _loadQuestions();
+    _startPeriodicSyncTimer();
     _updateRealtimeControlStatus('in_progress');
   }
 
@@ -86,6 +89,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _draftDebounceTimer?.cancel();
+    _periodicSyncTimer?.cancel();
     _remainingSecondsNotifier.dispose();
     for (var controller in _essayControllers.values) {
       controller.dispose();
@@ -197,115 +201,43 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     }
   }
 
-  String _lastSavedStateFingerprint = '';
+  /// Instantly saves current draft state to local storage (SharedPreferences)
+  void _saveDraftLocally() {
+    if (widget.studentId.isEmpty || widget.subjectId.isEmpty) return;
+    StudentExamCacheService.saveDraftLocally(
+      studentId: widget.studentId,
+      subjectId: widget.subjectId,
+      answers: _answers,
+      essayAnswers: _essayAnswers,
+      doubts: _doubts,
+    );
+  }
 
-  void _triggerDraftAutoSave() {
-    _draftDebounceTimer?.cancel();
-    // Debounce 3 seconds after user stops typing essay
-    _draftDebounceTimer = Timer(const Duration(seconds: 3), () {
-      _saveDraftToFirestore();
+  /// Starts background periodic sync timer (syncs unsynced local draft to Firestore every 60 seconds)
+  void _startPeriodicSyncTimer() {
+    _periodicSyncTimer?.cancel();
+    _periodicSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      _performBackgroundSync();
     });
   }
 
-  String _getDraftFingerprint() {
-    final answersForStorage = <String, dynamic>{};
-    final essayAnswersForStorage = <String, String>{};
-
-    for (var q in _questions) {
-      final qId = q['id'].toString();
-      final isEssay = _isEssayQuestion(q);
-      if (isEssay) {
-        final essayText = (_essayAnswers[qId] ?? '').trim();
-        if (essayText.isNotEmpty) {
-          answersForStorage[qId] = essayText;
-          essayAnswersForStorage[qId] = essayText;
-        }
-      } else {
-        final selectedIdx = _answers[qId];
-        if (selectedIdx != null) {
-          final label = String.fromCharCode(65 + selectedIdx);
-          answersForStorage[qId] = label;
-        }
-      }
-    }
-
-    return jsonEncode({
-      'answers': answersForStorage,
-      'essayAnswers': essayAnswersForStorage,
-      'doubts': _doubts,
-    });
+  Future<void> _performBackgroundSync() async {
+    if (_questions.isEmpty || widget.studentId.isEmpty) return;
+    await StudentExamCacheService.syncDraftToServer(
+      schoolId: widget.schoolId,
+      eventId: widget.eventId,
+      subjectId: widget.subjectId,
+      subjectName: widget.subjectName,
+      studentId: widget.studentId,
+      studentName: widget.studentName,
+      nis: widget.nis,
+      className: widget.className,
+      angkatan: widget.angkatan,
+      questions: _questions,
+    );
   }
 
-  /// Saves current draft state to Firestore with isCompleted = false
-  Future<void> _saveDraftToFirestore() async {
-    if (widget.studentId.isEmpty || widget.schoolId.isEmpty || widget.eventId.isEmpty) {
-      return;
-    }
-    if (_questions.isEmpty) {
-      return;
-    }
 
-    final currentFingerprint = _getDraftFingerprint();
-    if (currentFingerprint == _lastSavedStateFingerprint) {
-      debugPrint('ℹ️ Draft state unchanged since last save. Skipping Firestore write.');
-      return;
-    }
-
-    try {
-      final db = FirebaseFirestore.instance;
-      final docId = '${widget.studentId}_${widget.subjectId}';
-      final subRef = db
-          .collection('schools')
-          .doc(widget.schoolId)
-          .collection('events')
-          .doc(widget.eventId)
-          .collection('submissions')
-          .doc(docId);
-
-      final answersForStorage = <String, dynamic>{};
-      final essayAnswersForStorage = <String, String>{};
-
-      for (var q in _questions) {
-        final qId = q['id'].toString();
-        final isEssay = _isEssayQuestion(q);
-        if (isEssay) {
-          final essayText = (_essayAnswers[qId] ?? '').trim();
-          if (essayText.isNotEmpty) {
-            answersForStorage[qId] = essayText;
-            essayAnswersForStorage[qId] = essayText;
-          }
-        } else {
-          final selectedIdx = _answers[qId];
-          if (selectedIdx != null) {
-            final label = String.fromCharCode(65 + selectedIdx);
-            answersForStorage[qId] = label;
-          }
-        }
-      }
-
-      debugPrint('💾 Saving draft to submissions/$docId MC:${answersForStorage.length} Essay:${essayAnswersForStorage.length}');
-
-      await subRef.set({
-        'studentId': widget.studentId,
-        'studentName': widget.studentName,
-        'nis': widget.nis,
-        'className': widget.className,
-        'angkatan': widget.angkatan,
-        'subjectId': widget.subjectId,
-        'subjectName': widget.subjectName,
-        'answers': answersForStorage,
-        'essayAnswers': essayAnswersForStorage,
-        'doubts': Map<String, dynamic>.from(_doubts),
-        'lastSavedAt': FieldValue.serverTimestamp(),
-        'isCompleted': false,
-      }, SetOptions(merge: true));
-
-      _lastSavedStateFingerprint = currentFingerprint;
-      debugPrint('✅ Draft saved successfully');
-    } catch (e) {
-      debugPrint('❌ Error saving draft: $e');
-    }
-  }
 
   TextEditingController _getEssayController(String qId) {
     if (!_essayControllers.containsKey(qId)) {
@@ -317,7 +249,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           setState(() {
             _essayAnswers[qId] = text;
           });
-          _triggerDraftAutoSave();
+          _saveDraftLocally();
         }
       });
       _essayControllers[qId] = controller;
@@ -639,58 +571,105 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
       _questions = filteredQuestions;
 
-      // Load draft submission if exists
+      // Cache loaded questions locally for offline access
+      if (_questions.isNotEmpty) {
+        await StudentExamCacheService.saveQuestionsLocally(
+          studentId: widget.studentId,
+          subjectId: widget.subjectId,
+          questions: _questions,
+        );
+      }
+
+      // 1. First load local draft (has highest priority since it contains offline work!)
+      final localDraft = await StudentExamCacheService.loadDraftLocally(
+        studentId: widget.studentId,
+        subjectId: widget.subjectId,
+      );
+
+      if (localDraft != null) {
+        final localAns = localDraft['answers'] as Map<String, int>? ?? {};
+        final localEssay = localDraft['essayAnswers'] as Map<String, String>? ?? {};
+        final localDoubts = localDraft['doubts'] as Map<String, bool>? ?? {};
+
+        _answers.addAll(localAns);
+        _essayAnswers.addAll(localEssay);
+        _doubts.addAll(localDoubts);
+        debugPrint('📦 Restored ${_answers.length} MC answers & ${_essayAnswers.length} Essay answers from local offline cache');
+      }
+
+      // 2. Load Firestore draft submission as fallback/merge if exists
       if (widget.studentId.isNotEmpty) {
-        final docId = '${widget.studentId}_${widget.subjectId}';
-        final subSnap = await db
-            .collection('schools')
-            .doc(widget.schoolId)
-            .collection('events')
-            .doc(widget.eventId)
-            .collection('submissions')
-            .doc(docId)
-            .get();
+        try {
+          final docId = '${widget.studentId}_${widget.subjectId}';
+          final subSnap = await db
+              .collection('schools')
+              .doc(widget.schoolId)
+              .collection('events')
+              .doc(widget.eventId)
+              .collection('submissions')
+              .doc(docId)
+              .get();
 
-        if (subSnap.exists) {
-          final subData = subSnap.data() ?? {};
-          final rawAnswers = subData['answers'] as Map<String, dynamic>? ?? {};
-          final rawEssayAnswers = subData['essayAnswers'] as Map<String, dynamic>? ?? {};
-          final rawDoubts = subData['doubts'] as Map<String, dynamic>? ?? {};
+          if (subSnap.exists) {
+            final subData = subSnap.data() ?? {};
+            final rawAnswers = subData['answers'] as Map<String, dynamic>? ?? {};
+            final rawEssayAnswers = subData['essayAnswers'] as Map<String, dynamic>? ?? {};
+            final rawDoubts = subData['doubts'] as Map<String, dynamic>? ?? {};
 
-          for (var entry in rawAnswers.entries) {
-            final qId = entry.key;
-            final val = entry.value;
+            for (var entry in rawAnswers.entries) {
+              final qId = entry.key;
+              final val = entry.value;
 
-            // Find question to check type
-            final qMatch = _questions.firstWhere((q) => q['id'].toString() == qId, orElse: () => {});
-            if (qMatch.isNotEmpty && _isEssayQuestion(qMatch)) {
-              _essayAnswers[qId] = val.toString();
-            } else if (val is String && val.length == 1) {
-              final code = val.codeUnitAt(0);
-              if (code >= 65 && code <= 90) { // A-Z
-                _answers[qId] = code - 65;
-              } else if (code >= 97 && code <= 122) { // a-z
-                _answers[qId] = code - 97;
+              final qMatch = _questions.firstWhere((q) => q['id'].toString() == qId, orElse: () => {});
+              if (qMatch.isNotEmpty && _isEssayQuestion(qMatch)) {
+                _essayAnswers.putIfAbsent(qId, () => val.toString());
+              } else if (val is String && val.length == 1) {
+                final code = val.codeUnitAt(0);
+                if (code >= 65 && code <= 90) {
+                  _answers.putIfAbsent(qId, () => code - 65);
+                } else if (code >= 97 && code <= 122) {
+                  _answers.putIfAbsent(qId, () => code - 97);
+                }
+              } else if (val is num) {
+                _answers.putIfAbsent(qId, () => val.toInt());
               }
-            } else if (val is num) {
-              _answers[qId] = val.toInt();
+            }
+
+            for (var entry in rawEssayAnswers.entries) {
+              _essayAnswers.putIfAbsent(entry.key, () => entry.value.toString());
+            }
+
+            for (var entry in rawDoubts.entries) {
+              _doubts.putIfAbsent(entry.key, () => entry.value == true);
             }
           }
-
-          for (var entry in rawEssayAnswers.entries) {
-            _essayAnswers[entry.key] = entry.value.toString();
-          }
-
-          for (var entry in rawDoubts.entries) {
-            _doubts[entry.key] = entry.value == true;
-          }
+        } catch (e) {
+          debugPrint('⚠️ Network unavailable while fetching Firestore draft: $e');
         }
       }
 
-      _lastSavedStateFingerprint = _getDraftFingerprint();
+      // Ensure local state is updated
+      _saveDraftLocally();
       debugPrint('✅ Loaded ${_questions.length} questions successfully!');
     } catch (e) {
-      debugPrint('❌ Error loading questions: $e');
+      debugPrint('❌ Error loading questions from Firestore, attempting local offline fallback: $e');
+      // Offline fallback: load questions from local cache if available
+      final cachedQuestions = await StudentExamCacheService.loadQuestionsLocally(
+        studentId: widget.studentId,
+        subjectId: widget.subjectId,
+      );
+      if (cachedQuestions.isNotEmpty) {
+        _questions = cachedQuestions;
+        final localDraft = await StudentExamCacheService.loadDraftLocally(
+          studentId: widget.studentId,
+          subjectId: widget.subjectId,
+        );
+        if (localDraft != null) {
+          _answers.addAll(localDraft['answers'] as Map<String, int>? ?? {});
+          _essayAnswers.addAll(localDraft['essayAnswers'] as Map<String, String>? ?? {});
+          _doubts.addAll(localDraft['doubts'] as Map<String, bool>? ?? {});
+        }
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -743,62 +722,80 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     _isSubmitting = true;
     _timer?.cancel();
     _draftDebounceTimer?.cancel();
+    _periodicSyncTimer?.cancel();
 
-    try {
-      final db = FirebaseFirestore.instance;
-      final docId = '${widget.studentId}_${widget.subjectId}';
+    final success = await StudentExamCacheService.syncFinalSubmissionToServer(
+      schoolId: widget.schoolId,
+      eventId: widget.eventId,
+      subjectId: widget.subjectId,
+      subjectName: widget.subjectName,
+      studentId: widget.studentId,
+      studentName: widget.studentName,
+      nis: widget.nis,
+      className: widget.className,
+      angkatan: widget.angkatan,
+      answers: _answers,
+      essayAnswers: _essayAnswers,
+      doubts: _doubts,
+      questions: _questions,
+      autoSubmitted: autoSubmitted,
+    );
 
-      final answersForStorage = <String, dynamic>{};
-      final essayAnswersForStorage = <String, String>{};
+    await _updateRealtimeControlStatus('completed');
 
-      for (var q in _questions) {
-        final qId = q['id'].toString();
-        final isEssay = _isEssayQuestion(q);
+    if (!mounted) return;
 
-        if (isEssay) {
-          final essayText = (_essayAnswers[qId] ?? '').trim();
-          if (essayText.isNotEmpty) {
-            answersForStorage[qId] = essayText;
-            essayAnswersForStorage[qId] = essayText;
-          }
-        } else {
-          final selectedIdx = _answers[qId];
-          if (selectedIdx != null) {
-            final label = String.fromCharCode(65 + selectedIdx);
-            answersForStorage[qId] = label;
-          }
-        }
-      }
-
-      await db
-          .collection('schools')
-          .doc(widget.schoolId)
-          .collection('events')
-          .doc(widget.eventId)
-          .collection('submissions')
-          .doc(docId)
-          .set({
-        'studentId': widget.studentId,
-        'studentName': widget.studentName,
-        'nis': widget.nis,
-        'className': widget.className,
-        'angkatan': widget.angkatan,
-        'subjectId': widget.subjectId,
-        'subjectName': widget.subjectName,
-        'answers': answersForStorage,
-        'essayAnswers': essayAnswersForStorage,
-        'doubts': Map<String, dynamic>.from(_doubts),
-        'submittedAt': FieldValue.serverTimestamp(),
-        'isCompleted': true,
-        'autoSubmitted': autoSubmitted,
-      }, SetOptions(merge: true));
-
-      await _updateRealtimeControlStatus('completed');
-
-      debugPrint('✅ Final submission saved to Firestore!');
-    } catch (e) {
-      debugPrint('❌ Error saving final submission: $e');
+    if (!success) {
+      _showOfflineSubmissionDialog(autoSubmitted: autoSubmitted);
     }
+  }
+
+  void _showOfflineSubmissionDialog({bool autoSubmitted = false}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.cloud_off_rounded, color: Color(0xFFD97706), size: 28),
+            const SizedBox(width: 10),
+            Text(
+              'Jawaban Tersimpan Lokal',
+              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Text(
+          'Jawaban ujian Anda telah tersimpan AMAN 100% di HP/Browser ini. Namun pengiriman ke server terkendala koneksi internet.\n\nSistem akan otomatis mengirimkan jawaban saat koneksi pulih.',
+          style: GoogleFonts.inter(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pop();
+            },
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Tutup & Kembali'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _saveAnswersToFirestore(autoSubmitted: autoSubmitted);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F172A),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Coba Kirim Lagi'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showSubmitConfirmationDialog() async {
@@ -1856,7 +1853,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                               setState(() {
                                 _answers[qId] = optIdx;
                               });
-                              _saveDraftToFirestore();
+                              _saveDraftLocally();
                             },
                             borderRadius: BorderRadius.circular(16),
                             child: AnimatedContainer(
@@ -2020,7 +2017,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                         setState(() {
                           _doubts[qId] = val;
                         });
-                        _saveDraftToFirestore();
+                        _saveDraftLocally();
                       },
                     ),
                   ),
