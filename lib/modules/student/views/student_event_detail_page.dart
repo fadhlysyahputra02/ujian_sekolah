@@ -119,7 +119,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         eventRef.get(),
         eventRef.collection('sessions').get(),
         eventRef.collection('timetable').get(),
-        eventRef.collection('allocations').limit(1).get(),
+        eventRef.collection('allocations').get(),
       ]);
 
       final studentSnap = results[0] as QuerySnapshot;
@@ -201,16 +201,25 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         // PARALLEL BATCH 2: Fetch Seat allocation & Questions readiness concurrently
         final List<Future<void>> parallelTasks = [];
 
-        // Task A: Seat lookup
+        // Task A: Seat lookup (pick LATEST allocation if multiple exist after re-allocation)
         if (allocSnap.docs.isNotEmpty) {
-          final activeAllocId = allocSnap.docs.first.id;
+          final sortedAllocDocs = List<QueryDocumentSnapshot>.from(allocSnap.docs);
+          sortedAllocDocs.sort((a, b) {
+            final aTime = (a.data() as Map<String, dynamic>?)?['createdAt'];
+            final bTime = (b.data() as Map<String, dynamic>?)?['createdAt'];
+            if (aTime is Timestamp && bTime is Timestamp) {
+              return bTime.compareTo(aTime);
+            }
+            return 0;
+          });
+          final activeAllocId = sortedAllocDocs.first.id;
           final allocRef = eventRef.collection('allocations').doc(activeAllocId);
           parallelTasks.add(
             allocRef.collection('seats').get().then((seatSnap) {
               for (var sDoc in seatSnap.docs) {
                 final sData = sDoc.data();
                 if (sData['studentId'] == doc.id ||
-                    (sData['nis'] != null && sData['nis'] == _student!.nis) ||
+                    (sData['nis'] != null && sData['nis'].toString().isNotEmpty && sData['nis'].toString() == _student!.nis) ||
                     (sData['studentName'] != null && sData['studentName'] == _student!.displayName) ||
                     (sData['displayName'] != null && sData['displayName'] == _student!.displayName)) {
                   _allocatedSeat = sData;
@@ -221,32 +230,25 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           );
         }
 
-        // Task B: Question readiness check for all subjects in parallel
+        // Task B: Question readiness & breakdown check for all subjects in parallel
+        final studentAngkatan = (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty)
+            ? _student!.angkatan.trim()
+            : (_myClassName ?? '').trim();
+
         for (var item in filteredTimetable) {
           final subId = (item['subjectId'] ?? item['subjectName'] ?? '').toString();
           final subName = (item['subjectName'] ?? '').toString();
 
           if (subId.isNotEmpty) {
             parallelTasks.add(
-              eventRef.collection('subjects').doc(subId).collection('questions').get().then((qSnap) {
-                int qCount = qSnap.docs.length;
-                item['isQuestionReady'] = qCount > 0;
-                item['questionCount'] = qCount;
-              }).catchError((_) {
-                if (subName.isNotEmpty && subName != subId) {
-                  return eventRef.collection('subjects').doc(subName).collection('questions').get().then((qSnap2) {
-                    int qCount = qSnap2.docs.length;
-                    item['isQuestionReady'] = qCount > 0;
-                    item['questionCount'] = qCount;
-                  }).catchError((_) {
-                    item['isQuestionReady'] = false;
-                    item['questionCount'] = 0;
-                  });
-                } else {
-                  item['isQuestionReady'] = false;
-                  item['questionCount'] = 0;
-                }
-              }),
+              _countAndCategorizeQuestions(
+                eventRef: eventRef,
+                subId: subId,
+                subName: subName,
+                item: item,
+                studentAngkatan: studentAngkatan,
+                studentClass: _myClassName ?? '',
+              ),
             );
           }
         }
@@ -713,51 +715,92 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     required String seatNumber,
     String? subjectName,
     String? sessionName,
+    int? dayIndex,
+    int? sessionIndex,
   }) {
     showDialog(
       context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          backgroundColor: Colors.white,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Dialog Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      builder: (dialogCtx) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: (dayIndex != null && sessionIndex != null && _student?.id != null)
+              ? FirebaseFirestore.instance
+                  .collection('schools')
+                  .doc(_schoolId)
+                  .collection('events')
+                  .doc(widget.eventId)
+                  .collection('attendances')
+                  .where('studentId', isEqualTo: _student!.id)
+                  .snapshots()
+              : null,
+          builder: (ctx, attSnap) {
+            if (attSnap.hasData && dayIndex != null && sessionIndex != null) {
+              final docs = attSnap.data?.docs ?? [];
+              for (var d in docs) {
+                final data = d.data() as Map<String, dynamic>? ?? {};
+                final isAtt = data['isAttended'] == true;
+                final aDay = (data['dayIndex'] as num?)?.toInt();
+                final aSess = (data['sessionIndex'] as num?)?.toInt();
+
+                if (isAtt && aDay == dayIndex && aSess == sessionIndex) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (dialogCtx.mounted && Navigator.of(dialogCtx).canPop()) {
+                      Navigator.of(dialogCtx).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('✅ Presensi berhasil! Sesi ${sessionName ?? ""} telah diverifikasi oleh pengawas.'),
+                          backgroundColor: const Color(0xFF059669),
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
+                  });
+                  break;
+                }
+              }
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              backgroundColor: Colors.white,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Dialog Header
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFD1FAE5),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.qr_code_2_rounded, color: Color(0xFF10B981), size: 22),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFD1FAE5),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.qr_code_2_rounded, color: Color(0xFF10B981), size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                'QR Sesi Ujian',
+                                style: GoogleFonts.inter(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF0F172A),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'QR Sesi Ujian',
-                            style: GoogleFonts.inter(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: const Color(0xFF0F172A),
-                            ),
+                          IconButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(),
+                            icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
                           ),
                         ],
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 20),
 
                   // Large QR Code Display Box
@@ -836,7 +879,9 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         );
       },
     );
-  }
+  },
+);
+}
 
   Widget _buildQrDetailRow(String label, String value) {
     return Row(
@@ -857,6 +902,111 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         ),
       ],
     );
+  }
+
+  bool _isAngkatanMatch(String qAngkatan, String studentAngkatan, String studentClass) {
+    final qClean = qAngkatan.trim().toLowerCase();
+    if (qClean.isEmpty || qClean == 'semua' || qClean == 'all' || qClean == '-') {
+      return true;
+    }
+
+    final sAngClean = studentAngkatan.trim().toLowerCase();
+    final sClassClean = studentClass.trim().toLowerCase();
+
+    if (sAngClean.isNotEmpty && qClean == sAngClean) return true;
+    if (sClassClean.isNotEmpty && qClean == sClassClean) return true;
+
+    if (sAngClean.isNotEmpty && (qClean.contains(sAngClean) || sAngClean.contains(qClean))) return true;
+    if (sClassClean.isNotEmpty && (qClean.contains(sClassClean) || sClassClean.contains(qClean))) return true;
+
+    final RegExp numReg = RegExp(r'\d+');
+    final qNum = numReg.firstMatch(qClean)?.group(0);
+    final sAngNum = numReg.firstMatch(sAngClean)?.group(0);
+    final sClassNum = numReg.firstMatch(sClassClean)?.group(0);
+
+    if (qNum != null && qNum.isNotEmpty) {
+      if (sAngNum != null && sAngNum == qNum) return true;
+      if (sClassNum != null && sClassNum == qNum) return true;
+    }
+    return false;
+  }
+
+  Future<void> _countAndCategorizeQuestions({
+    required DocumentReference eventRef,
+    required String subId,
+    required String subName,
+    required Map<String, dynamic> item,
+    required String studentAngkatan,
+    required String studentClass,
+  }) async {
+    try {
+      List<QueryDocumentSnapshot> rawDocs = [];
+
+      try {
+        final qSnap1 = await eventRef.collection('subjects').doc(subId).collection('questions').get();
+        if (qSnap1.docs.isNotEmpty) {
+          rawDocs = qSnap1.docs;
+        }
+      } catch (_) {}
+
+      if (rawDocs.isEmpty && subName.isNotEmpty && subName != subId) {
+        try {
+          final qSnap2 = await eventRef.collection('subjects').doc(subName).collection('questions').get();
+          if (qSnap2.docs.isNotEmpty) {
+            rawDocs = qSnap2.docs;
+          }
+        } catch (_) {}
+      }
+
+      if (rawDocs.isEmpty) {
+        try {
+          final qSnap3 = await eventRef
+              .collection('questions')
+              .where('subjectId', isEqualTo: subId)
+              .get();
+          if (qSnap3.docs.isNotEmpty) {
+            rawDocs = qSnap3.docs;
+          }
+        } catch (_) {}
+      }
+
+      List<QueryDocumentSnapshot> filtered = rawDocs.where((d) {
+        final data = d.data() as Map<String, dynamic>? ?? {};
+        final qAng = (data['angkatan'] ?? data['grade'] ?? data['targetAngkatan'] ?? '').toString();
+        return _isAngkatanMatch(qAng, studentAngkatan, studentClass);
+      }).toList();
+
+      if (filtered.isEmpty && rawDocs.isNotEmpty) {
+        filtered = rawDocs;
+      }
+
+      int pgCount = 0;
+      int essayCount = 0;
+
+      for (var d in filtered) {
+        final data = d.data() as Map<String, dynamic>? ?? {};
+        final type = (data['type'] ?? '').toString();
+        final opts = data['options'];
+        final hasOptions = opts is Map && opts.isNotEmpty;
+
+        if (type == 'pilihan_ganda' || (type != 'essay' && hasOptions)) {
+          pgCount++;
+        } else {
+          essayCount++;
+        }
+      }
+
+      final totalCount = pgCount + essayCount;
+      item['isQuestionReady'] = totalCount > 0;
+      item['questionCount'] = totalCount;
+      item['pgQuestionCount'] = pgCount;
+      item['essayQuestionCount'] = essayCount;
+    } catch (e) {
+      item['isQuestionReady'] = false;
+      item['questionCount'] = 0;
+      item['pgQuestionCount'] = 0;
+      item['essayQuestionCount'] = 0;
+    }
   }
 
   void _showSessionGuidelinesDialog({
@@ -887,6 +1037,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     }
 
     final questionCount = item['questionCount'] ?? 0;
+    final pgCount = item['pgQuestionCount'] ?? 0;
+    final essayCount = item['essayQuestionCount'] ?? 0;
     final isReady = item['isQuestionReady'] == true;
     final questionCountText = isReady ? '$questionCount Butir Soal' : 'Sedang disiapkan';
 
@@ -965,6 +1117,72 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   ),
                 ],
               ),
+              if (isReady && questionCount > 0) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF059669)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Pilihan Ganda', style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFF047857), fontWeight: FontWeight.w600)),
+                                    Text('$pgCount Soal', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF065F46), fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFDF2F8),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFFBCFE8)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.edit_note_rounded, size: 16, color: Color(0xFFDB2777)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Esai / Essay', style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFFBE185D), fontWeight: FontWeight.w600)),
+                                    Text('$essayCount Soal', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF9D174D), fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               const Divider(color: Color(0xFFE2E8F0)),
               const SizedBox(height: 12),
@@ -1516,6 +1734,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                 .collection('events')
                 .doc(widget.eventId)
                 .collection('attendances')
+                .where('studentId', isEqualTo: _student?.id ?? '')
                 .snapshots(),
             builder: (context, attSnap) {
               final attDocs = attSnap.data?.docs ?? [];
@@ -1555,42 +1774,52 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   final rawSessionIdx = (item['sessionIndex'] ?? item['session'] ?? session?['sessionIndex'] ?? session?['session'] as num?)?.toInt();
                   if (rawSessionIdx != null) {
                     resolvedSessionIndex = rawSessionIdx;
-                  } else {
-                    final match = RegExp(r'Sesi\s*(\d+)', caseSensitive: false).firstMatch(sName);
-                    if (match != null) {
-                      resolvedSessionIndex = (int.tryParse(match.group(1)!) ?? 1) - 1;
+                  } else if (session != null) {
+                    final tempId = (session['tempId'] ?? session['id'] ?? '').toString();
+                    if (tempId.contains('_session_')) {
+                      final parts = tempId.split('_session_');
+                      if (parts.length >= 2) {
+                        final idx = int.tryParse(parts[1]);
+                        if (idx != null) resolvedSessionIndex = idx;
+                      }
                     } else {
-                      resolvedSessionIndex = index;
+                      final match = RegExp(r'Sesi\s*(\d+)', caseSensitive: false).firstMatch(sName);
+                      if (match != null) {
+                        resolvedSessionIndex = (int.tryParse(match.group(1)!) ?? 1) - 1;
+                      } else {
+                        resolvedSessionIndex = index;
+                      }
                     }
+                  } else {
+                    resolvedSessionIndex = index;
                   }
 
-                  // --- DEBUG: log resolved indices for this item ---
-                  debugPrint('📅 Item "$subjectName" → resolvedDay=$resolvedDayIndex, resolvedSess=$resolvedSessionIndex');
+                  final String currentStudentId = _student?.id ?? '';
+                  final String currentStudentNis = _student?.nis ?? '';
+
                   for (var doc in attDocs) {
+                    if (isAttendedByProctor) break;
                     final aData = doc.data() as Map<String, dynamic>? ?? {};
                     final sIdVal = (aData['studentId'] ?? '').toString();
                     final sNis = (aData['nis'] ?? '').toString();
                     final isAtt = aData['isAttended'] == true;
-                    final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
-                    final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
-                    debugPrint('   att doc → day=$aDay sess=$aSess studentId=$sIdVal nis=$sNis isAtt=$isAtt');
-                  }
+                    if (!isAtt) continue;
 
-                  // Attempt 1: Strict match — dayIndex + sessionIndex + student identity
-                  for (var doc in attDocs) {
-                    final aData = doc.data() as Map<String, dynamic>? ?? {};
-                    final sIdVal = (aData['studentId'] ?? '').toString();
-                    final sNis = (aData['nis'] ?? '').toString();
-                    final isAtt = aData['isAttended'] == true;
-                    final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
-                    final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
+                    final bool isStudentMatch =
+                        (currentStudentId.isNotEmpty && sIdVal.isNotEmpty && sIdVal == currentStudentId) ||
+                        (currentStudentNis.isNotEmpty && sNis.isNotEmpty && sNis == currentStudentNis);
 
-                    if (isAtt &&
-                        aDay == resolvedDayIndex &&
-                        aSess == resolvedSessionIndex &&
-                        ((sIdVal.isNotEmpty && sIdVal == _student?.id) || (sNis.isNotEmpty && sNis == _student?.nis))) {
-                      isAttendedByProctor = true;
-                      break;
+                    if (!isStudentMatch) continue;
+
+                    final aDay = (aData['dayIndex'] as num?)?.toInt();
+                    final aSess = (aData['sessionIndex'] as num?)?.toInt();
+
+                    // Match strictly by BOTH dayIndex AND sessionIndex
+                    if (aDay != null && aSess != null) {
+                      if (aDay == resolvedDayIndex && aSess == resolvedSessionIndex) {
+                        isAttendedByProctor = true;
+                        break;
+                      }
                     }
                   }
 
@@ -1618,6 +1847,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                 seatNumber: seatNumber,
                                 subjectName: subjectName.toString(),
                                 sessionName: sName,
+                                dayIndex: resolvedDayIndex,
+                                sessionIndex: resolvedSessionIndex,
                               );
                             },
                             child: Container(
@@ -1788,45 +2019,63 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                             ),
                           )
                         else if (isQuestionReady)
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              final sid = (item['subjectId'] ?? subjectName).toString();
-                              debugPrint('🚀 Navigating to StudentExamPage');
-                              debugPrint('   subjectId  : "$sid"');
-                              debugPrint('   subjectName: "$subjectName"');
-                              debugPrint('   angkatan   : "${_student?.angkatan}"');
-                              debugPrint('   className  : "$_myClassName"');
-                              debugPrint('   item keys  : ${item.keys.toList()}');
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => StudentExamPage(
-                                    schoolId: _schoolId,
-                                    eventId: widget.eventId,
-                                    eventName: widget.eventName,
-                                    subjectId: sid,
-                                    subjectName: subjectName.toString(),
-                                    studentId: _student?.id ?? '',
-                                    studentName: _student?.displayName ?? 'Siswa',
-                                    nis: _student?.nis ?? '',
-                                    className: _myClassName ?? '',
-                                    angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty) ? _student!.angkatan : (_myClassName ?? ''),
-                                    sessionName: sName,
-                                    startTimeStr: startTime,
-                                    endTimeStr: endTime,
-                                  ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: () => _showSessionGuidelinesDialog(
+                                  item: item,
+                                  subjectName: subjectName.toString(),
+                                  sName: sName,
+                                  timeLabel: timeLabel,
                                 ),
-                              ).then((_) => _loadStudentAndEventDetails());
-                            },
-                            icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
-                            label: const Text('Kerjakan'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF10B981),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
+                                icon: const Icon(Icons.help_outline_rounded, color: Color(0xFF2563EB), size: 20),
+                                tooltip: 'Panduan Ujian',
+                                constraints: const BoxConstraints(),
+                                padding: const EdgeInsets.all(6),
+                              ),
+                              const SizedBox(width: 4),
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  final sid = (item['subjectId'] ?? subjectName).toString();
+                                  debugPrint('🚀 Navigating to StudentExamPage');
+                                  debugPrint('   subjectId  : "$sid"');
+                                  debugPrint('   subjectName: "$subjectName"');
+                                  debugPrint('   angkatan   : "${_student?.angkatan}"');
+                                  debugPrint('   className  : "$_myClassName"');
+                                  debugPrint('   item keys  : ${item.keys.toList()}');
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => StudentExamPage(
+                                        schoolId: _schoolId,
+                                        eventId: widget.eventId,
+                                        eventName: widget.eventName,
+                                        subjectId: sid,
+                                        subjectName: subjectName.toString(),
+                                        studentId: _student?.id ?? '',
+                                        studentName: _student?.displayName ?? 'Siswa',
+                                        nis: _student?.nis ?? '',
+                                        className: _myClassName ?? '',
+                                        angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty) ? _student!.angkatan : (_myClassName ?? ''),
+                                        sessionName: sName,
+                                        startTimeStr: startTime,
+                                        endTimeStr: endTime,
+                                      ),
+                                    ),
+                                  ).then((_) => _loadStudentAndEventDetails());
+                                },
+                                icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
+                                label: const Text('Kerjakan'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
+                            ],
                           )
                         else
                           Container(

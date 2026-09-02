@@ -24,16 +24,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
         ],
       ),
       body: self._isLoading
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Memproses event...', style: TextStyle(color: Color(0xFF64748B))),
-                ],
-              ),
-            )
+          ? self._buildEventProcessingOverlay()
           : Column(
               children: [
                 self._buildMobileStepperHeader(),

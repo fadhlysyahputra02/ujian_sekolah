@@ -42,74 +42,92 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   final Map<String, bool> _localAttendedMap = {};
   final ValueNotifier<int> _seatNotifier = ValueNotifier<int>(0);
 
+  Stream<DocumentSnapshot>? _eventStream;
+  Stream<QuerySnapshot>? _roomsStream;
+  Stream<QuerySnapshot>? _attendancesStream;
+  Stream<QuerySnapshot>? _realtimeStream;
+  Stream<QuerySnapshot>? _submissionsStream;
+  Stream<QuerySnapshot>? _allocationsStream;
+  Stream<QuerySnapshot>? _classesStream;
+  Stream<QuerySnapshot>? _studentsStream;
+
+  Stream<QuerySnapshot>? _seatsStream;
+  String? _seatsAllocDocId;
+
   @override
   void initState() {
     super.initState();
     _initSchoolId();
   }
 
+  void _initStreams(String sid) {
+    if (sid.isEmpty) return;
+    final eventRef = FirebaseFirestore.instance
+        .collection('schools')
+        .doc(sid)
+        .collection('events')
+        .doc(widget.eventId);
+
+    _eventStream = eventRef.snapshots();
+    _roomsStream = eventRef.collection('rooms').snapshots();
+    _attendancesStream = eventRef.collection('attendances').snapshots();
+    _realtimeStream = eventRef.collection('realtime_control').snapshots();
+    _submissionsStream = eventRef.collection('submissions').snapshots();
+    _allocationsStream = eventRef.collection('allocations').snapshots();
+    _classesStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('classes').snapshots();
+    _studentsStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('students').snapshots();
+  }
+
   Future<void> _initSchoolId() async {
     final authService = Provider.of<AuthService>(context, listen: false);
 
-    // 1. Try authService
-    if (authService.schoolId != null && authService.schoolId!.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _resolvedSchoolId = authService.schoolId;
-          _isResolvingSchool = false;
-        });
-      }
-      await _fetchTimetableSubcollection();
-      return;
-    }
+    String? foundSchoolId = authService.schoolId;
 
-    // 2. Poll authService for up to 2 seconds
-    for (int i = 0; i < 20; i++) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      if (!mounted) return;
-      if (authService.schoolId != null && authService.schoolId!.isNotEmpty) {
-        setState(() {
-          _resolvedSchoolId = authService.schoolId;
-          _isResolvingSchool = false;
-        });
-        await _fetchTimetableSubcollection();
-        return;
-      }
-    }
-
-    // 3. Fallback: Search event across schools collection group
-    try {
-      final evGroup = await FirebaseFirestore.instance
-          .collectionGroup('events')
-          .where(FieldPath.documentId, isEqualTo: widget.eventId)
-          .limit(1)
-          .get();
-
-      if (evGroup.docs.isNotEmpty) {
-        final parentSchool = evGroup.docs.first.reference.parent.parent;
-        if (parentSchool != null && mounted) {
-          setState(() {
-            _resolvedSchoolId = parentSchool.id;
-            _isResolvingSchool = false;
-          });
-          await _fetchTimetableSubcollection();
-          return;
+    if (foundSchoolId == null || foundSchoolId.isEmpty) {
+      for (int i = 0; i < 20; i++) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (!mounted) return;
+        if (authService.schoolId != null && authService.schoolId!.isNotEmpty) {
+          foundSchoolId = authService.schoolId;
+          break;
         }
       }
-    } catch (e) {
-      debugPrint("Error resolving schoolId via collectionGroup: $e");
+    }
+
+    if (foundSchoolId == null || foundSchoolId.isEmpty) {
+      try {
+        final evGroup = await FirebaseFirestore.instance
+            .collectionGroup('events')
+            .where(FieldPath.documentId, isEqualTo: widget.eventId)
+            .limit(1)
+            .get();
+
+        if (evGroup.docs.isNotEmpty) {
+          final parentSchool = evGroup.docs.first.reference.parent.parent;
+          if (parentSchool != null) {
+            foundSchoolId = parentSchool.id;
+          }
+        }
+      } catch (e) {
+        debugPrint("Error resolving schoolId via collectionGroup: $e");
+      }
+    }
+
+    _resolvedSchoolId = foundSchoolId ?? authService.schoolId ?? '';
+
+    if (_resolvedSchoolId != null && _resolvedSchoolId!.isNotEmpty) {
+      await _fetchTimetableSubcollection(shouldSetState: false);
+      _initStreams(_resolvedSchoolId!);
     }
 
     if (mounted) {
       setState(() {
-        _resolvedSchoolId = authService.schoolId ?? '';
         _isResolvingSchool = false;
       });
-      await _fetchTimetableSubcollection();
     }
   }
 
-  Future<void> _fetchTimetableSubcollection() async {
+  Future<void> _fetchTimetableSubcollection({bool shouldSetState = true}) async {
     final sid = _resolvedSchoolId;
     if (sid == null || sid.isEmpty) return;
     try {
@@ -127,19 +145,19 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
       final timetableSnap = results[0];
       final sessionsSnap = results[1];
 
-      if (mounted) {
-        setState(() {
-          _timetableSubcollection = timetableSnap.docs.map((d) {
-            final data = d.data();
-            data['_docId'] = d.id;
-            return data;
-          }).toList();
-          _sessionsSubcollection = sessionsSnap.docs.map((d) {
-            final data = d.data();
-            data['id'] = d.id;
-            return data;
-          }).toList();
-        });
+      _timetableSubcollection = timetableSnap.docs.map((d) {
+        final data = d.data();
+        data['_docId'] = d.id;
+        return data;
+      }).toList();
+      _sessionsSubcollection = sessionsSnap.docs.map((d) {
+        final data = d.data();
+        data['id'] = d.id;
+        return data;
+      }).toList();
+
+      if (shouldSetState && mounted) {
+        setState(() {});
       }
     } catch (e) {
       debugPrint('Error fetching timetable/sessions subcollection: $e');
@@ -287,41 +305,80 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     return seats;
   }
 
+  Widget _buildProctorLoadingView(String message) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 38,
+                height: 38,
+                child: CircularProgressIndicator(
+                  color: Color(0xFF4F46E5),
+                  strokeWidth: 3.5,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                message,
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Menyiapkan data denah & presensi murid...',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: const Color(0xFF64748B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final schoolId = _resolvedSchoolId ?? '';
 
     if (_isResolvingSchool || schoolId.isEmpty) {
-      return Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const CircularProgressIndicator(color: Color(0xFF4F46E5)),
-              const SizedBox(height: 16),
-              Text(
-                'Menyiapkan data denah ruangan...',
-                style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF64748B), fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        ),
-      );
+      return _buildProctorLoadingView('Menyiapkan Data Denah Ruangan...');
     }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('schools')
-            .doc(schoolId)
-            .collection('events')
-            .doc(widget.eventId)
-            .snapshots(),
+        stream: _eventStream ??
+            FirebaseFirestore.instance
+                .collection('schools')
+                .doc(schoolId)
+                .collection('events')
+                .doc(widget.eventId)
+                .snapshots(),
         builder: (context, evSnap) {
-          if (evSnap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Color(0xFF4F46E5)));
+          if (!evSnap.hasData && evSnap.connectionState == ConnectionState.waiting) {
+            return _buildProctorLoadingView('Memuat Data Event Ujian...');
           }
 
           final evData = evSnap.data?.data() as Map<String, dynamic>? ?? {};
@@ -350,13 +407,14 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               [];
 
           return StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('schools')
-                .doc(schoolId)
-                .collection('events')
-                .doc(widget.eventId)
-                .collection('rooms')
-                .snapshots(),
+            stream: _roomsStream ??
+                FirebaseFirestore.instance
+                    .collection('schools')
+                    .doc(schoolId)
+                    .collection('events')
+                    .doc(widget.eventId)
+                    .collection('rooms')
+                    .snapshots(),
             builder: (context, roomSnap) {
               final roomDocs = roomSnap.data?.docs ?? [];
 
@@ -633,107 +691,110 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               }
 
               return StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
+                stream: _attendancesStream ??
+                    FirebaseFirestore.instance
+                .collection('schools')
+                .doc(schoolId)
+                .collection('events')
+                .doc(widget.eventId)
+                .collection('attendances')
+                .snapshots(),
+        builder: (context, attendanceSnap) {
+          _localAttendedMap.clear();
+
+          final attDocs = attendanceSnap.data?.docs ?? [];
+          for (var aDoc in attDocs) {
+            final aData = aDoc.data() as Map<String, dynamic>;
+            final isAtt = aData['isAttended'] == true || aData['attended'] == true;
+            if (isAtt) {
+              final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
+              final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
+              if (aDay != widget.dayIndex || aSess != widget.sessionIndex) {
+                continue;
+              }
+              final aRoomId = (aData['roomId'] ?? aData['room'] ?? '').toString().trim();
+              if (aRoomId.isNotEmpty) {
+                final cleanARoom = aRoomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                final cleanWidgetRoom = widget.roomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                final cleanRoomName = roomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+
+                bool roomMatches = cleanARoom == cleanWidgetRoom ||
+                    cleanARoom == cleanRoomName ||
+                    cleanWidgetRoom.contains(cleanARoom) ||
+                    cleanARoom.contains(cleanWidgetRoom) ||
+                    cleanRoomName.contains(cleanARoom) ||
+                    cleanARoom.contains(cleanRoomName);
+
+                if (!roomMatches) {
+                  continue; // Skip attendance document if it belongs to ANOTHER room!
+                }
+              }
+
+              final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
+              final sNis = (aData['nis'] ?? '').toString().toLowerCase();
+              final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
+              final seatNum = (aData['seatNumber'] as num?)?.toInt();
+              if (sId.isNotEmpty) _localAttendedMap[sId] = true;
+              if (sNis.isNotEmpty) _localAttendedMap[sNis] = true;
+              if (sName.isNotEmpty) _localAttendedMap[sName] = true;
+              if (seatNum != null && seatNum > 0) {
+                _localAttendedMap['${widget.roomId}_seat_$seatNum'] = true;
+                _localAttendedMap['seat_${widget.roomId}_$seatNum'] = true;
+              }
+            }
+          }
+
+          return StreamBuilder<QuerySnapshot>(
+            stream: _realtimeStream ??
+                FirebaseFirestore.instance
                     .collection('schools')
                     .doc(schoolId)
                     .collection('events')
                     .doc(widget.eventId)
-                    .collection('attendances')
+                    .collection('realtime_control')
                     .snapshots(),
-                builder: (context, attendanceSnap) {
-                  _localAttendedMap.clear();
+            builder: (context, realtimeSnap) {
+              final realtimeMap = <String, Map<String, dynamic>>{};
+              final realtimeDocs = realtimeSnap.data?.docs ?? [];
+              final cleanActiveSubjectNames = matchedSubjects.map((s) => s.toLowerCase().trim()).toSet();
 
-                  final attDocs = attendanceSnap.data?.docs ?? [];
-                  for (var aDoc in attDocs) {
-                    final aData = aDoc.data() as Map<String, dynamic>;
-                    final isAtt = aData['isAttended'] == true || aData['attended'] == true;
-                    if (isAtt) {
-                      final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
-                      final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
-                      if (aDay != widget.dayIndex || aSess != widget.sessionIndex) {
-                        continue;
-                      }
-                      final aRoomId = (aData['roomId'] ?? aData['room'] ?? '').toString().trim();
-                      if (aRoomId.isNotEmpty) {
-                        final cleanARoom = aRoomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                        final cleanWidgetRoom = widget.roomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                        final cleanRoomName = roomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+              for (var doc in realtimeDocs) {
+                final data = doc.data() as Map<String, dynamic>;
+                final rtSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
+                final rtSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
 
-                        bool roomMatches = cleanARoom == cleanWidgetRoom ||
-                            cleanARoom == cleanRoomName ||
-                            cleanWidgetRoom.contains(cleanARoom) ||
-                            cleanARoom.contains(cleanWidgetRoom) ||
-                            cleanRoomName.contains(cleanARoom) ||
-                            cleanARoom.contains(cleanRoomName);
-
-                        if (!roomMatches) {
-                          continue; // Skip attendance document if it belongs to ANOTHER room!
-                        }
-                      }
-
-                      final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
-                      final sNis = (aData['nis'] ?? '').toString().toLowerCase();
-                      final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
-                      final seatNum = (aData['seatNumber'] as num?)?.toInt();
-                      if (sId.isNotEmpty) _localAttendedMap[sId] = true;
-                      if (sNis.isNotEmpty) _localAttendedMap[sNis] = true;
-                      if (sName.isNotEmpty) _localAttendedMap[sName] = true;
-                      if (seatNum != null && seatNum > 0) {
-                        _localAttendedMap['${widget.roomId}_seat_$seatNum'] = true;
-                        _localAttendedMap['seat_${widget.roomId}_$seatNum'] = true;
-                      }
-                    }
+                bool subjectMatches = false;
+                if (matchedSubjects.isEmpty) {
+                  subjectMatches = true;
+                } else {
+                  if (cleanActiveSubjectNames.contains(rtSubjName) ||
+                      matchedSubjectIds.contains(rtSubjId) ||
+                      matchedSubjectIds.contains(rtSubjName)) {
+                    subjectMatches = true;
                   }
+                }
 
-                  return StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
+                if (!subjectMatches) {
+                  continue; // Skip realtime states for other subjects!
+                }
+
+                final sId = (data['studentId'] ?? doc.id).toString().toLowerCase();
+                final sNis = (data['nis'] ?? '').toString().toLowerCase();
+                final sName = (data['studentName'] ?? '').toString().toLowerCase();
+                if (sId.isNotEmpty) realtimeMap[sId] = data;
+                if (sNis.isNotEmpty) realtimeMap[sNis] = data;
+                if (sName.isNotEmpty) realtimeMap[sName] = data;
+              }
+
+              return StreamBuilder<QuerySnapshot>(
+                stream: _submissionsStream ??
+                    FirebaseFirestore.instance
                         .collection('schools')
                         .doc(schoolId)
                         .collection('events')
                         .doc(widget.eventId)
-                        .collection('realtime_control')
+                        .collection('submissions')
                         .snapshots(),
-                    builder: (context, realtimeSnap) {
-                      final realtimeMap = <String, Map<String, dynamic>>{};
-                      final realtimeDocs = realtimeSnap.data?.docs ?? [];
-                      final cleanActiveSubjectNames = matchedSubjects.map((s) => s.toLowerCase().trim()).toSet();
-
-                      for (var doc in realtimeDocs) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        final rtSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
-                        final rtSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
-
-                        bool subjectMatches = false;
-                        if (matchedSubjects.isEmpty) {
-                          subjectMatches = true;
-                        } else {
-                          if (cleanActiveSubjectNames.contains(rtSubjName) ||
-                              matchedSubjectIds.contains(rtSubjId) ||
-                              matchedSubjectIds.contains(rtSubjName)) {
-                            subjectMatches = true;
-                          }
-                        }
-
-                        if (!subjectMatches) {
-                          continue; // Skip realtime states for other subjects!
-                        }
-
-                        final sId = (data['studentId'] ?? doc.id).toString().toLowerCase();
-                        final sNis = (data['nis'] ?? '').toString().toLowerCase();
-                        final sName = (data['studentName'] ?? '').toString().toLowerCase();
-                        if (sId.isNotEmpty) realtimeMap[sId] = data;
-                        if (sNis.isNotEmpty) realtimeMap[sNis] = data;
-                        if (sName.isNotEmpty) realtimeMap[sName] = data;
-                      }
-
-                      return StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('schools')
-                            .doc(schoolId)
-                            .collection('events')
-                            .doc(widget.eventId)
-                            .collection('submissions')
-                            .snapshots(),
                         builder: (context, subSnap) {
                           final submissionsMap = <String, Map<String, dynamic>>{};
                           final subDocs = subSnap.data?.docs ?? [];
@@ -766,33 +827,63 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                           }
 
                   return StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('schools')
-                        .doc(schoolId)
-                        .collection('events')
-                        .doc(widget.eventId)
-                        .collection('allocations')
-                        .snapshots(),
+                    stream: _allocationsStream ??
+                        FirebaseFirestore.instance
+                            .collection('schools')
+                            .doc(schoolId)
+                            .collection('events')
+                            .doc(widget.eventId)
+                            .collection('allocations')
+                            .snapshots(),
                     builder: (context, allocSnap) {
+                      if (!allocSnap.hasData && allocSnap.connectionState == ConnectionState.waiting) {
+                        return _buildProctorLoadingView('Memuat Alokasi Tempat Duduk...');
+                      }
                       final allocDocs = allocSnap.data?.docs ?? [];
                       String? resolvedAllocDocId = activeAllocId;
-                      if ((resolvedAllocDocId == null || resolvedAllocDocId.isEmpty) && allocDocs.isNotEmpty) {
-                        resolvedAllocDocId = allocDocs.last.id;
+                      if (allocDocs.isNotEmpty) {
+                        final sortedAllocDocs = List<QueryDocumentSnapshot>.from(allocDocs);
+                        sortedAllocDocs.sort((a, b) {
+                          final aTime = (a.data() as Map<String, dynamic>?)?['createdAt'];
+                          final bTime = (b.data() as Map<String, dynamic>?)?['createdAt'];
+                          if (aTime is Timestamp && bTime is Timestamp) {
+                            return bTime.compareTo(aTime);
+                          }
+                          return 0;
+                        });
+                        resolvedAllocDocId = sortedAllocDocs.first.id;
+                      }
+
+                      if (_seatsAllocDocId != resolvedAllocDocId && resolvedAllocDocId != null && resolvedAllocDocId.isNotEmpty) {
+                        _seatsAllocDocId = resolvedAllocDocId;
+                        _seatsStream = FirebaseFirestore.instance
+                            .collection('schools')
+                            .doc(schoolId)
+                            .collection('events')
+                            .doc(widget.eventId)
+                            .collection('allocations')
+                            .doc(resolvedAllocDocId)
+                            .collection('seats')
+                            .snapshots();
                       }
 
                       return StreamBuilder<QuerySnapshot>(
-                        stream: resolvedAllocDocId != null && resolvedAllocDocId.isNotEmpty
-                            ? FirebaseFirestore.instance
-                                .collection('schools')
-                                .doc(schoolId)
-                                .collection('events')
-                                .doc(widget.eventId)
-                                .collection('allocations')
-                                .doc(resolvedAllocDocId)
-                                .collection('seats')
-                                .snapshots()
-                            : null,
+                        stream: _seatsStream ??
+                            (resolvedAllocDocId != null && resolvedAllocDocId.isNotEmpty
+                                ? FirebaseFirestore.instance
+                                    .collection('schools')
+                                    .doc(schoolId)
+                                    .collection('events')
+                                    .doc(widget.eventId)
+                                    .collection('allocations')
+                                    .doc(resolvedAllocDocId)
+                                    .collection('seats')
+                                    .snapshots()
+                                : null),
                         builder: (context, seatsSnap) {
+                          if (!seatsSnap.hasData && seatsSnap.connectionState == ConnectionState.waiting) {
+                            return _buildProctorLoadingView('Memuat Denah Bangku...');
+                          }
                           final seatDocs = seatsSnap.data?.docs ?? [];
                           final allocatedSeatsFromFirestore = seatDocs.map((d) => d.data() as Map<String, dynamic>).where((s) {
                             final rCode = (s['roomCode'] ?? s['roomId'] ?? s['roomName'] ?? s['room'] ?? '').toString();
@@ -807,28 +898,42 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                           }).toList();
 
                           final seatMap = <int, Map<String, dynamic>>{};
+                          final roomStudentIds = <String>{};
+                          final roomStudentNises = <String>{};
                           for (var s in allocatedSeatsFromFirestore) {
                             final numVal = (s['seatNumber'] as num?)?.toInt() ?? 0;
                             if (numVal > 0) seatMap[numVal] = s;
+                            final stId = (s['studentId'] ?? s['id'] ?? '').toString().trim();
+                            final stNis = (s['nis'] ?? '').toString().trim();
+                            if (stId.isNotEmpty) roomStudentIds.add(stId);
+                            if (stNis.isNotEmpty) roomStudentNises.add(stNis);
                           }
 
                       return StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('schools')
-                            .doc(schoolId)
-                            .collection('classes')
-                            .snapshots(),
+                        stream: _classesStream ??
+                            FirebaseFirestore.instance
+                                .collection('schools')
+                                .doc(schoolId)
+                                .collection('classes')
+                                .snapshots(),
                         builder: (context, classSnap) {
+                          if (!classSnap.hasData && classSnap.connectionState == ConnectionState.waiting) {
+                            return _buildProctorLoadingView('Memuat Data Kelas...');
+                          }
                           final classDocs = classSnap.data?.docs ?? [];
                           final classRealStudents = <String, List<Map<String, dynamic>>>{};
 
                           return StreamBuilder<QuerySnapshot>(
-                            stream: FirebaseFirestore.instance
-                                .collection('schools')
-                                .doc(schoolId)
-                                .collection('students')
-                                .snapshots(),
+                            stream: _studentsStream ??
+                                FirebaseFirestore.instance
+                                    .collection('schools')
+                                    .doc(schoolId)
+                                    .collection('students')
+                                    .snapshots(),
                             builder: (context, studentSnap) {
+                              if (!studentSnap.hasData && studentSnap.connectionState == ConnectionState.waiting) {
+                                return _buildProctorLoadingView('Memuat Data Murid...');
+                              }
                               final studentDocs = studentSnap.data?.docs ?? [];
                               final realStudentsAZ = studentDocs.map((d) {
                                 final data = d.data() as Map<String, dynamic>;
@@ -1082,11 +1187,32 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                 context: context,
                                                 schoolId: schoolId,
                                                 eventId: widget.eventId,
+                                                allowedStudentIds: roomStudentIds,
+                                                allowedStudentNises: roomStudentNises,
                                               ),
                                               exitLogCount: realtimeDocs.where((doc) {
                                                 final d = doc.data() as Map<String, dynamic>;
+                                                final sId = (d['studentId'] ?? '').toString().trim();
+                                                final sNis = (d['nis'] ?? '').toString().trim();
+                                                final docId = doc.id.trim();
+
+                                                final isRoomStudent = roomStudentIds.contains(sId) ||
+                                                    (sNis.isNotEmpty && roomStudentNises.contains(sNis)) ||
+                                                    roomStudentIds.contains(docId) ||
+                                                    roomStudentIds.any((id) => id.isNotEmpty && docId.contains(id)) ||
+                                                    (sNis.isNotEmpty && roomStudentNises.any((nis) => nis.isNotEmpty && docId.contains(nis)));
+
+                                                if (!isRoomStudent && roomStudentIds.isNotEmpty) return false;
+
                                                 final isLeftApp = d['isLeftApp'] == true || d['status'] == 'left_app';
-                                                final count = (d['leftAppCount'] as num?)?.toInt() ?? 0;
+                                                final logs = d['logs'] as List? ?? [];
+                                                int actualLeft = 0;
+                                                for (var l in logs) {
+                                                  if (l is Map && (l['event'] == 'left_app' || l['status'] == 'left_app')) {
+                                                    actualLeft++;
+                                                  }
+                                                }
+                                                final count = actualLeft > 0 ? actualLeft : ((d['leftAppCount'] as num?)?.toInt() ?? 0);
                                                 return isLeftApp || count > 0;
                                               }).length,
                                             ),

@@ -2,6 +2,7 @@ library event_editor_wizard;
 
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/services/admin_user_service.dart';
@@ -977,7 +978,21 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     _autoSaveDraft();
   }
 
+  double _saveProgress = 0.0;
+  String _saveStatusMessage = 'Memulai proses pembuatan event...';
+  int _saveCurrentStepIndex = 1;
+
+  void _updateSaveProgress(double progress, String statusMessage, int stepIndex) {
+    if (!mounted) return;
+    setState(() {
+      _saveProgress = progress.clamp(0.0, 1.0);
+      _saveStatusMessage = statusMessage;
+      _saveCurrentStepIndex = stepIndex;
+    });
+  }
+
   Future<void> _submit() async {
+    _updateSaveProgress(0.05, 'Inisialisasi dokumen event & jadwal sesi...', 1);
     setState(() => _isLoading = true);
     try {
       // 1. Create Event
@@ -1007,6 +1022,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
       if (customEventId.isEmpty || customEventId == '__') {
         customEventId = 'event_${DateTime.now().millisecondsSinceEpoch}';
       }
+
+      _updateSaveProgress(0.18, 'Menyimpan konfigurasi event ke Firestore...', 1);
 
       final eventId = await _eventService.createEvent(
         schoolId: widget.schoolId,
@@ -1058,6 +1075,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         timetable: _timetable,
       );
 
+      _updateSaveProgress(0.38, 'Menjalankan algoritma alokasi denah tempat duduk...', 2);
+      await Future.delayed(const Duration(milliseconds: 200));
+
       // 2. Execute Seating Allocation
       final allocationId = await _eventService.executeAllocation(
         schoolId: widget.schoolId,
@@ -1070,8 +1090,14 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         },
       );
 
+      _updateSaveProgress(0.62, 'Menyimpan tata letak ruangan & denah kursi siswa...', 3);
+      await Future.delayed(const Duration(milliseconds: 200));
+
       // 2.5 Save per-room allocation subcollections & documents with exact room layout modes & student data
       await _saveDetailedRoomsAndSeatsToFirestore(widget.schoolId, eventId, allocationId);
+
+      _updateSaveProgress(0.82, 'Menjenerasikan nomor peserta & penugasan pengawas...', 4);
+      await Future.delayed(const Duration(milliseconds: 200));
 
       // 3. Generate Participant Numbers
       await _eventService.generateParticipantNumbers(
@@ -1135,10 +1161,16 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         }
       }
 
+      _updateSaveProgress(0.95, 'Membuat pembersihan draft & memfinalisasi event...', 5);
+      await Future.delayed(const Duration(milliseconds: 200));
+
       // 4. Delete draft on success
       if (_draftId != null) {
         await _deleteDraft();
       }
+
+      _updateSaveProgress(1.0, 'Pembuatan event ujian berhasil diselesaikan!', 5);
+      await Future.delayed(const Duration(milliseconds: 300));
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1155,6 +1187,223 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  Widget _buildEventProcessingOverlay() {
+    final percentInt = (_saveProgress * 100).toInt();
+
+    final steps = [
+      {'step': 1, 'title': 'Inisialisasi & Konfigurasi Event', 'desc': 'Membuat dokumen event & jadwal sesi'},
+      {'step': 2, 'title': 'Algoritma Alokasi Tempat Duduk', 'desc': 'Mengkalkulasi alokasi denah & ruangan'},
+      {'step': 3, 'title': 'Penyimpanan Ruangan & Kursi', 'desc': 'Menyimpan layout & peta denah siswa'},
+      {'step': 4, 'title': 'Nomor Peserta & Pengawas', 'desc': 'Menjenerasikan nomor ujian & pengawas'},
+      {'step': 5, 'title': 'Finalisasi & Pembersihan Draft', 'desc': 'Menyelesaikan pembuatan event'},
+    ];
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A).withValues(alpha: 0.95),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Container(
+            width: 520,
+            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Circular progress with center percentage text
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 100,
+                      height: 100,
+                      child: CircularProgressIndicator(
+                        value: _saveProgress > 0 ? _saveProgress : null,
+                        strokeWidth: 8,
+                        backgroundColor: const Color(0xFFE2E8F0),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                      ),
+                    ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '$percentInt%',
+                          style: GoogleFonts.inter(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            color: const Color(0xFF0F172A),
+                          ),
+                        ),
+                        Text(
+                          'Proses',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Memproses Event Ujian',
+                  style: GoogleFonts.inter(
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  child: Container(
+                    key: ValueKey(_saveStatusMessage),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.sync_rounded, size: 15, color: Color(0xFF059669)),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            _saveStatusMessage,
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF047857),
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Progress Bar
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: _saveProgress > 0 ? _saveProgress : null,
+                    minHeight: 8,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Divider(height: 1),
+                const SizedBox(height: 16),
+
+                // Checkpoint Steps
+                Column(
+                  children: steps.map((item) {
+                    final stepNum = item['step'] as int;
+                    final title = item['title'] as String;
+                    final desc = item['desc'] as String;
+
+                    final bool isDone = _saveCurrentStepIndex > stepNum || _saveProgress >= 1.0;
+                    final bool isCurrent = _saveCurrentStepIndex == stepNum && _saveProgress < 1.0;
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isDone
+                                  ? const Color(0xFF10B981)
+                                  : isCurrent
+                                      ? const Color(0xFF3B82F6)
+                                      : const Color(0xFFF1F5F9),
+                              border: Border.all(
+                                color: isDone
+                                    ? const Color(0xFF059669)
+                                    : isCurrent
+                                        ? const Color(0xFF2563EB)
+                                        : const Color(0xFFCBD5E1),
+                              ),
+                            ),
+                            child: Center(
+                              child: isDone
+                                  ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+                                  : isCurrent
+                                      ? const SizedBox(
+                                          width: 12,
+                                          height: 12,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        )
+                                      : Text(
+                                          '$stepNum',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: const Color(0xFF64748B),
+                                          ),
+                                        ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: isCurrent || isDone ? FontWeight.bold : FontWeight.w500,
+                                    color: isDone
+                                        ? const Color(0xFF059669)
+                                        : isCurrent
+                                            ? const Color(0xFF1E40AF)
+                                            : const Color(0xFF64748B),
+                                  ),
+                                ),
+                                Text(
+                                  desc,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    color: const Color(0xFF94A3B8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override

@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/widgets/app_refresh_indicator.dart';
 
@@ -70,29 +69,13 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
   // Draft Debounce Timer
   Timer? _draftDebounceTimer;
 
+  String _currentRealtimeStatus = 'in_progress';
+  DateTime? _lastRealtimeStatusUpdate;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    SystemChannels.lifecycle.setMessageHandler((msg) async {
-      debugPrint('📱 SystemChannels.lifecycle message: $msg');
-      if (_isSubmitting) return msg;
-      if (msg == 'AppLifecycleState.paused' ||
-          msg == 'AppLifecycleState.inactive' ||
-          msg == 'AppLifecycleState.hidden' ||
-          msg == 'AppLifecycleState.detached' ||
-          msg == 'inactive' ||
-          msg == 'paused' ||
-          msg == 'hidden') {
-        debugPrint('⚠️ Lifecycle trigger: Student exited app / switched tab!');
-        _updateRealtimeControlStatus('left_app');
-      } else if (msg == 'AppLifecycleState.resumed' || msg == 'resumed') {
-        debugPrint('✅ Lifecycle trigger: Student returned to app!');
-        _updateRealtimeControlStatus('in_progress');
-      }
-      return msg;
-    });
-
     _calculateDurationAndStartTimer();
     _loadQuestions();
     _updateRealtimeControlStatus('in_progress');
@@ -129,6 +112,22 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
   Future<void> _updateRealtimeControlStatus(String status) async {
     if (widget.schoolId.isEmpty || widget.eventId.isEmpty) return;
+
+    // Deduplicate: If state is already identical, ignore duplicate calls (except 'completed')
+    if (_currentRealtimeStatus == status && status != 'completed') {
+      return;
+    }
+
+    // Cooldown guard: Prevent duplicate burst triggers within 1000ms
+    final now = DateTime.now();
+    if (_lastRealtimeStatusUpdate != null &&
+        now.difference(_lastRealtimeStatusUpdate!).inMilliseconds < 1000 &&
+        status != 'completed') {
+      return;
+    }
+
+    _currentRealtimeStatus = status;
+    _lastRealtimeStatusUpdate = now;
 
     String studentDocId = widget.studentId.trim();
     if (studentDocId.isEmpty) studentDocId = widget.nis.trim();

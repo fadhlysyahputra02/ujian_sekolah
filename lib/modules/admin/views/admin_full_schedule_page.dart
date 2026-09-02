@@ -372,27 +372,22 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           final rName = (rMap['name'] ?? rMap['code'] ?? rId).toString();
           final rCode = (rMap['code'] ?? rName).toString();
 
-          // Resolve Classes in this room for this session
+          // Resolve Classes in this room for this session (use seats data which has actual room assignments)
           final Set<String> roomClassSet = {};
-          for (var t in matchingTimetable) {
-            final cId = (t['classId'] ?? '').toString().trim();
-            final cName = (t['className'] ?? '').toString().trim().isNotEmpty
-                ? t['className'].toString().trim()
-                : (_classMap[cId] ?? cId);
-            if (cName.isNotEmpty) roomClassSet.add(cName);
-          }
-          if (roomClassSet.isEmpty) {
-            for (var s in _seats) {
-              final seatRoom = (s['roomId'] ?? s['roomName'] ?? s['roomCode'] ?? '').toString();
-              if (seatRoom == rId || seatRoom == rName || seatRoom == rCode) {
-                final cName = (s['className'] ?? s['classId'] ?? '').toString().trim();
-                if (cName.isNotEmpty) roomClassSet.add(cName);
-              }
+          for (var s in _seats) {
+            final seatRoom = (s['roomId'] ?? s['roomName'] ?? s['roomCode'] ?? '').toString();
+            if (seatRoom == rId || seatRoom == rName || seatRoom == rCode) {
+              final cName = (s['className'] ?? s['classId'] ?? '').toString().trim();
+              if (cName.isNotEmpty) roomClassSet.add(cName);
             }
           }
-          if (roomClassSet.isEmpty) {
-            for (var s in _seats) {
-              final cName = (s['className'] ?? s['classId'] ?? '').toString().trim();
+          // Fallback to timetable only if no seats data exists at all
+          if (roomClassSet.isEmpty && _seats.isEmpty) {
+            for (var t in matchingTimetable) {
+              final cId = (t['classId'] ?? '').toString().trim();
+              final cName = (t['className'] ?? '').toString().trim().isNotEmpty
+                  ? t['className'].toString().trim()
+                  : (_classMap[cId] ?? cId);
               if (cName.isNotEmpty) roomClassSet.add(cName);
             }
           }
@@ -492,14 +487,14 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           }
 
           final List<String> teacherLabels = [];
+          final Set<String> addedTeacherSubjects = {};
           teacherSubjectToClasses.forEach((key, classes) {
             final parts = key.split('|');
             final teachName = parts[0];
             final subName = parts[1];
-            final classesStr = classes.join(', ');
-            if (classesStr.isNotEmpty) {
-              teacherLabels.add('$teachName ($subName - $classesStr)');
-            } else {
+            final uniqueKey = '$teachName|$subName';
+            if (!addedTeacherSubjects.contains(uniqueKey)) {
+              addedTeacherSubjects.add(uniqueKey);
               teacherLabels.add('$teachName ($subName)');
             }
           });

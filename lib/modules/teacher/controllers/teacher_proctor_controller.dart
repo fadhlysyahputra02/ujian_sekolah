@@ -99,78 +99,91 @@ class TeacherProctorController {
     int dayIndex = 0,
     int sessionIndex = 0,
   }) async {
-    try {
-      final studentId = (seatData['studentId'] ?? '').toString();
-      final nis = (seatData['nis'] ?? '').toString();
-      final seatNum = (seatData['seatNumber'] as num?)?.toInt() ?? 0;
-      final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
-      final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
+    final studentId = (seatData['studentId'] ?? '').toString();
+    final nis = (seatData['nis'] ?? '').toString();
+    final seatNum = (seatData['seatNumber'] as num?)?.toInt() ?? 0;
+    final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
+    final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
 
-      final sId = studentId.toLowerCase();
-      final sNis = nis.toLowerCase();
-      final sName = name.toLowerCase();
+    final sId = studentId.toLowerCase();
+    final sNis = nis.toLowerCase();
+    final sName = name.toLowerCase();
 
-      seatData['isAttended'] = isAttended;
-      seatData['attended'] = isAttended;
+    seatData['isAttended'] = isAttended;
+    seatData['attended'] = isAttended;
 
-      if (isAttended) {
-        if (sId.isNotEmpty) localAttendedMap[sId] = true;
-        if (sNis.isNotEmpty) localAttendedMap[sNis] = true;
-        if (sName.isNotEmpty) localAttendedMap[sName] = true;
-        if (seatNum > 0) {
-          localAttendedMap['${roomId}_seat_$seatNum'] = true;
-          localAttendedMap['seat_${roomId}_$seatNum'] = true;
-        }
-      } else {
-        if (sId.isNotEmpty) localAttendedMap.remove(sId);
-        if (sNis.isNotEmpty) localAttendedMap.remove(sNis);
-        if (sName.isNotEmpty) localAttendedMap.remove(sName);
-        if (seatNum > 0) {
-          localAttendedMap.remove('${roomId}_seat_$seatNum');
-          localAttendedMap.remove('seat_${roomId}_$seatNum');
-          localAttendedMap.remove('seat_$seatNum');
-        }
+    if (isAttended) {
+      if (sId.isNotEmpty) localAttendedMap[sId] = true;
+      if (sNis.isNotEmpty) localAttendedMap[sNis] = true;
+      if (sName.isNotEmpty) localAttendedMap[sName] = true;
+      if (seatNum > 0) {
+        localAttendedMap['${roomId}_seat_$seatNum'] = true;
+        localAttendedMap['seat_${roomId}_$seatNum'] = true;
       }
-
-      seatNotifier.value++;
-
-      final docKey = studentId.isNotEmpty
-          ? '${roomId}_${dayIndex}_${sessionIndex}_$studentId'
-          : (nis.isNotEmpty ? '${roomId}_${dayIndex}_${sessionIndex}_$nis' : '${roomId}_${dayIndex}_${sessionIndex}_seat_$seatNum');
-
-      final attRef = FirebaseFirestore.instance
-          .collection('schools')
-          .doc(schoolId)
-          .collection('events')
-          .doc(eventId)
-          .collection('attendances')
-          .doc(docKey);
-
-      if (isAttended) {
-        await attRef.set({
-          'eventId': eventId,
-          'roomId': roomId,
-          'dayIndex': dayIndex,
-          'sessionIndex': sessionIndex,
-          'studentId': studentId,
-          'studentName': name,
-          'nis': nis,
-          'className': className,
-          'seatNumber': seatNum,
-          'isAttended': true,
-          'attendedAt': FieldValue.serverTimestamp(),
-          'updatedBy': 'proctor',
-        }, SetOptions(merge: true));
-      } else {
-        await attRef.delete();
+    } else {
+      if (sId.isNotEmpty) localAttendedMap.remove(sId);
+      if (sNis.isNotEmpty) localAttendedMap.remove(sNis);
+      if (sName.isNotEmpty) localAttendedMap.remove(sName);
+      if (seatNum > 0) {
+        localAttendedMap.remove('${roomId}_seat_$seatNum');
+        localAttendedMap.remove('seat_${roomId}_$seatNum');
+        localAttendedMap.remove('seat_$seatNum');
       }
-
-      debugPrint('📌 Attendance updated for $name (seat #$seatNum): $isAttended');
-      return true;
-    } catch (e) {
-      debugPrint('❌ Error updating attendance: $e');
-      return false;
     }
+
+    seatNotifier.value++;
+
+    final docKey = studentId.isNotEmpty
+        ? '${roomId}_${dayIndex}_${sessionIndex}_$studentId'
+        : (nis.isNotEmpty ? '${roomId}_${dayIndex}_${sessionIndex}_$nis' : '${roomId}_${dayIndex}_${sessionIndex}_seat_$seatNum');
+
+    final attRef = FirebaseFirestore.instance
+        .collection('schools')
+        .doc(schoolId)
+        .collection('events')
+        .doc(eventId)
+        .collection('attendances')
+        .doc(docKey);
+
+    // Retry logic to handle transient Firestore Web SDK INTERNAL ASSERTION errors
+    const int maxRetries = 3;
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (isAttended) {
+          await attRef.set({
+            'eventId': eventId,
+            'roomId': roomId,
+            'dayIndex': dayIndex,
+            'sessionIndex': sessionIndex,
+            'studentId': studentId,
+            'studentName': name,
+            'nis': nis,
+            'className': className,
+            'seatNumber': seatNum,
+            'isAttended': true,
+            'attendedAt': FieldValue.serverTimestamp(),
+            'updatedBy': 'proctor',
+          }, SetOptions(merge: true));
+        } else {
+          await attRef.delete();
+        }
+
+        debugPrint('📌 Attendance updated for $name (seat #$seatNum): $isAttended (attempt $attempt)');
+        return true;
+      } catch (e) {
+        debugPrint('⚠️ Attendance write attempt $attempt/$maxRetries failed for $name: $e');
+        if (attempt < maxRetries) {
+          // Exponential backoff: 500ms, 1500ms
+          final delayMs = 500 * attempt;
+          debugPrint('🔄 Retrying in ${delayMs}ms...');
+          await Future.delayed(Duration(milliseconds: delayMs));
+        } else {
+          debugPrint('❌ All $maxRetries attendance write attempts failed for $name (seat #$seatNum)');
+          return false;
+        }
+      }
+    }
+    return false;
   }
 
   static void processScannedQr({
@@ -228,49 +241,7 @@ class TeacherProctorController {
       scannedNis = rawData.trim();
     }
 
-    if (scannedRoomName.isNotEmpty) {
-      final cleanScannedRoom = scannedRoomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-      bool isRoomMatch = roomAliases.any((alias) {
-        final cleanAlias = alias.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-        return cleanAlias == cleanScannedRoom || cleanAlias.contains(cleanScannedRoom) || cleanScannedRoom.contains(cleanAlias);
-      });
-      if (!isRoomMatch) {
-        triggerScanFeedback(isSuccess: false);
-        if (onShowFeedback != null) {
-          onShowFeedback(
-            '⚠️ Ruangan tidak sesuai! QR ini untuk "$scannedRoomName".',
-            const Color(0xFFDC2626),
-            Icons.warning_amber_rounded,
-          );
-        }
-        return;
-      }
-    }
-
-    if (scannedDayIndex != null && scannedDayIndex != dayIndex) {
-      triggerScanFeedback(isSuccess: false);
-      if (onShowFeedback != null) {
-        onShowFeedback(
-          '⚠️ Hari Ujian tidak sesuai! QR ini untuk Hari ke-${scannedDayIndex + 1}.',
-          const Color(0xFFDC2626),
-          Icons.warning_amber_rounded,
-        );
-      }
-      return;
-    }
-
-    if (scannedSessionIndex != null && scannedSessionIndex != sessionIndex) {
-      triggerScanFeedback(isSuccess: false);
-      if (onShowFeedback != null) {
-        onShowFeedback(
-          '⚠️ Sesi Ujian tidak sesuai! QR ini untuk Sesi ke-${scannedSessionIndex + 1}.',
-          const Color(0xFFDC2626),
-          Icons.warning_amber_rounded,
-        );
-      }
-      return;
-    }
-
+    // 1. Search seatMap in this room FIRST
     Map<String, dynamic>? matchedSeat;
     int? matchedSeatNum;
 
@@ -299,63 +270,108 @@ class TeacherProctorController {
       }
     }
 
-    if (matchedSeat != null && matchedSeatNum != null) {
-      final name = (matchedSeat['displayName'] ?? matchedSeat['studentName'] ?? 'Siswa').toString();
-      final isAlreadyAttended = matchedSeat['isAttended'] == true;
-
-      if (!isAlreadyAttended) {
-        setDialogState(() {
-          matchedSeat!['isAttended'] = true;
+    // 2. If student NOT in this room's seatMap, perform detailed validation checks to provide feedback
+    if (matchedSeat == null || matchedSeatNum == null) {
+      if (scannedRoomName.isNotEmpty) {
+        final cleanScannedRoom = scannedRoomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+        bool isRoomMatch = roomAliases.any((alias) {
+          final cleanAlias = alias.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+          return cleanAlias == cleanScannedRoom || cleanAlias.contains(cleanScannedRoom) || cleanScannedRoom.contains(cleanAlias);
         });
-        final mId = (matchedSeat['studentId'] ?? '').toString().toLowerCase();
-        final mNis = (matchedSeat['nis'] ?? '').toString().toLowerCase();
-        final mName = (matchedSeat['displayName'] ?? matchedSeat['studentName'] ?? '').toString().toLowerCase();
-        if (mId.isNotEmpty) localAttendedMap[mId] = true;
-        if (mNis.isNotEmpty) localAttendedMap[mNis] = true;
-        if (mName.isNotEmpty) localAttendedMap[mName] = true;
-        localAttendedMap['${roomId}_seat_$matchedSeatNum'] = true;
-        localAttendedMap['seat_${roomId}_$matchedSeatNum'] = true;
-
-        seatNotifier.value++;
-
-        triggerScanFeedback(isSuccess: true);
-
-        markStudentAttendance(
-          schoolId: schoolId,
-          eventId: eventId,
-          roomId: roomId,
-          seatData: matchedSeat,
-          isAttended: true,
-          localAttendedMap: localAttendedMap,
-          seatNotifier: seatNotifier,
-          dayIndex: dayIndex,
-          sessionIndex: sessionIndex,
-        );
-
-        if (onShowFeedback != null) {
-          onShowFeedback(
-            '✅ Presensi Berhasil! Siswa "$name" (Meja #$matchedSeatNum) ditandai HADIR!',
-            const Color(0xFF059669),
-            Icons.check_circle_rounded,
-          );
+        if (!isRoomMatch) {
+          triggerScanFeedback(isSuccess: false);
+          if (onShowFeedback != null) {
+            onShowFeedback(
+              '⚠️ Ruangan tidak sesuai! QR ini untuk "$scannedRoomName".',
+              const Color(0xFFDC2626),
+              Icons.warning_amber_rounded,
+            );
+          }
+          return;
         }
-      } else {
+      }
+
+      if (scannedDayIndex != null && scannedDayIndex != dayIndex) {
         triggerScanFeedback(isSuccess: false);
         if (onShowFeedback != null) {
           onShowFeedback(
-            'ℹ️ Siswa "$name" (Meja #$matchedSeatNum) sudah melakukan presensi sebelumnya.',
-            const Color(0xFF0284C7),
-            Icons.info_rounded,
+            '⚠️ Hari Ujian tidak sesuai! QR ini untuk Hari ke-${scannedDayIndex + 1}.',
+            const Color(0xFFDC2626),
+            Icons.warning_amber_rounded,
           );
         }
+        return;
+      }
+
+      if (scannedSessionIndex != null && scannedSessionIndex != sessionIndex) {
+        triggerScanFeedback(isSuccess: false);
+        if (onShowFeedback != null) {
+          onShowFeedback(
+            '⚠️ Sesi Ujian tidak sesuai! QR ini untuk Sesi ke-${scannedSessionIndex + 1}.',
+            const Color(0xFFDC2626),
+            Icons.warning_amber_rounded,
+          );
+        }
+        return;
+      }
+
+      triggerScanFeedback(isSuccess: false);
+      if (onShowFeedback != null) {
+        onShowFeedback(
+          '⚠️ Siswa "${scannedName.isNotEmpty ? scannedName : scannedStudentId}" tidak ditemukan di ruangan ini.',
+          const Color(0xFFDC2626),
+          Icons.warning_amber_rounded,
+        );
+      }
+      return;
+    }
+
+    final name = (matchedSeat['displayName'] ?? matchedSeat['studentName'] ?? 'Siswa').toString();
+    final isAlreadyAttended = matchedSeat['isAttended'] == true;
+
+    if (!isAlreadyAttended) {
+      setDialogState(() {
+        matchedSeat!['isAttended'] = true;
+      });
+      final mId = (matchedSeat['studentId'] ?? '').toString().toLowerCase();
+      final mNis = (matchedSeat['nis'] ?? '').toString().toLowerCase();
+      final mName = (matchedSeat['displayName'] ?? matchedSeat['studentName'] ?? '').toString().toLowerCase();
+      if (mId.isNotEmpty) localAttendedMap[mId] = true;
+      if (mNis.isNotEmpty) localAttendedMap[mNis] = true;
+      if (mName.isNotEmpty) localAttendedMap[mName] = true;
+      localAttendedMap['${roomId}_seat_$matchedSeatNum'] = true;
+      localAttendedMap['seat_${roomId}_$matchedSeatNum'] = true;
+
+      seatNotifier.value++;
+
+      triggerScanFeedback(isSuccess: true);
+
+      markStudentAttendance(
+        schoolId: schoolId,
+        eventId: eventId,
+        roomId: roomId,
+        seatData: matchedSeat,
+        isAttended: true,
+        localAttendedMap: localAttendedMap,
+        seatNotifier: seatNotifier,
+        dayIndex: dayIndex,
+        sessionIndex: sessionIndex,
+      );
+
+      if (onShowFeedback != null) {
+        onShowFeedback(
+          '✅ Presensi Berhasil! Siswa "$name" (Meja #$matchedSeatNum) ditandai HADIR!',
+          const Color(0xFF059669),
+          Icons.check_circle_rounded,
+        );
       }
     } else {
       triggerScanFeedback(isSuccess: false);
       if (onShowFeedback != null) {
         onShowFeedback(
-          '⚠️ QR tidak cocok dengan daftar murid di ruangan ini. ID/NIS: "${scannedStudentId.isNotEmpty ? scannedStudentId : rawData}"',
-          const Color(0xFFDC2626),
-          Icons.warning_amber_rounded,
+          'ℹ️ Siswa "$name" (Meja #$matchedSeatNum) sudah melakukan presensi sebelumnya.',
+          const Color(0xFF0284C7),
+          Icons.info_rounded,
         );
       }
     }
@@ -659,6 +675,8 @@ class TeacherProctorController {
     required BuildContext context,
     required String schoolId,
     required String eventId,
+    Set<String>? allowedStudentIds,
+    Set<String>? allowedStudentNises,
   }) {
     showModalBottomSheet(
       context: context,
@@ -743,9 +761,32 @@ class TeacherProctorController {
 
                   for (var doc in docs) {
                     final data = doc.data() as Map<String, dynamic>;
+                    final sId = (data['studentId'] ?? '').toString().trim();
+                    final sNis = (data['nis'] ?? '').toString().trim();
+                    final docId = doc.id.trim();
+
+                    if (allowedStudentIds != null && allowedStudentIds.isNotEmpty) {
+                      final bool isRoomStudent = allowedStudentIds.contains(sId) ||
+                          (sNis.isNotEmpty && allowedStudentNises != null && allowedStudentNises.contains(sNis)) ||
+                          allowedStudentIds.contains(docId) ||
+                          allowedStudentIds.any((id) => id.isNotEmpty && docId.contains(id)) ||
+                          (allowedStudentNises != null && allowedStudentNises.any((nis) => nis.isNotEmpty && docId.contains(nis)));
+
+                      if (!isRoomStudent) continue;
+                    }
+
                     final isLeftApp = data['isLeftApp'] == true || data['status'] == 'left_app';
-                    final leftAppCount = (data['leftAppCount'] as num?)?.toInt() ?? (isLeftApp ? 1 : 0);
                     final logs = data['logs'] as List? ?? [];
+
+                    int actualLeftCount = 0;
+                    for (var l in logs) {
+                      if (l is Map && (l['event'] == 'left_app' || l['status'] == 'left_app')) {
+                        actualLeftCount++;
+                      }
+                    }
+                    final leftAppCount = actualLeftCount > 0
+                        ? actualLeftCount
+                        : ((data['leftAppCount'] as num?)?.toInt() ?? (isLeftApp ? 1 : 0));
                     final hasLogs = logs.isNotEmpty || isLeftApp || leftAppCount > 0;
 
                     if (hasLogs) {
@@ -805,16 +846,36 @@ class TeacherProctorController {
                       final nis = item['nis'].toString();
                       final count = item['leftAppCount'];
 
-                      DateTime? lastTime;
-                      if (item['lastLeftAppAt'] is Timestamp) {
-                        lastTime = (item['lastLeftAppAt'] as Timestamp).toDate();
-                      } else if (item['updatedAt'] is Timestamp) {
-                        lastTime = (item['updatedAt'] as Timestamp).toDate();
+                      final rawLogs = item['logs'] as List? ?? [];
+                      final parsedLogs = <Map<String, dynamic>>[];
+
+                      for (var entry in rawLogs) {
+                        if (entry is Map) {
+                          final event = (entry['event'] ?? entry['status'] ?? '').toString();
+                          final tsStr = (entry['timestamp'] ?? entry['time'] ?? '').toString();
+                          DateTime? dt;
+                          if (tsStr.isNotEmpty) {
+                            dt = DateTime.tryParse(tsStr);
+                          }
+                          parsedLogs.add({
+                            'event': event,
+                            'dateTime': dt,
+                          });
+                        }
                       }
 
-                      final timeStr = lastTime != null
-                          ? '${lastTime.hour.toString().padLeft(2, '0')}:${lastTime.minute.toString().padLeft(2, '0')}:${lastTime.second.toString().padLeft(2, '0')} WIB'
-                          : 'Baru saja';
+                      if (parsedLogs.isEmpty) {
+                        DateTime? fallbackTime;
+                        if (item['lastLeftAppAt'] is Timestamp) {
+                          fallbackTime = (item['lastLeftAppAt'] as Timestamp).toDate();
+                        } else if (item['updatedAt'] is Timestamp) {
+                          fallbackTime = (item['updatedAt'] as Timestamp).toDate();
+                        }
+                        parsedLogs.add({
+                          'event': 'left_app',
+                          'dateTime': fallbackTime,
+                        });
+                      }
 
                       return Container(
                         padding: const EdgeInsets.all(16),
@@ -826,14 +887,15 @@ class TeacherProctorController {
                           ),
                         ),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             CircleAvatar(
-                              radius: 22,
+                              radius: 20,
                               backgroundColor: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFFF59E0B),
                               child: Icon(
                                 isCurrentlyOut ? Icons.warning_amber_rounded : Icons.history_rounded,
                                 color: Colors.white,
-                                size: 22,
+                                size: 20,
                               ),
                             ),
                             const SizedBox(width: 14),
@@ -841,65 +903,106 @@ class TeacherProctorController {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          studentName,
-                                          style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFF10B981),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Text(
-                                          isCurrentlyOut ? 'SEDANG DILUAR APP' : 'KEMBALI KE APP',
-                                          style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.white),
-                                        ),
-                                      ),
-                                    ],
+                                  Text(
+                                    studentName,
+                                    style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     'Kelas $className • NIS: $nis',
                                     style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
                                   ),
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 6),
                                   Row(
                                     children: [
-                                      Icon(Icons.history_rounded, size: 13, color: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFFD97706)),
+                                      Icon(Icons.history_rounded, size: 14, color: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFFD97706)),
                                       const SizedBox(width: 4),
                                       Text(
-                                        'Terdeteksi $count kali keluar • Waktu: $timeStr',
+                                        'Terdeteksi $count kali keluar',
                                         style: GoogleFonts.inter(
-                                          fontSize: 11.5,
-                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
                                           color: isCurrentlyOut ? const Color(0xFFDC2626) : const Color(0xFFD97706),
                                         ),
                                       ),
                                     ],
                                   ),
+                                  if (parsedLogs.isNotEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Detail Peristiwa:',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: const Color(0xFF475569),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          ...parsedLogs.asMap().entries.map((e) {
+                                            final idx = e.key + 1;
+                                            final logItem = e.value;
+                                            final event = logItem['event'].toString();
+                                            final dt = logItem['dateTime'] as DateTime?;
+                                            final isExit = event == 'left_app' || event == 'exited';
+
+                                            final timeText = dt != null
+                                                ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')} WIB'
+                                                : 'Waktu tidak tercatat';
+
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 6),
+                                              child: Row(
+                                                children: [
+                                                  Container(
+                                                    width: 6,
+                                                    height: 6,
+                                                    decoration: BoxDecoration(
+                                                      color: isExit ? const Color(0xFFDC2626) : const Color(0xFF10B981),
+                                                      shape: BoxShape.circle,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                      '$idx. ${isExit ? "Keluar Aplikasi" : "Kembali ke Aplikasi"}',
+                                                      style: GoogleFonts.inter(
+                                                        fontSize: 11.5,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: isExit ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    timeText,
+                                                    style: GoogleFonts.inter(
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w500,
+                                                      color: const Color(0xFF64748B),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            IconButton(
-                              tooltip: 'Reset Peringatan',
-                              icon: const Icon(Icons.refresh_rounded, color: Color(0xFFD97706)),
-                              onPressed: () async {
-                                await resetRealtimeControlWarning(
-                                  schoolId: schoolId,
-                                  eventId: eventId,
-                                  seatData: item,
-                                );
-                                triggerScanFeedback(isSuccess: true);
-                              },
                             ),
                           ],
                         ),
