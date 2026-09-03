@@ -1,18 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/models/student.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../widgets/class_form_dialog.dart';
 
 class ClassDetailScreen extends StatefulWidget {
   final String schoolId;
-  final Map<String, dynamic> classData;
+  final String classId;
+  final Map<String, dynamic>? initialData;
 
   const ClassDetailScreen({
     super.key,
     required this.schoolId,
-    required this.classData,
+    required this.classId,
+    this.initialData,
   });
 
   @override
@@ -35,9 +38,9 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   static const Color _indigo = Color(0xFF4F46E5);
   static const Color _slate = Color(0xFF64748B);
   static const Color _border = Color(0xFFE2E8F0);
+  static const Color _background = Color(0xFFF8FAFC);
 
-  String get _classId => widget.classData['id'] as String;
-  String get _className => widget.classData['name'] as String? ?? '-';
+  String get _classId => widget.classId;
 
   List<String> _enrolledIds(Map<String, dynamic> classDoc) {
     final raw = classDoc['studentIds'];
@@ -46,34 +49,38 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   }
 
   // ── Actions ──
-  Future<void> _editClass() async {
+  Future<void> _editClass(Map<String, dynamic> classData) async {
     final updated = await showDialog<bool>(
       context: context,
       builder: (_) => ClassFormDialog(
         schoolId: widget.schoolId,
-        existingClass: {...widget.classData, 'id': _classId},
+        existingClass: {...classData, 'id': _classId},
       ),
     );
     if (updated == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Kelas berhasil diperbarui!')),
       );
-      Navigator.of(context).pop(true); // refresh parent
     }
   }
 
-  Future<void> _deleteClass() async {
+  Future<void> _deleteClass(String className) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Kelas'),
-        content: Text('Yakin ingin menghapus kelas "$_className"? Semua data keanggotaan akan hilang.'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Hapus Kelas', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text('Yakin ingin menghapus kelas "$className"? Semua data keanggotaan akan hilang.'),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Hapus'),
+            child: const Text('Hapus', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -81,7 +88,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
     if (confirmed != true) return;
     try {
       await _service.deleteClass(schoolId: widget.schoolId, classId: _classId);
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) context.pop();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -95,14 +102,19 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Keluarkan Murid'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Keluarkan Murid', style: TextStyle(fontWeight: FontWeight.bold)),
         content: Text('Keluarkan "$name" dari kelas ini?'),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Keluarkan'),
+            child: const Text('Keluarkan', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -179,7 +191,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 backgroundColor: Colors.white,
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480, maxHeight: 580),
+                  constraints: const BoxConstraints(maxWidth: 480, maxHeight: 600),
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Column(
@@ -190,7 +202,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                           children: [
                             const Text(
                               'Tambah Murid ke Kelas',
-                              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: _dark),
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _dark),
                             ),
                             if (filtered.isNotEmpty)
                               TextButton(
@@ -207,9 +219,9 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                                 },
                                 style: TextButton.styleFrom(
                                   foregroundColor: _indigo,
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  backgroundColor: _indigo.withValues(alpha: 0.1),
                                 ),
                                 child: Text(
                                   filtered.every((id) => selectedIds.contains(id.id))
@@ -224,57 +236,55 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                         TextField(
                           decoration: InputDecoration(
                             hintText: 'Cari nama atau NIS...',
-                            prefixIcon: const Icon(Icons.search_rounded),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _border)),
-                            contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                            prefixIcon: const Icon(Icons.search_rounded, color: _slate),
+                            filled: true,
+                            fillColor: const Color(0xFFF1F5F9),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                           ),
                           onChanged: (v) => setInner(() => localSearch = v),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
                         Expanded(
                           child: filtered.isEmpty
-                              ? const Center(child: Text('Tidak ada murid ditemukan.', style: TextStyle(color: _slate)))
+                              ? const Center(child: Text('Tidak ada murid tersedia.', style: TextStyle(color: _slate)))
                               : ListView.separated(
                                   itemCount: filtered.length,
-                                  separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
+                                  separatorBuilder: (_, __) => const SizedBox(height: 8),
                                   itemBuilder: (_, i) {
                                     final s = filtered[i];
                                     final isSelected = selectedIds.contains(s.id);
-                                    return ListTile(
-                                      dense: true,
-                                      onTap: isSaving ? null : () {
-                                        setInner(() {
-                                          if (isSelected) {
-                                            selectedIds.remove(s.id);
-                                          } else {
-                                            selectedIds.add(s.id);
-                                          }
-                                        });
-                                      },
-                                      leading: CircleAvatar(
-                                        backgroundColor: (isSelected ? const Color(0xFF10B981) : const Color(0xFF4F46E5)).withValues(alpha: 0.1),
-                                        child: Icon(
-                                          isSelected ? Icons.check_rounded : Icons.person_rounded,
-                                          color: isSelected ? const Color(0xFF10B981) : _indigo,
-                                          size: 16,
+                                    return AnimatedContainer(
+                                      duration: const Duration(milliseconds: 200),
+                                      decoration: BoxDecoration(
+                                        color: isSelected ? const Color(0xFF10B981).withValues(alpha: 0.05) : Colors.white,
+                                        border: Border.all(
+                                          color: isSelected ? const Color(0xFF10B981) : _border,
+                                          width: isSelected ? 1.5 : 1,
                                         ),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
-                                      title: Text(s.displayName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: _dark)),
-                                      subtitle: Text('NIS: ${s.nis}', style: const TextStyle(fontSize: 12, color: _slate)),
-                                      trailing: Checkbox(
-                                        value: isSelected,
-                                        activeColor: const Color(0xFF10B981),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                                        onChanged: isSaving ? null : (val) {
+                                      child: ListTile(
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        onTap: isSaving ? null : () {
                                           setInner(() {
-                                            if (val == true) {
-                                              selectedIds.add(s.id);
-                                            } else {
+                                            if (isSelected) {
                                               selectedIds.remove(s.id);
+                                            } else {
+                                              selectedIds.add(s.id);
                                             }
                                           });
                                         },
+                                        leading: CircleAvatar(
+                                          backgroundColor: (isSelected ? const Color(0xFF10B981) : const Color(0xFFF1F5F9)),
+                                          child: Icon(
+                                            isSelected ? Icons.check_rounded : Icons.person_outline_rounded,
+                                            color: isSelected ? Colors.white : _slate,
+                                            size: 18,
+                                          ),
+                                        ),
+                                        title: Text(s.displayName, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: isSelected ? const Color(0xFF047857) : _dark)),
+                                        subtitle: Text('NIS: ${s.nis}', style: const TextStyle(fontSize: 12, color: _slate)),
                                       ),
                                     );
                                   },
@@ -288,7 +298,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                               onPressed: isSaving ? null : () => Navigator.of(ctx).pop(),
                               child: const Text('Batal'),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 12),
                             ElevatedButton.icon(
                               onPressed: (selectedIds.isEmpty || isSaving)
                                   ? null
@@ -306,6 +316,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                                             SnackBar(
                                               content: Text('${selectedIds.length} murid berhasil ditambahkan ke kelas!'),
                                               backgroundColor: const Color(0xFF10B981),
+                                              behavior: SnackBarBehavior.floating,
                                             ),
                                           );
                                         }
@@ -316,6 +327,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                                             SnackBar(
                                               content: Text('Gagal menambahkan murid: $e'),
                                               backgroundColor: const Color(0xFFEF4444),
+                                              behavior: SnackBarBehavior.floating,
                                             ),
                                           );
                                         }
@@ -335,9 +347,9 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                                 backgroundColor: _indigo,
                                 foregroundColor: Colors.white,
                                 elevation: 0,
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                               ),
                             ),
                           ],
@@ -368,34 +380,22 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
         if (classSnap.hasError) {
           return Scaffold(body: Center(child: Text('Error: ${classSnap.error}')));
         }
-        if (!classSnap.hasData || !classSnap.data!.exists) {
+        
+        // Show initial data if snapshot is loading but we have extraData from routing
+        Map<String, dynamic> classDoc = {};
+        if (classSnap.hasData && classSnap.data!.exists) {
+          classDoc = classSnap.data!.data() as Map<String, dynamic>;
+        } else if (widget.initialData != null) {
+          classDoc = widget.initialData!;
+        } else if (!classSnap.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        final classDoc = classSnap.data!.data() as Map<String, dynamic>;
         final enrolledIds = _enrolledIds(classDoc);
-        final currentName = classDoc['name'] as String? ?? _className;
+        final currentName = classDoc['name'] as String? ?? '-';
 
         return Scaffold(
-          backgroundColor: const Color(0xFFF8FAFC),
-          appBar: AppBar(
-            backgroundColor: const Color(0xFF0F172A),
-            foregroundColor: Colors.white,
-            elevation: 0,
-            title: Text(currentName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white)),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.edit_rounded),
-                tooltip: 'Edit Kelas',
-                onPressed: _editClass,
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_rounded, color: Color(0xFFF87171)),
-                tooltip: 'Hapus Kelas',
-                onPressed: _deleteClass,
-              ),
-            ],
-          ),
+          backgroundColor: _background,
           body: StreamBuilder<List<Student>>(
             stream: _service.streamStudents(widget.schoolId),
             builder: (context, studentsSnap) {
@@ -413,125 +413,309 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                           s.nis.contains(_searchQuery))
                       .toList();
 
-              return Column(
-                children: [
-                  // ── Stats Banner ──
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                    color: const Color(0xFF0F172A),
-                    child: _statChip(Icons.people_rounded, '${enrolledStudents.length}', 'Murid Terdaftar'),
-                  ),
-                  // ── Search + Add ──
-                  Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            onChanged: (v) => setState(() => _searchQuery = v),
-                            decoration: InputDecoration(
-                              hintText: 'Cari murid di kelas ini...',
-                              prefixIcon: const Icon(Icons.search_rounded),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                              enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  borderSide: const BorderSide(color: _border)),
-                              contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              return CustomScrollView(
+                slivers: [
+                  // ── Premium Header ──
+                  SliverAppBar(
+                    expandedHeight: 180.0,
+                    floating: false,
+                    pinned: true,
+                    backgroundColor: _indigo,
+                    elevation: 0,
+                    leading: IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                      onPressed: () {
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go('/admin/kelas');
+                        }
+                      },
+                    ),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_rounded, color: Colors.white),
+                        tooltip: 'Edit Kelas',
+                        onPressed: () => _editClass(classDoc),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_rounded, color: Color(0xFFFDA4AF)),
+                        tooltip: 'Hapus Kelas',
+                        onPressed: () => _deleteClass(currentName),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    flexibleSpace: FlexibleSpaceBar(
+                      background: Container(
+                        decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF312E81)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF1E1B4B).withValues(alpha: 0.25),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              right: -20,
+                              top: -20,
+                              child: Icon(Icons.school_rounded, size: 160, color: Colors.white.withValues(alpha: 0.1)),
                             ),
-                          ),
+                            Positioned(
+                              left: 24,
+                              bottom: 24,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      'Detail Kelas',
+                                      style: GoogleFonts.inter(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    currentName,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      height: 1.1,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.people_alt_rounded, color: Colors.white70, size: 16),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '${enrolledStudents.length} Murid Terdaftar',
+                                        style: GoogleFonts.inter(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        ElevatedButton.icon(
-                          onPressed: () => _showAddStudentDialog(enrolledIds, allStudents),
-                          icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-                          label: const Text('Tambah Murid'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _indigo,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                  // ── Student List ──
-                  Expanded(
-                    child: filtered.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.people_outline_rounded, size: 56, color: Colors.grey[300]),
-                                const SizedBox(height: 12),
-                                Text(
-                                  _searchQuery.isEmpty
-                                      ? 'Belum ada murid di kelas ini.\nTekan "Tambah Murid" untuk mulai.'
-                                      : 'Murid tidak ditemukan.',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: _slate, fontSize: 14),
+                  
+                  // ── Action Bar ──
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2)),
+                                ],
+                              ),
+                              child: TextField(
+                                controller: _searchController,
+                                onChanged: (v) => setState(() => _searchQuery = v),
+                                decoration: InputDecoration(
+                                  hintText: 'Cari murid di kelas ini...',
+                                  hintStyle: const TextStyle(color: _slate, fontSize: 14),
+                                  prefixIcon: const Icon(Icons.search_rounded, color: _slate),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Container(
+                            decoration: BoxDecoration(
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _indigo.withValues(alpha: 0.3),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            itemCount: filtered.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
-                            itemBuilder: (_, i) {
-                              final s = filtered[i];
-                              return Container(
-                                color: Colors.white,
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                                  leading: CircleAvatar(
-                                    backgroundColor: const Color(0xFF4F46E5).withValues(alpha: 0.1),
-                                    child: Text(
-                                      s.displayName.isNotEmpty ? s.displayName[0].toUpperCase() : '?',
-                                      style: const TextStyle(color: _indigo, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                  title: Text(s.displayName, style: const TextStyle(fontWeight: FontWeight.w600, color: _dark)),
-                                  subtitle: Text(
-                                    'NIS: ${s.nis}  •  ${s.gender == 'M' ? 'Laki-laki' : 'Perempuan'}',
-                                    style: const TextStyle(fontSize: 12, color: _slate),
-                                  ),
-                                  trailing: IconButton(
-                                    icon: const Icon(Icons.remove_circle_outline_rounded, color: Color(0xFFEF4444)),
-                                    tooltip: 'Keluarkan dari kelas',
-                                    onPressed: () => _removeStudent(s.id, s.displayName),
-                                  ),
-                                ),
-                              );
-                            },
+                            child: ElevatedButton.icon(
+                              onPressed: () => _showAddStudentDialog(enrolledIds, allStudents),
+                              icon: const Icon(Icons.person_add_rounded, size: 18),
+                              label: const Text('Tambah Murid'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _indigo,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                textStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
+                              ),
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
                   ),
+
+                  // ── Student List ──
+                  if (filtered.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: _indigo.withValues(alpha: 0.05),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(Icons.people_outline_rounded, size: 64, color: _indigo.withValues(alpha: 0.4)),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              _searchQuery.isEmpty
+                                  ? 'Belum ada murid di kelas ini'
+                                  : 'Murid tidak ditemukan',
+                              style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: _dark),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _searchQuery.isEmpty
+                                  ? 'Klik tombol "Tambah Murid" untuk memasukkan murid ke kelas ini.'
+                                  : 'Coba kata kunci pencarian yang lain.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: _slate, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, i) {
+                            final s = filtered[i];
+                            final isMale = s.gender == 'M';
+                            
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: _border),
+                                boxShadow: [
+                                  BoxShadow(color: Colors.black.withValues(alpha: 0.01), blurRadius: 10, offset: const Offset(0, 2)),
+                                ],
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 24,
+                                      backgroundColor: isMale 
+                                        ? const Color(0xFFDBEAFE) // blue-100
+                                        : const Color(0xFFFCE7F3), // pink-100
+                                      child: Text(
+                                        s.displayName.isNotEmpty ? s.displayName[0].toUpperCase() : '?',
+                                        style: TextStyle(
+                                          color: isMale ? const Color(0xFF1D4ED8) : const Color(0xFFBE185D),
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 18,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            s.displayName,
+                                            style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15, color: _dark),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: _slate.withValues(alpha: 0.1),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  'NIS: ${s.nis}',
+                                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _slate),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Icon(
+                                                isMale ? Icons.male_rounded : Icons.female_rounded,
+                                                size: 14,
+                                                color: _slate,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                isMale ? 'Laki-laki' : 'Perempuan',
+                                                style: const TextStyle(fontSize: 12, color: _slate),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(10),
+                                        onTap: () => _removeStudent(s.id, s.displayName),
+                                        hoverColor: const Color(0xFFFEE2E2),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(10),
+                                          child: const Icon(Icons.person_remove_rounded, color: Color(0xFFEF4444), size: 22),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                          childCount: filtered.length,
+                        ),
+                      ),
+                    ),
+                  
+                  const SliverToBoxAdapter(child: SizedBox(height: 40)),
                 ],
               );
             },
           ),
         );
       },
-    );
-  }
-
-  Widget _statChip(IconData icon, String value, String label) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: const Color(0xFF818CF8), size: 18),
-            const SizedBox(width: 6),
-            Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-          ],
-        ),
-        const SizedBox(height: 2),
-        Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-      ],
     );
   }
 }

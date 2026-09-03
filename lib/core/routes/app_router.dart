@@ -13,6 +13,7 @@ import '../../modules/subscription/views/subscription_blocked_page.dart';
 import '../constants/app_version.dart';
 import '../widgets/app_splash_loader.dart';
 import '../../modules/admin/views/admin_full_schedule_page.dart';
+import '../../modules/admin/views/class_detail_screen.dart';
 
 class AppRouter {
   static GoRouter createRouter(AuthService authService) {
@@ -47,8 +48,8 @@ class AppRouter {
 
         // 4. Strict Role-Based Route Guard (Cegah pembobolan via URL)
         if (role == 'super_admin') {
-          if (loc == '/' || loc.startsWith('/teacher')) {
-            return '/superadmin';
+          if (loc == '/' || loc.startsWith('/teacher') || loc == '/superadmin') {
+            return '/superadmin/ringkasan';
           }
         } else if (role == 'school_admin') {
           if (loc == '/' || loc == '/admin' || loc.startsWith('/teacher') || loc.startsWith('/superadmin')) {
@@ -93,8 +94,11 @@ class AppRouter {
           builder: (context, state) => const SubscriptionBlockedPage(),
         ),
         GoRoute(
-          path: '/superadmin',
-          builder: (context, state) => const DashboardPage(),
+          path: '/superadmin/:tab',
+          builder: (context, state) {
+            final tab = state.pathParameters['tab'];
+            return DashboardPage(tabName: tab);
+          },
         ),
         GoRoute(
           path: '/admin/event/:eventId/schedule',
@@ -106,6 +110,19 @@ class AppRouter {
               schoolId: schoolId,
               eventId: eventId,
               eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/class-detail/:classId',
+          builder: (context, state) {
+            final classId = state.pathParameters['classId']!;
+            final schoolId = authService.schoolId ?? '';
+            final extraData = state.extra as Map<String, dynamic>?;
+            return ClassDetailScreen(
+              schoolId: schoolId,
+              classId: classId,
+              initialData: extraData,
             );
           },
         ),

@@ -1608,10 +1608,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             ],
                           ),
                           child: InkWell(
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => ClassDetailScreen(schoolId: schoolId, classData: cls),
-                              ),
+                            onTap: () => context.go(
+                              '/class-detail/${cls['id']}',
                             ),
                             borderRadius: BorderRadius.circular(16),
                             child: Padding(
@@ -1683,10 +1681,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
     return InkWell(
       onTap: () async {
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ClassDetailScreen(schoolId: schoolId, classData: cls),
-          ),
+        context.go(
+          '/class-detail/${cls['id']}',
         );
       },
       borderRadius: BorderRadius.circular(12),
@@ -2279,8 +2275,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const AppContentLoader(
-            title: 'Memuat Data Murid...',
-            subtitle: 'Mengambil daftar murid dari database',
+            title: 'Memuat Data Guru...',
+            subtitle: 'Mengambil daftar guru dari database',
           );
         }
  
@@ -2641,8 +2637,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const AppContentLoader(
-                title: 'Memuat Mata Pelajaran...',
-                subtitle: 'Mengambil daftar mata pelajaran dari database',
+                title: 'Memuat Data Murid...',
+                subtitle: 'Mengambil daftar murid dari database',
               );
             }
 
@@ -3261,8 +3257,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const AppContentLoader(
-            title: 'Memuat Pengaturan...',
-            subtitle: 'Menyiapkan konfigurasi profil sekolah',
+            title: 'Memuat Mata Pelajaran...',
+            subtitle: 'Mengambil daftar mata pelajaran dari database',
           );
         }
 
