@@ -38,6 +38,8 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
 
   // Search Query
   String _searchQuery = '';
+  // Day Tab selection (-1: Semua Hari, 0: Hari 1, 1: Hari 2, ...)
+  int _selectedDayTab = 0;
 
   @override
   void initState() {
@@ -203,6 +205,21 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  bool _isClassInRoom(String cId, String cName, Set<String> roomClassSet) {
+    if (roomClassSet.isEmpty) return true;
+    final cleanId = cId.trim().toLowerCase().replaceAll(' ', '');
+    final cleanName = cName.trim().toLowerCase().replaceAll(' ', '');
+
+    for (var rc in roomClassSet) {
+      final cleanRc = rc.trim().toLowerCase().replaceAll(' ', '');
+      if (cleanRc.isEmpty) continue;
+      if (cleanRc == cleanId || cleanRc == cleanName) return true;
+      if (cleanName.isNotEmpty && (cleanName == cleanRc || cleanName.contains(cleanRc) || cleanRc.contains(cleanName))) return true;
+      if (cleanId.isNotEmpty && (cleanId == cleanRc || cleanId.contains(cleanRc) || cleanRc.contains(cleanId))) return true;
+    }
+    return false;
   }
 
   List<Map<String, dynamic>> _buildSimpleScheduleRows() {
@@ -392,14 +409,31 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
             }
           }
 
-          // Resolve Mapel in this session
+          // Resolve Mapel in this session (filter specifically for classes in this room)
           final Set<String> subjectSet = {};
           for (var t in matchingTimetable) {
-            final sId = (t['subjectId'] ?? '').toString().trim();
-            final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
-                ? t['subjectName'].toString().trim()
-                : (_subjectMap[sId] ?? sId);
-            if (subName.isNotEmpty) subjectSet.add(subName);
+            final cId = (t['classId'] ?? '').toString().trim();
+            final cName = (t['className'] ?? '').toString().trim().isNotEmpty
+                ? t['className'].toString().trim()
+                : (_classMap[cId] ?? cId);
+
+            if (_isClassInRoom(cId, cName, roomClassSet)) {
+              final sId = (t['subjectId'] ?? '').toString().trim();
+              final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
+                  ? t['subjectName'].toString().trim()
+                  : (_subjectMap[sId] ?? sId);
+              if (subName.isNotEmpty) subjectSet.add(subName);
+            }
+          }
+
+          if (subjectSet.isEmpty && roomClassSet.isEmpty) {
+            for (var t in matchingTimetable) {
+              final sId = (t['subjectId'] ?? '').toString().trim();
+              final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
+                  ? t['subjectName'].toString().trim()
+                  : (_subjectMap[sId] ?? sId);
+              if (subName.isNotEmpty) subjectSet.add(subName);
+            }
           }
 
           if (subjectSet.isEmpty && gridSubjects != null) {
@@ -449,14 +483,14 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
             }
           }
 
-          // Resolve Guru Pembuat Soal in this session
+          // Resolve Guru Pembuat Soal in this session (filter specifically for classes in this room)
           final Map<String, Set<String>> teacherSubjectToClasses = {};
           for (var t in matchingTimetable) {
             final cId = (t['classId'] ?? '').toString().trim();
             final cName = (t['className'] ?? '').toString().trim().isNotEmpty
                 ? t['className'].toString().trim()
                 : (_classMap[cId] ?? cId);
-            if (roomClassSet.contains(cName) || roomClassSet.contains(cId)) {
+            if (_isClassInRoom(cId, cName, roomClassSet)) {
               final teachName = (t['teacherName'] ?? '').toString().trim();
               final sId = (t['subjectId'] ?? '').toString().trim();
               final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
@@ -468,7 +502,7 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
               }
             }
           }
-          if (teacherSubjectToClasses.isEmpty) {
+          if (teacherSubjectToClasses.isEmpty && roomClassSet.isEmpty) {
             for (var t in matchingTimetable) {
               final teachName = (t['teacherName'] ?? '').toString().trim();
               final sId = (t['subjectId'] ?? '').toString().trim();
@@ -519,6 +553,91 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
     return result;
   }
 
+  Widget _buildDayTabsBar(List<Map<String, dynamic>> dayTabs) {
+    if (dayTabs.length <= 2) return const SizedBox.shrink(); // Don't show tabs if only 1 day exists
+
+    return Container(
+      height: 44,
+      margin: const EdgeInsets.only(bottom: 20),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: dayTabs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final tab = dayTabs[index];
+          final dIdx = tab['dayIndex'] as int;
+          final isSelected = _selectedDayTab == dIdx;
+
+          String label = tab['label'] as String;
+          final dateStr = tab['dateStr'] as String;
+          if (dateStr.isNotEmpty && dIdx != -1) {
+            label = '$label • $dateStr';
+          }
+
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _selectedDayTab = dIdx;
+                  });
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? const Color(0xFF4F46E5) : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected ? const Color(0xFF4338CA) : const Color(0xFFE2E8F0),
+                      width: isSelected ? 1.5 : 1.0,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ]
+                        : [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.02),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        dIdx == -1 ? Icons.calendar_view_day_rounded : Icons.today_rounded,
+                        size: 16,
+                        color: isSelected ? Colors.white : const Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        label,
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                          color: isSelected ? Colors.white : const Color(0xFF334155),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -538,36 +657,74 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
 
     final allRows = _buildSimpleScheduleRows();
 
-    // Search filter
+    // Collect Day Tabs
+    final List<Map<String, dynamic>> dayTabsList = [
+      {'dayIndex': -1, 'label': 'Semua Hari', 'dateStr': ''}
+    ];
+    final Set<int> addedDays = {};
+    for (var r in allRows) {
+      final dIdx = (r['dayIndex'] as num?)?.toInt() ?? 0;
+      final dStr = (r['dateStr'] as String? ?? '');
+      if (!addedDays.contains(dIdx)) {
+        addedDays.add(dIdx);
+        dayTabsList.add({
+          'dayIndex': dIdx,
+          'label': 'Hari ${dIdx + 1}',
+          'dateStr': dStr,
+        });
+      }
+    }
+
+    // Filter rows by Day Tab & Search Query
     final filteredRows = allRows.where((row) {
-      if (_searchQuery.isEmpty) return true;
-      final q = _searchQuery.toLowerCase();
-      return (row['dateStr'] as String).toLowerCase().contains(q) ||
-          (row['sessionName'] as String).toLowerCase().contains(q) ||
-          (row['roomName'] as String).toLowerCase().contains(q) ||
-          (row['classesList'] as String).toLowerCase().contains(q) ||
-          (row['mapelList'] as String).toLowerCase().contains(q) ||
-          (row['guruSoalList'] as String).toLowerCase().contains(q) ||
-          (row['pengawasList'] as String).toLowerCase().contains(q);
+      // 1. Day Tab Filter
+      if (_selectedDayTab != -1) {
+        final dIdx = (row['dayIndex'] as num?)?.toInt() ?? 0;
+        if (dIdx != _selectedDayTab) return false;
+      }
+
+      // 2. Search Query Filter
+      if (_searchQuery.isNotEmpty) {
+        final q = _searchQuery.toLowerCase();
+        return (row['dateStr'] as String).toLowerCase().contains(q) ||
+            (row['sessionName'] as String).toLowerCase().contains(q) ||
+            (row['roomName'] as String).toLowerCase().contains(q) ||
+            (row['classesList'] as String).toLowerCase().contains(q) ||
+            (row['mapelList'] as String).toLowerCase().contains(q) ||
+            (row['guruSoalList'] as String).toLowerCase().contains(q) ||
+            (row['pengawasList'] as String).toLowerCase().contains(q);
+      }
+      return true;
     }).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        automaticallyImplyLeading: false,
+        centerTitle: true,
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+          onPressed: () => Navigator.of(context).maybePop(),
+          tooltip: 'Kembali',
+        ),
         title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(
               widget.eventName,
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.white),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
+            const SizedBox(height: 2),
             Text(
-              'Jadwal Ujian Sederhana (Hari, Sesi, Jam, Ruangan, Kelas, Mapel & Pengawas)',
-              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF818CF8)),
+              'Jadwal Lengkap Pelaksanaan Ujian Sekolah',
+              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -594,31 +751,48 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           children: [
             // Search Input Box
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.search, color: Color(0xFF64748B), size: 20),
+                  const Icon(Icons.search_rounded, color: Color(0xFF64748B), size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: TextField(
                       onChanged: (val) => setState(() => _searchQuery = val),
                       decoration: InputDecoration(
-                        hintText: 'Cari hari, ruangan, kelas, mapel, atau pengawas...',
+                        hintText: 'Cari ruangan, kelas, mapel, guru, atau pengawas...',
                         hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
                         border: InputBorder.none,
                         isDense: true,
                       ),
                     ),
                   ),
+                  if (_searchQuery.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF94A3B8)),
+                      onPressed: () => setState(() => _searchQuery = ''),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+
+            // Horizontal Day Tab Filter Bar
+            _buildDayTabsBar(dayTabsList),
 
             // Simple Spreadsheet-style Table matching requested structure
             _buildSimpleScheduleTable(filteredRows),
@@ -690,93 +864,91 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                   dividerThickness: 1,
                   border: TableBorder.all(color: const Color(0xFFCBD5E1), width: 0.8),
                   columns: const [
-                    DataColumn(label: Text('Hari')),
-                    DataColumn(label: Text('Sesi')),
-                    DataColumn(label: Text('Jam')),
-                    DataColumn(label: Text('Ruangan')),
-                    DataColumn(label: Text('Kelas')),
-                    DataColumn(label: Text('Mapel')),
-                    DataColumn(label: Text('Guru Pembuat Soal')),
-                    DataColumn(label: Text('Pengawas')),
+                    DataColumn(label: SizedBox(width: 80, child: Text('Sesi'))),
+                    DataColumn(label: SizedBox(width: 110, child: Text('Jam'))),
+                    DataColumn(label: SizedBox(width: 100, child: Text('Ruangan'))),
+                    DataColumn(label: SizedBox(width: 160, child: Text('Kelas'))),
+                    DataColumn(label: SizedBox(width: 200, child: Text('Mapel'))),
+                    DataColumn(label: SizedBox(width: 260, child: Text('Guru Pembuat Soal'))),
+                    DataColumn(label: SizedBox(width: 180, child: Text('Pengawas'))),
                   ],
                   rows: rows.asMap().entries.map((entry) {
                     final idx = entry.key;
                     final row = entry.value;
 
-                    // Day cell merging: Only display Day text on the first row of each date group
-                    final bool isFirstRowOfDay = (idx == 0 || rows[idx]['dateStr'] != rows[idx - 1]['dateStr']);
-                    final String displayDayText = isFirstRowOfDay ? row['dateStr'] : '';
-
                     return DataRow(
-                      color: WidgetStateProperty.all(isFirstRowOfDay ? Colors.white : const Color(0xFFF8FAFC)),
+                      color: WidgetStateProperty.all(idx % 2 == 0 ? Colors.white : const Color(0xFFF8FAFC)),
                       cells: [
-                        // Hari (Merged appearance when empty)
-                        DataCell(
-                          Container(
-                            constraints: const BoxConstraints(minWidth: 140, maxWidth: 160),
-                            child: Text(
-                              displayDayText,
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: const Color(0xFF0F172A),
-                              ),
-                            ),
-                          ),
-                        ),
                         // Sesi
                         DataCell(
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEEF2FF),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFC7D2FE)),
-                            ),
-                            child: Text(
-                              row['sessionName'],
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                color: const Color(0xFF3730A3),
+                          SizedBox(
+                            width: 80,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEEF2FF),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFC7D2FE)),
+                              ),
+                              child: Text(
+                                row['sessionName'],
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: const Color(0xFF3730A3),
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
                         ),
                         // Jam
                         DataCell(
-                          Text(
-                            row['sessionTime'],
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF334155),
+                          SizedBox(
+                            width: 110,
+                            child: Text(
+                              row['sessionTime'],
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF334155),
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
                         // Ruangan
                         DataCell(
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFEF3C7),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: const Color(0xFFFDE68A)),
-                            ),
-                            child: Text(
-                              row['roomName'],
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 11,
-                                color: const Color(0xFF92400E),
+                          SizedBox(
+                            width: 100,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF3C7),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFFFDE68A)),
+                              ),
+                              child: Text(
+                                row['roomName'],
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  color: const Color(0xFF92400E),
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
                         ),
                         // Kelas
                         DataCell(
-                          Container(
-                            constraints: const BoxConstraints(minWidth: 120, maxWidth: 180),
+                          SizedBox(
+                            width: 160,
                             child: Text(
                               row['classesList'],
                               style: GoogleFonts.inter(
@@ -784,13 +956,15 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                                 fontWeight: FontWeight.w600,
                                 color: const Color(0xFF0284C7),
                               ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
                         // Mapel
                         DataCell(
-                          Container(
-                            constraints: const BoxConstraints(minWidth: 140, maxWidth: 220),
+                          SizedBox(
+                            width: 200,
                             child: Text(
                               row['mapelList'],
                               style: GoogleFonts.inter(
@@ -798,13 +972,15 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                                 fontSize: 13,
                                 color: const Color(0xFF0F172A),
                               ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
                         // Guru Pembuat Soal
                         DataCell(
-                          Container(
-                            constraints: const BoxConstraints(minWidth: 140, maxWidth: 200),
+                          SizedBox(
+                            width: 260,
                             child: Text(
                               row['guruSoalList'] ?? '-',
                               style: GoogleFonts.inter(
@@ -812,13 +988,15 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                                 fontWeight: FontWeight.w600,
                                 color: const Color(0xFF475569),
                               ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
                         // Pengawas
                         DataCell(
-                          Container(
-                            constraints: const BoxConstraints(minWidth: 140, maxWidth: 200),
+                          SizedBox(
+                            width: 180,
                             child: Text(
                               row['pengawasList'],
                               style: GoogleFonts.inter(
@@ -826,6 +1004,8 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
                                 fontWeight: FontWeight.w600,
                                 color: const Color(0xFF059669),
                               ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
@@ -841,58 +1021,93 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
     );
   }
 
-  /// Print or Export Schedule PDF Document matching requested simple table format
+  /// Print or Export Schedule PDF Document matching A4 Landscape format perfectly
   Future<void> _printOrExportPdf(List<Map<String, dynamic>> rows) async {
     final doc = pw.Document();
 
+    String activeDayText = 'Semua Hari';
+    if (_selectedDayTab >= 0 && rows.isNotEmpty) {
+      final firstRow = rows.first;
+      final dateStr = (firstRow['dateStr'] ?? '').toString();
+      activeDayText = 'Hari ${_selectedDayTab + 1}${dateStr.isNotEmpty ? " • $dateStr" : ""}';
+    }
+
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(24),
-        build: (pw.Context context) {
+        header: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text(
-                'JADWAL PELAKSANAAN UJIAN SEKOLAH',
-                style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'JADWAL PELAKSANAAN UJIAN SEKOLAH',
+                        style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey900),
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Event: ${widget.eventName}  |  $activeDayText',
+                        style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                      ),
+                    ],
+                  ),
+                  pw.Text(
+                    'Halaman ${context.pageNumber} dari ${context.pagesCount}',
+                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
+                  ),
+                ],
               ),
-              pw.SizedBox(height: 2),
-              pw.Text(
-                'Event: ${widget.eventName}',
-                style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
-              ),
-              pw.SizedBox(height: 14),
-              pw.Table.fromTextArray(
-                headers: ['Hari', 'Sesi', 'Jam', 'Ruangan', 'Kelas', 'Mapel', 'Guru Pembuat Soal', 'Pengawas'],
-                data: rows.asMap().entries.map((entry) {
-                  final idx = entry.key;
-                  final r = entry.value;
-                  final bool isFirstRowOfDay = (idx == 0 || rows[idx]['dateStr'] != rows[idx - 1]['dateStr']);
-                  final String displayDayText = isFirstRowOfDay ? r['dateStr'] : '';
-                  return [
-                    displayDayText,
-                    r['sessionName'],
-                    r['sessionTime'],
-                    r['roomName'],
-                    r['classesList'],
-                    r['mapelList'],
-                    r['guruSoalList'] ?? '-',
-                    r['pengawasList'],
-                  ];
-                }).toList(),
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
-                headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey900),
-                cellStyle: const pw.TextStyle(fontSize: 9),
-                cellHeight: 22,
-                cellAlignment: pw.Alignment.centerLeft,
-              ),
+              pw.SizedBox(height: 8),
+              pw.Divider(thickness: 1, color: PdfColors.grey400),
+              pw.SizedBox(height: 8),
             ],
           );
+        },
+        build: (pw.Context context) {
+          return [
+            pw.Table.fromTextArray(
+              headers: ['Sesi', 'Jam', 'Ruangan', 'Kelas', 'Mapel', 'Guru Pembuat Soal', 'Pengawas'],
+              data: rows.map((r) {
+                return [
+                  r['sessionName'] ?? '-',
+                  r['sessionTime'] ?? '-',
+                  r['roomName'] ?? '-',
+                  r['classesList'] ?? '-',
+                  r['mapelList'] ?? '-',
+                  r['guruSoalList'] ?? '-',
+                  r['pengawasList'] ?? '-',
+                ];
+              }).toList(),
+              columnWidths: {
+                0: const pw.FlexColumnWidth(0.9), // Sesi
+                1: const pw.FlexColumnWidth(1.1), // Jam
+                2: const pw.FlexColumnWidth(1.0), // Ruangan
+                3: const pw.FlexColumnWidth(1.5), // Kelas
+                4: const pw.FlexColumnWidth(1.8), // Mapel
+                5: const pw.FlexColumnWidth(2.3), // Guru Pembuat Soal
+                6: const pw.FlexColumnWidth(1.6), // Pengawas
+              },
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 9.5),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey900),
+              cellStyle: const pw.TextStyle(fontSize: 8.5),
+              cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+              cellAlignment: pw.Alignment.centerLeft,
+            ),
+          ];
         },
       ),
     );
 
-    await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => doc.save());
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => doc.save(),
+      name: 'Jadwal_Ujian_${widget.eventName}.pdf',
+      format: PdfPageFormat.a4.landscape,
+    );
   }
 }

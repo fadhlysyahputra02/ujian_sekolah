@@ -20,6 +20,31 @@ function verifySchoolAdmin(request, schoolId) {
     }
 }
 /**
+ * Generates an 8-character temporary password meeting strict requirements:
+ * - Exactly 8 characters in length.
+ * - Exactly 2 numeric digits (shuffled randomly among letters).
+ * - Exactly 6 letters (uppercase & lowercase), excluding ambiguous characters ('I', 'i', 'l', 'L').
+ * - Absolutely NO special symbols.
+ */
+function generateSecurePassword() {
+    const letters = 'abcdefghjkmnopqrstuvwxyzABCDEFGHJKMNOPQRSTUVWXYZ';
+    const digits = '0123456789';
+    const letterChars = [];
+    for (let i = 0; i < 6; i++) {
+        letterChars.push(letters.charAt(Math.floor(Math.random() * letters.length)));
+    }
+    const digitChars = [];
+    for (let i = 0; i < 2; i++) {
+        digitChars.push(digits.charAt(Math.floor(Math.random() * digits.length)));
+    }
+    const combined = [...letterChars, ...digitChars];
+    for (let i = combined.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [combined[i], combined[j]] = [combined[j], combined[i]];
+    }
+    return combined.join('');
+}
+/**
  * Helper to generate custom Document ID for teachers and students:
  * Last two words of displayName joined + 4 random lowercase alphanumeric characters.
  */
@@ -238,10 +263,7 @@ exports.createTeacher = functions.https.onCall(async (request) => {
         const loginEmail = email ? email.trim() : (createAuth ? await generateAutoEmail(db, schoolId, displayName, nip) : null);
         // 1. Create Firebase Auth user if requested
         if (createAuth && loginEmail) {
-            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-            for (let i = 0; i < 10; i++) {
-                tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
+            tempPassword = generateSecurePassword();
             const userRecord = await admin.auth().createUser({
                 email: loginEmail,
                 password: tempPassword,
@@ -330,10 +352,7 @@ exports.createStudent = functions.https.onCall(async (request) => {
     try {
         const loginEmail = email ? email.trim() : (createAuth ? await generateAutoEmail(db, schoolId, displayName, nis) : null);
         if (createAuth && loginEmail) {
-            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-            for (let i = 0; i < 10; i++) {
-                tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
+            tempPassword = generateSecurePassword();
             const userRecord = await admin.auth().createUser({
                 email: loginEmail,
                 password: tempPassword,
@@ -536,11 +555,7 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
         const random2Digits = Math.floor(10 + Math.random() * 90);
         finalEmail = `${cleanName}${random2Digits}@${schoolCode.toLowerCase()}.com`;
     }
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    let tempPassword = '';
-    for (let i = 0; i < 10; i++) {
-        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    const tempPassword = generateSecurePassword();
     try {
         if (!uid) {
             // 1. Create a new Firebase Auth user
@@ -842,10 +857,7 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
                 let tempPassword = '';
                 const loginEmail = cleanEmail || (createAuth ? await generateAutoEmail(db, schoolId, cleanName, cleanNis) : null);
                 if (createAuth && loginEmail) {
-                    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-                    for (let j = 0; j < 10; j++) {
-                        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-                    }
+                    tempPassword = generateSecurePassword();
                     const userRecord = await admin.auth().createUser({
                         email: loginEmail,
                         password: tempPassword,
@@ -1001,10 +1013,7 @@ exports.importTeachersBulk = functions.https.onCall(async (request) => {
                 let tempPassword = '';
                 const loginEmail = cleanEmail || (createAuth ? await generateAutoEmail(db, schoolId, cleanName, cleanNip) : null);
                 if (createAuth && loginEmail) {
-                    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-                    for (let j = 0; j < 10; j++) {
-                        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-                    }
+                    tempPassword = generateSecurePassword();
                     const userRecord = await admin.auth().createUser({
                         email: loginEmail,
                         password: tempPassword,

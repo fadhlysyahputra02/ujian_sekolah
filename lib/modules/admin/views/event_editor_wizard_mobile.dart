@@ -600,9 +600,8 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
   Widget _buildMobileStep2() {
     final self = this;
     final quickPresets = [
-      {'name': 'Sesi 1', 'start': const TimeOfDay(hour: 7, minute: 0), 'end': const TimeOfDay(hour: 8, minute: 0), 'label': '07:00-08:00'},
-      {'name': 'Sesi 2', 'start': const TimeOfDay(hour: 8, minute: 0), 'end': const TimeOfDay(hour: 9, minute: 0), 'label': '08:00-09:00'},
-      {'name': 'Sesi 3', 'start': const TimeOfDay(hour: 9, minute: 0), 'end': const TimeOfDay(hour: 10, minute: 0), 'label': '09:00-10:00'},
+      {'name': 'Sesi 1', 'start': const TimeOfDay(hour: 7, minute: 30), 'end': const TimeOfDay(hour: 9, minute: 0), 'label': '07:00-08:00'},
+      {'name': 'Sesi 2', 'start': const TimeOfDay(hour: 10, minute: 0), 'end': const TimeOfDay(hour: 11, minute: 30), 'label': '08:00-09:00'},
     ];
 
     return ListView(

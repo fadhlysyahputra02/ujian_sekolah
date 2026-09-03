@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
@@ -117,6 +118,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             'name': doc.data()['name'],
             'adminEmail': doc.data()['adminEmail'],
             'code': doc.data()['code'],
+            'logoUrl': doc.data()['logoUrl'] ?? doc.data()['logoBase64'] ?? doc.data()['logo'],
           }).toList();
           _isLoadingSchools = false;
         });
@@ -494,6 +496,27 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     return Scaffold(
       body: AnimatedBuilder(
         animation: Listenable.merge([_orb1Controller, _orb2Controller]),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildMobileLogo(),
+                  const SizedBox(height: 32),
+                  FadeTransition(
+                    opacity: _fadeAnim,
+                    child: SlideTransition(
+                      position: _slideAnim,
+                      child: _buildLoginCard(isDesktop: false),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
         builder: (context, child) {
           return Container(
             width: double.infinity,
@@ -507,7 +530,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             ),
             child: Stack(
               children: [
-                // Decorative orbs
+                // Decorative orbs only rebuild on animation frames
                 _buildOrb(
                   left: size.width * (0.1 + _orb1Anim.value * 0.15),
                   top: size.height * (0.05 + _orb1Anim.value * 0.05),
@@ -522,28 +545,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   color: const Color(0xFF06B6D4),
                   opacity: 0.12,
                 ),
-                // Content
-                SafeArea(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _buildMobileLogo(),
-                          const SizedBox(height: 32),
-                          FadeTransition(
-                            opacity: _fadeAnim,
-                            child: SlideTransition(
-                              position: _slideAnim,
-                              child: _buildLoginCard(isDesktop: false),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+                // Login card is passed as child and does NOT rebuild every frame
+                if (child != null) child,
               ],
             ),
           );
@@ -551,6 +554,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       ),
     );
   }
+
 
   // ─────────────────────────────────────────────────────────────────────────
   // BRANDING PANEL (LEFT)
@@ -857,9 +861,26 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
+            if (_selectedSchool != null) ...[
+              (() {
+                final logoUrlStr = _selectedSchool!['logoUrl']?.toString().trim() ?? '';
+                debugPrint('[Login] logo check: id=${_selectedSchool!["id"]}, logoUrl length=${logoUrlStr.length}');
+                if (logoUrlStr.isNotEmpty) {
+                  return Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 20),
+                      width: 80,
+                      height: 80,
+                      child: _buildSchoolLogoImage(logoUrlStr),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              })(),
+            ],
+            // Header Title
             Text(
-              'Selamat Datang 👋',
+              _selectedSchool != null ? 'Selamat Datang' : 'Selamat Datang 👋',
               style: GoogleFonts.inter(
                 fontSize: 26,
                 fontWeight: FontWeight.w800,
@@ -868,10 +889,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               ),
             ),
             const SizedBox(height: 6),
+            // Header Subtitle
             Text(
-              'Masuk ke portal sekolah Anda untuk melanjutkan.',
+              _selectedSchool != null
+                  ? (_selectedSchool!['name'] ?? 'Masuk ke portal sekolah Anda untuk melanjutkan.')
+                  : 'Masuk ke portal sekolah Anda untuk melanjutkan.',
               style: GoogleFonts.inter(
-                fontSize: 14,
+                fontSize: _selectedSchool != null ? 15 : 14,
+                fontWeight: _selectedSchool != null ? FontWeight.w600 : FontWeight.normal,
                 color: subtitleColor,
                 height: 1.5,
               ),
@@ -933,10 +958,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                 return filtered.take(5);
               },
               displayStringForOption: (Map<String, dynamic> option) => option['name'],
-              onSelected: (Map<String, dynamic> selection) {
+              onSelected: (Map<String, dynamic> selection) async {
+                final logoAlreadyInList = selection['logoUrl']?.toString().trim() ?? '';
+                debugPrint('[Login] onSelected: ${selection["name"]}, logoUrl length=${logoAlreadyInList.length}');
                 setState(() {
                   _selectedSchool = selection;
                 });
+                // always fetch fresh to ensure logo is up to date
+                await _fetchSchoolLogoDirectly(selection['id']);
               },
               fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
                 _schoolSearchController = textEditingController;
@@ -949,6 +978,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   inputTextColor: inputTextColor,
                   subtitleColor: subtitleColor,
                   inputBorderColor: inputBorderColor,
+                  onChanged: (text) {
+                    if (text.trim().isEmpty && _selectedSchool != null) {
+                      setState(() {
+                        _selectedSchool = null;
+                      });
+                    }
+                  },
                   suffixIcon: textEditingController.text.isNotEmpty
                       ? IconButton(
                           icon: Icon(Icons.close_rounded, size: 18, color: subtitleColor),
@@ -1148,6 +1184,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     bool obscureText = false,
     TextInputAction? textInputAction,
     void Function(String)? onFieldSubmitted,
+    void Function(String)? onChanged,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
@@ -1156,6 +1193,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       obscureText: obscureText,
       textInputAction: textInputAction,
       onFieldSubmitted: onFieldSubmitted,
+      onChanged: onChanged,
       style: GoogleFonts.inter(color: inputTextColor, fontSize: 14),
       decoration: InputDecoration(
         hintText: hintText,
@@ -1300,6 +1338,67 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  Future<void> _fetchSchoolLogoDirectly(String schoolId) async {
+    try {
+      final docSnap = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+      if (docSnap.exists && mounted) {
+        final data = docSnap.data();
+        if (data != null) {
+          final logo = data['logoUrl'] ?? data['logoBase64'] ?? data['logo'];
+          if (logo != null && logo.toString().isNotEmpty) {
+            setState(() {
+              if (_selectedSchool != null && _selectedSchool!['id'] == schoolId) {
+                _selectedSchool = {
+                  ..._selectedSchool!,
+                  'logoUrl': logo.toString(),
+                };
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching logo directly: $e");
+    }
+  }
+
+  Widget _buildSchoolLogoImage(String logoUrl) {
+    final trimmed = logoUrl.trim();
+    if (trimmed.isEmpty) {
+      return const Icon(Icons.school_rounded, color: Color(0xFF4F46E5), size: 48);
+    }
+
+    if (trimmed.contains('base64,')) {
+      try {
+        final base64Data = trimmed.split('base64,').last.replaceAll(RegExp(r'\s+'), '');
+        final bytes = base64Decode(base64Data);
+        return Image.memory(
+          bytes,
+          width: 80,
+          height: 80,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          errorBuilder: (_, error, __) {
+            debugPrint('[Login] Image.memory error: $error');
+            return const Icon(Icons.school_rounded, color: Color(0xFF4F46E5), size: 48);
+          },
+        );
+      } catch (e) {
+        debugPrint('[Login] base64 decode error: $e');
+      }
+    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return Image.network(
+        trimmed,
+        width: 80,
+        height: 80,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const Icon(Icons.school_rounded, color: Color(0xFF4F46E5), size: 48),
+      );
+    }
+
+    return const Icon(Icons.school_rounded, color: Color(0xFF4F46E5), size: 48);
   }
 }
 
