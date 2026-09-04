@@ -7,6 +7,7 @@ import '../../../core/widgets/app_splash_loader.dart';
 import 'package:go_router/go_router.dart';
 import 'event_editor_wizard.dart';
 import 'admin_full_schedule_page.dart';
+import '../widgets/makeup_exam_dialog.dart';
 
 class EventListScreen extends StatefulWidget {
   final String schoolId;
@@ -810,6 +811,28 @@ class _EventListScreenState extends State<EventListScreen> {
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                         ),
                                       ),
+                                    // Ujian Susulan button – tampil jika event sudah publish/closed
+                                    if (status == 'published' || status == 'closed')
+                                      ElevatedButton.icon(
+                                        onPressed: () => showDialog(
+                                          context: context,
+                                          barrierDismissible: false,
+                                          builder: (_) => MakeupExamDialog(
+                                            schoolId: widget.schoolId,
+                                            eventId: e['id'],
+                                            eventName: name,
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.history_edu_rounded, size: 16),
+                                        label: const Text('Ujian Susulan'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF7C3AED),
+                                          foregroundColor: Colors.white,
+                                          elevation: 0,
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
                                     if (status != 'closed')
                                       ElevatedButton.icon(
                                         onPressed: () => _updateStatus(e['id'], status),
@@ -855,6 +878,31 @@ class _EventListScreenState extends State<EventListScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: 10),
+                                    // Ujian Susulan – mobile
+                                    if (status == 'published' || status == 'closed') ...[
+                                      ElevatedButton.icon(
+                                        onPressed: () => showDialog(
+                                          context: context,
+                                          barrierDismissible: false,
+                                          builder: (_) => MakeupExamDialog(
+                                            schoolId: widget.schoolId,
+                                            eventId: e['id'],
+                                            eventName: name,
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.history_edu_rounded, size: 16),
+                                        label: Text('Ujian Susulan',
+                                            style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF7C3AED),
+                                          foregroundColor: Colors.white,
+                                          elevation: 0,
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                    ],
                                     if (status != 'closed') ...[
                                       ElevatedButton.icon(
                                         onPressed: () => _updateStatus(e['id'], status),

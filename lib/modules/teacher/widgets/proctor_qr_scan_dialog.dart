@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -49,7 +49,7 @@ class ProctorQrScanDialog extends StatefulWidget {
     final MobileScannerController scannerController = MobileScannerController(
       detectionSpeed: DetectionSpeed.unrestricted,
       detectionTimeoutMs: 50,
-      facing: CameraFacing.front,
+      facing: kIsWeb ? CameraFacing.front : CameraFacing.front,
       torchEnabled: false,
       returnImage: false,
       formats: const [BarcodeFormat.qrCode],
@@ -338,57 +338,13 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            Transform(
-                              alignment: Alignment.center,
-                              transform: _isMirrorMode ? Matrix4.rotationY(pi) : Matrix4.identity(),
-                              child: MobileScanner(
-                                controller: widget.scannerController,
-                                errorBuilder: (context, error, child) {
-                                  return Center(
-                                    child: Container(
-                                      padding: const EdgeInsets.all(16),
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          const Icon(Icons.videocam_off_rounded, color: Colors.white70, size: 36),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Kamera Nonaktif',
-                                            style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                                onDetect: (capture) {
-                                  final now = DateTime.now();
-                                  if (now.difference(_lastScanTime).inMilliseconds < 1500) return;
-                                  final barcodes = capture.barcodes;
-                                  for (final barcode in barcodes) {
-                                    final rawValue = barcode.rawValue;
-                                    if (rawValue != null && rawValue.isNotEmpty) {
-                                      _lastScanTime = now;
-                                      TeacherProctorController.processScannedQr(
-                                        rawData: rawValue,
-                                        schoolId: widget.schoolId,
-                                        eventId: widget.eventId,
-                                        roomId: widget.roomId,
-                                        roomAliases: widget.roomAliases,
-                                        seatMap: widget.seatMap,
-                                        setDialogState: setState,
-                                        localAttendedMap: widget.localAttendedMap,
-                                        seatNotifier: widget.seatNotifier,
-                                        onShowFeedback: _showFeedback,
-                                        dayIndex: widget.dayIndex,
-                                        sessionIndex: widget.sessionIndex,
-                                      );
-                                      break;
-                                    }
-                                  }
-                                },
-                              ),
-                            ),
+                            if (_isMirrorMode)
+                              Transform.scale(
+                                scaleX: -1,
+                                child: _buildMobileScanner(),
+                              )
+                            else
+                              _buildMobileScanner(),
 
                             // Camera Viewfinder Target Frame (Enlarged 220x220)
                             Container(
@@ -616,6 +572,63 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMobileScanner() {
+    return MobileScanner(
+      controller: widget.scannerController,
+      errorBuilder: (context, error, child) {
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.videocam_off_rounded, color: Colors.white70, size: 36),
+                const SizedBox(height: 8),
+                Text(
+                  'Gagal Membuka Kamera (${error.errorCode})',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  error.errorDetails?.message ?? 'Pastikan izin akses kamera diizinkan di browser web Anda.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      onDetect: (capture) {
+        final now = DateTime.now();
+        if (now.difference(_lastScanTime).inMilliseconds < 1500) return;
+        final barcodes = capture.barcodes;
+        for (final barcode in barcodes) {
+          final rawValue = barcode.rawValue;
+          if (rawValue != null && rawValue.isNotEmpty) {
+            _lastScanTime = now;
+            TeacherProctorController.processScannedQr(
+              rawData: rawValue,
+              schoolId: widget.schoolId,
+              eventId: widget.eventId,
+              roomId: widget.roomId,
+              roomAliases: widget.roomAliases,
+              seatMap: widget.seatMap,
+              setDialogState: setState,
+              localAttendedMap: widget.localAttendedMap,
+              seatNotifier: widget.seatNotifier,
+              onShowFeedback: _showFeedback,
+              dayIndex: widget.dayIndex,
+              sessionIndex: widget.sessionIndex,
+            );
+            break;
+          }
+        }
+      },
     );
   }
 }

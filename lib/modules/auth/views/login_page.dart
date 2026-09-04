@@ -466,7 +466,15 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           Expanded(
             flex: 9,
             child: Container(
-              color: const Color(0xFFF8FAFC),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                image: DecorationImage(
+                  image: AssetImage('assets/images/batik.jpg'),
+                  fit: BoxFit.none, // Retain original size and tile
+                  repeat: ImageRepeat.repeat,
+                  opacity: 0.04, // Very subtle opacity for elegant look
+                ),
+              ),
               child: Center(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 40),
@@ -651,31 +659,54 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                         ),
                         const SizedBox(height: 28),
                         // Headline
-                        Text(
-                          'Portal Ujian\nDigital Modern\n& Praktis.',
-                          style: GoogleFonts.inter(
-                            color: Colors.white,
-                            fontSize: 44,
-                            fontWeight: FontWeight.w800,
-                            height: 1.15,
-                            letterSpacing: -1,
+                        ShaderMask(
+                          shaderCallback: (bounds) => const LinearGradient(
+                            colors: [Colors.white, Color(0xFFE2E8F0)],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ).createShader(bounds),
+                          child: Text(
+                            'Portal Ujian\nDigital Modern\n& Praktis.',
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 46,
+                              fontWeight: FontWeight.w900,
+                              height: 1.15,
+                              letterSpacing: -1.5,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 24),
                         Text(
                           'SesiCermat menghadirkan kenyamanan ujian tanpa kertas bagi murid, guru, dan admin sekolah dalam satu ekosistem cloud yang cepat dan aman.',
                           style: GoogleFonts.inter(
                             color: const Color(0xFF94A3B8),
-                            fontSize: 15,
-                            height: 1.65,
+                            fontSize: 16,
+                            height: 1.6,
+                            letterSpacing: 0.1,
                           ),
                         ),
-                        const SizedBox(height: 40),
-                        _buildFeatureRow(Icons.people_alt_rounded, 'Manajemen Guru & Murid Real-time'),
-                        const SizedBox(height: 14),
-                        _buildFeatureRow(Icons.assignment_turned_in_rounded, 'Integrasi Ujian & Penilaian Otomatis'),
-                        const SizedBox(height: 14),
-                        _buildFeatureRow(Icons.shield_rounded, 'Keamanan Firebase Terproteksi'),
+                        const SizedBox(height: 48),
+                        _buildFeatureRow(
+                          Icons.people_alt_rounded,
+                          'Manajemen Guru & Murid Real-time',
+                          gradient: const [Color(0xFF065F46), Color(0xFF047857)],
+                          iconColor: const Color(0xFF34D399),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildFeatureRow(
+                          Icons.assignment_turned_in_rounded,
+                          'Integrasi Ujian & Penilaian Otomatis',
+                          gradient: const [Color(0xFF1E3A8A), Color(0xFF1D4ED8)],
+                          iconColor: const Color(0xFF60A5FA),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildFeatureRow(
+                          Icons.auto_awesome_rounded,
+                          'Antarmuka Interaktif & Inovatif',
+                          gradient: const [Color(0xFF701A75), Color(0xFF9D174D)],
+                          iconColor: const Color(0xFFF472B6),
+                        ),
                       ],
                     ),
                     // Footer
@@ -786,20 +817,27 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildFeatureRow(IconData icon, String text) {
+  Widget _buildFeatureRow(IconData icon, String text, {List<Color>? gradient, Color? iconColor}) {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF065F46), Color(0xFF047857)],
+            gradient: LinearGradient(
+              colors: gradient ?? [const Color(0xFF065F46), const Color(0xFF047857)],
             ),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: [
+              BoxShadow(
+                color: (gradient?.first ?? const Color(0xFF065F46)).withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-          child: Icon(icon, color: const Color(0xFF34D399), size: 14),
+          child: Icon(icon, color: iconColor ?? const Color(0xFF34D399), size: 16),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 14),
         Text(
           text,
           style: GoogleFonts.inter(
@@ -829,11 +867,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     final inputBorderColor = isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
 
     return Container(
-      padding: const EdgeInsets.all(36),
+      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: cardBorder),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: cardBorder, width: 0.5),
         boxShadow: isDark
             ? [
                 BoxShadow(
@@ -849,9 +887,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               ]
             : [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 32,
-                  offset: const Offset(0, 8),
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                  blurRadius: 15,
+                  offset: const Offset(0, 4),
+                ),
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                  blurRadius: 40,
+                  offset: const Offset(0, 20),
                 ),
               ],
       ),
@@ -1203,27 +1246,27 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         ),
         prefixIcon: Icon(prefixIcon, color: subtitleColor, size: 20),
         suffixIcon: suffixIcon,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         filled: true,
         fillColor: isDark
-            ? Colors.white.withValues(alpha: 0.04)
-            : const Color(0xFFF9FAFB),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ? Colors.white.withValues(alpha: 0.03)
+            : const Color(0xFFF1F5F9).withValues(alpha: 0.6),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: inputBorderColor),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: inputBorderColor.withValues(alpha: 0.5)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF818CF8), width: 2),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: Color(0xFFEF4444)),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
         ),
       ),
       validator: validator,

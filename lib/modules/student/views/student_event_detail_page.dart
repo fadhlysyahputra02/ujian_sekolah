@@ -51,6 +51,12 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   List<Map<String, dynamic>> _myTimetable = [];
   final Map<String, Map<String, dynamic>> _sessionMap = {};
 
+  // Makeup Exam Approvals: key = "subjectId", value = approval doc data
+  final Map<String, Map<String, dynamic>> _makeupApprovals = {};
+
+  // Real-time stream of makeup attendances for this student
+  Stream<QuerySnapshot>? _makeupAttendancesStream;
+
   @override
   void initState() {
     super.initState();
@@ -147,6 +153,39 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         final docMap = doc.data() as Map<String, dynamic>;
         _myClassName ??= (docMap['className'] ?? docMap['classId'] ?? _student!.angkatan).toString();
         _myClassId ??= _myClassName;
+
+        // Load makeup approvals for this student (separate fetch – non-blocking if collection not yet created)
+        _makeupApprovals.clear();
+        try {
+          final makeupApprovalsSnap = await eventRef
+              .collection('makeup_approvals')
+              .get();
+          for (var mDoc in makeupApprovalsSnap.docs) {
+            final mData = mDoc.data();
+            final mStudentId = (mData['studentId'] ?? '').toString();
+            final mNis = (mData['nis'] ?? '').toString();
+            if (mStudentId == doc.id || (mNis.isNotEmpty && _student?.nis != null && mNis == _student!.nis)) {
+              final subId = (mData['subjectId'] ?? '').toString();
+              if (subId.isNotEmpty) {
+                _makeupApprovals[subId] = mData;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ makeup_approvals fetch skipped: $e');
+        }
+
+        // Set up real-time stream for makeup attendances (used to gate start button behind QR scan)
+        if (_makeupApprovals.isNotEmpty) {
+          _makeupAttendancesStream = FirebaseFirestore.instance
+              .collection('schools')
+              .doc(_schoolId)
+              .collection('events')
+              .doc(widget.eventId)
+              .collection('attendances')
+              .where('studentId', isEqualTo: doc.id)
+              .snapshots();
+        }
 
         // Process Event Doc Date Range
         final Map<String, dynamic> evData = eventDoc.exists ? (eventDoc.data() as Map<String, dynamic>? ?? {}) : {};
@@ -1957,22 +1996,13 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                             ),
                           )
                         else if (isExpired)
-                          OutlinedButton.icon(
-                            onPressed: () => _showExpiredSessionDialog(subjectName.toString(), sName, timeLabel),
-                            icon: const Icon(Icons.history_toggle_off_rounded, size: 14, color: Color(0xFF64748B)),
-                            label: Text(
-                              'Waktu Sesi Berakhir',
-                              style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF64748B)),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              backgroundColor: const Color(0xFFF1F5F9),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              side: const BorderSide(color: Color(0xFFCBD5E1)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
+                          _buildMakeupButton(
+                            item: item,
+                            subjectName: subjectName.toString(),
+                            sName: sName,
+                            timeLabel: timeLabel,
+                            startTime: startTime,
+                            endTime: endTime,
                           )
                         else if (isNotStarted)
                           OutlinedButton.icon(
@@ -2134,4 +2164,427 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       ),
     );
   }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  //  MAKEUP EXAM BUTTON BUILDER
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Widget _buildMakeupButton({
+    required Map<String, dynamic> item,
+    required String subjectName,
+    required String sName,
+    required String timeLabel,
+    required String startTime,
+    required String endTime,
+  }) {
+    final subjectId = (item['subjectId'] ?? subjectName).toString();
+    final approval = _makeupApprovals[subjectId];
+    final status = approval?['status'] as String?;
+
+    // Status: approved → Harus scan QR dahulu sebelum Mulai Ujian Susulan
+    if (status == 'approved') {
+      final makeupRoom = (approval!['makeupRoom'] ?? '').toString();
+      final makeupDate = (approval['makeupDate'] ?? '').toString();
+      final makeupStart = (approval['makeupStartTime'] ?? startTime).toString();
+      final makeupEnd = (approval['makeupEndTime'] ?? endTime).toString();
+
+      // QR data for makeup: use makeupRoom as roomId, dayIndex=0, sessionIndex=0
+      final Map<String, dynamic> makeupQrDataMap = {
+        'studentId': _student?.id ?? '',
+        'roomName': makeupRoom,
+        'dayIndex': 0,
+        'sessionIndex': 0,
+        'isMakeup': true,
+        'subjectId': subjectId,
+      };
+      final String makeupQrDataString = jsonEncode(makeupQrDataMap);
+
+      return StreamBuilder<QuerySnapshot>(
+        stream: _makeupAttendancesStream,
+        builder: (context, attSnap) {
+          // Check if student has been attended for the makeup room (dayIndex=0, sessionIndex=0)
+          bool isMakeupAttended = false;
+          if (attSnap.hasData) {
+            for (var aDoc in attSnap.data!.docs) {
+              final aData = aDoc.data() as Map<String, dynamic>? ?? {};
+              final isAtt = aData['isAttended'] == true;
+              final aDay = (aData['dayIndex'] as num?)?.toInt() ?? -1;
+              final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? -1;
+              final aRoom = (aData['roomId'] ?? '').toString().toLowerCase().trim();
+              final makeupRoomClean = makeupRoom.toLowerCase().trim();
+
+              if (!isAtt) continue;
+
+              // Match by dayIndex=0, sessionIndex=0 AND room matches the makeup room
+              final roomMatches = makeupRoomClean.isEmpty ||
+                  aRoom == makeupRoomClean ||
+                  aRoom.contains(makeupRoomClean) ||
+                  makeupRoomClean.contains(aRoom);
+
+              if (aDay == 0 && aSess == 0 && roomMatches) {
+                isMakeupAttended = true;
+                break;
+              }
+            }
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (makeupDate.isNotEmpty || makeupRoom.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '📅 $makeupDate${makeupRoom.isNotEmpty ? '  •  $makeupRoom' : ''}',
+                    style: GoogleFonts.inter(
+                        fontSize: 9,
+                        color: const Color(0xFF7C3AED),
+                        fontWeight: FontWeight.w600),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              if (!isMakeupAttended) ...[
+                OutlinedButton.icon(
+                  onPressed: () => _showEnlargedQrDialog(
+                    context: context,
+                    qrData: makeupQrDataString,
+                    participantNumber: _allocatedSeat?['participantNumber']?.toString() ?? _student?.nis ?? '-',
+                    roomName: makeupRoom.isNotEmpty ? makeupRoom : 'Ruang Susulan',
+                    seatNumber: '-',
+                    subjectName: subjectName,
+                    sessionName: 'Ujian Susulan',
+                    dayIndex: 0,
+                    sessionIndex: 0,
+                  ),
+                  icon: const Icon(Icons.qr_code_2_rounded, size: 14, color: Color(0xFF7C3AED)),
+                  label: Text(
+                    'Tampilkan QR ke Pengawas',
+                    style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF7C3AED)),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEDE9FE),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    side: const BorderSide(color: Color(0xFF7C3AED)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ElevatedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.lock_rounded, size: 14),
+                  label: Text('Mulai Ujian Susulan', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    foregroundColor: const Color(0xFF94A3B8),
+                    disabledBackgroundColor: const Color(0xFFE2E8F0),
+                    disabledForegroundColor: const Color(0xFF94A3B8),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ] else ...[
+                  // Attended badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD1FAE5),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF065F46)),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Sudah Scan ✓',
+                          style: GoogleFonts.inter(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF065F46)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => StudentExamPage(
+                            schoolId: _schoolId,
+                            eventId: widget.eventId,
+                            eventName: widget.eventName,
+                            subjectId: subjectId,
+                            subjectName: subjectName,
+                            studentId: _student?.id ?? '',
+                            studentName: _student?.displayName ?? 'Siswa',
+                            nis: _student?.nis ?? '',
+                            className: _myClassName ?? '',
+                            angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty)
+                                ? _student!.angkatan
+                                : (_myClassName ?? ''),
+                            sessionName: sName,
+                            startTimeStr: makeupStart,
+                            endTimeStr: makeupEnd,
+                            isMakeup: true,
+                          ),
+                        ),
+                      ).then((_) => _loadStudentAndEventDetails());
+                    },
+                    icon: const Icon(Icons.history_edu_rounded, size: 16),
+                    label: Text(
+                      'Mulai Ujian Susulan',
+                      style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+            ],
+          );
+        },
+      );
+    }
+
+    // Status: pending → Menunggu Persetujuan
+    if (status == 'pending') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF3C7),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFCD34D)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: Color(0xFFD97706)),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Menunggu Persetujuan',
+              style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFFD97706)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Status: rejected → Ditolak + info
+    if (status == 'rejected') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEE2E2),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFCA5A5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cancel_rounded,
+                size: 12, color: Color(0xFFDC2626)),
+            const SizedBox(width: 6),
+            Text(
+              'Susulan Ditolak',
+              style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFFDC2626)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Default: belum mengajukan → Minta Ujian Susulan (oranye)
+    return OutlinedButton.icon(
+      onPressed: () =>
+          _requestMakeupExam(subjectId: subjectId, subjectName: subjectName, sName: sName),
+      icon: const Icon(Icons.history_edu_rounded,
+          size: 14, color: Color(0xFF7C3AED)),
+      label: Text(
+        'Minta Ujian Susulan',
+        style: GoogleFonts.plusJakartaSans(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF7C3AED)),
+      ),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: const Color(0xFFEDE9FE),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        side: const BorderSide(color: Color(0xFF7C3AED)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Future<void> _requestMakeupExam({
+    required String subjectId,
+    required String subjectName,
+    required String sName,
+  }) async {
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.history_edu_rounded,
+                color: Color(0xFF7C3AED), size: 28),
+            const SizedBox(height: 8),
+            Text('Ajukan Ujian Susulan',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            Text(
+              '$subjectName  •  $sName',
+              style: GoogleFonts.inter(
+                  fontSize: 12, color: const Color(0xFF64748B)),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pilih alasan ketidakhadiran:',
+              style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            ...['Sakit (ada surat keterangan)', 'Izin (keperluan keluarga)', 'Kendala teknis / listrik', 'Lainnya']
+                .map((r) => InkWell(
+                      onTap: () => Navigator.pop(ctx, r),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border:
+                              Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(children: [
+                          const Icon(Icons.radio_button_unchecked,
+                              size: 16, color: Color(0xFF7C3AED)),
+                          const SizedBox(width: 8),
+                          Text(r,
+                              style: GoogleFonts.inter(fontSize: 13)),
+                        ]),
+                      ),
+                    )),
+            const SizedBox(height: 4),
+            TextField(
+              controller: reasonController,
+              decoration: InputDecoration(
+                hintText: 'Atau tulis alasan lainnya...',
+                hintStyle: GoogleFonts.inter(fontSize: 12),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(
+                        color: Color(0xFF7C3AED), width: 1.5)),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Batal',
+                style: GoogleFonts.inter(color: const Color(0xFF64748B))),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final custom = reasonController.text.trim();
+              Navigator.pop(ctx, custom.isNotEmpty ? custom : null);
+            },
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7C3AED),
+                foregroundColor: Colors.white),
+            child: Text('Kirim Pengajuan',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (reason == null || reason.isEmpty) return;
+    if (!mounted) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final docId = '${_student!.id}_$subjectId';
+      await db
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('events')
+          .doc(widget.eventId)
+          .collection('makeup_approvals')
+          .doc(docId)
+          .set({
+        'studentId': _student!.id,
+        'studentName': _student!.displayName,
+        'nis': _student!.nis,
+        'className': _myClassName ?? '',
+        'subjectId': subjectId,
+        'subjectName': subjectName,
+        'sessionName': sName,
+        'reason': reason,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Pengajuan ujian susulan terkirim! Tunggu persetujuan pengawas/guru.',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: const Color(0xFF7C3AED),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+        _loadStudentAndEventDetails();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal mengirim pengajuan: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
+  }
 }
+

@@ -136,12 +136,24 @@ service cloud.firestore {
         match /realtime_control/{controlId} {
           allow read, write: if true;
         }
+
+        match /makeup_approvals/{approvalId} {
+          allow read, write: if true;
+        }
+
+        match /makeup_sessions/{sessionId} {
+          allow read, write: if true;
+        }
       }
 
       // Sub-collection for event drafts (wizard auto-save)
       match /eventDrafts/{draftId} {
         allow read, write: if isSchoolAdmin(schoolId);
       }
+    }
+
+    match /_server_time/{docId} {
+      allow read, write: if true;
     }
 
     // Rules for archives collection

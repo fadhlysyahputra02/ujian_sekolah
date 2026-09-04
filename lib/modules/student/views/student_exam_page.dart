@@ -24,6 +24,9 @@ class StudentExamPage extends StatefulWidget {
   /// Angkatan siswa (misal '7', '8', '9') untuk filter soal
   final String angkatan;
 
+  /// Apakah sesi ini adalah ujian susulan (bypass time restriction)
+  final bool isMakeup;
+
   const StudentExamPage({
     super.key,
     required this.schoolId,
@@ -39,6 +42,7 @@ class StudentExamPage extends StatefulWidget {
     required this.startTimeStr,
     required this.endTimeStr,
     this.angkatan = '',
+    this.isMakeup = false,
   });
 
   @override
@@ -71,7 +75,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
   Timer? _draftDebounceTimer;
   Timer? _periodicSyncTimer;
 
-  String _currentRealtimeStatus = 'in_progress';
+  String _currentRealtimeStatus = ''; // Empty so first write always goes through
   DateTime? _lastRealtimeStatusUpdate;
 
   @override
@@ -309,7 +313,8 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           if (remaining > 0) {
             totalSecs = remaining;
           } else {
-            totalSecs = 0; // Time has already expired
+            // Untuk ujian susulan: gunakan 2 jam penuh sebagai batas waktu
+            totalSecs = widget.isMakeup ? 7200 : 0;
           }
         }
       }
@@ -317,6 +322,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       debugPrint("Error calculating remaining time: $e");
       totalSecs = 3600;
     }
+
 
     _remainingSecondsNotifier.value = totalSecs;
 
