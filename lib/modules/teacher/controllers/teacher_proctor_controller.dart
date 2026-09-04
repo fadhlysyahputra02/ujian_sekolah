@@ -241,7 +241,53 @@ class TeacherProctorController {
       scannedNis = rawData.trim();
     }
 
-    // 1. Search seatMap in this room FIRST
+    // 1. Strict Day Index Verification
+    if (scannedDayIndex != null && scannedDayIndex != dayIndex) {
+      triggerScanFeedback(isSuccess: false);
+      if (onShowFeedback != null) {
+        onShowFeedback(
+          '⚠️ Hari Ujian tidak sesuai! QR ini untuk Hari ke-${scannedDayIndex + 1}.',
+          const Color(0xFFDC2626),
+          Icons.warning_amber_rounded,
+        );
+      }
+      return;
+    }
+
+    // 2. Strict Session Index Verification
+    if (scannedSessionIndex != null && scannedSessionIndex != sessionIndex) {
+      triggerScanFeedback(isSuccess: false);
+      if (onShowFeedback != null) {
+        onShowFeedback(
+          '⚠️ Sesi Ujian tidak sesuai! QR ini untuk Sesi ke-${scannedSessionIndex + 1}.',
+          const Color(0xFFDC2626),
+          Icons.warning_amber_rounded,
+        );
+      }
+      return;
+    }
+
+    // 3. Strict Room Name Verification
+    if (scannedRoomName.isNotEmpty) {
+      final cleanScannedRoom = scannedRoomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+      bool isRoomMatch = roomAliases.any((alias) {
+        final cleanAlias = alias.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+        return cleanAlias == cleanScannedRoom || cleanAlias.contains(cleanScannedRoom) || cleanScannedRoom.contains(cleanAlias);
+      });
+      if (!isRoomMatch) {
+        triggerScanFeedback(isSuccess: false);
+        if (onShowFeedback != null) {
+          onShowFeedback(
+            '⚠️ Ruangan tidak sesuai! QR ini untuk "$scannedRoomName".',
+            const Color(0xFFDC2626),
+            Icons.warning_amber_rounded,
+          );
+        }
+        return;
+      }
+    }
+
+    // 4. Search student in this room's seatMap
     Map<String, dynamic>? matchedSeat;
     int? matchedSeatNum;
 
@@ -270,51 +316,7 @@ class TeacherProctorController {
       }
     }
 
-    // 2. If student NOT in this room's seatMap, perform detailed validation checks to provide feedback
     if (matchedSeat == null || matchedSeatNum == null) {
-      if (scannedRoomName.isNotEmpty) {
-        final cleanScannedRoom = scannedRoomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-        bool isRoomMatch = roomAliases.any((alias) {
-          final cleanAlias = alias.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-          return cleanAlias == cleanScannedRoom || cleanAlias.contains(cleanScannedRoom) || cleanScannedRoom.contains(cleanAlias);
-        });
-        if (!isRoomMatch) {
-          triggerScanFeedback(isSuccess: false);
-          if (onShowFeedback != null) {
-            onShowFeedback(
-              '⚠️ Ruangan tidak sesuai! QR ini untuk "$scannedRoomName".',
-              const Color(0xFFDC2626),
-              Icons.warning_amber_rounded,
-            );
-          }
-          return;
-        }
-      }
-
-      if (scannedDayIndex != null && scannedDayIndex != dayIndex) {
-        triggerScanFeedback(isSuccess: false);
-        if (onShowFeedback != null) {
-          onShowFeedback(
-            '⚠️ Hari Ujian tidak sesuai! QR ini untuk Hari ke-${scannedDayIndex + 1}.',
-            const Color(0xFFDC2626),
-            Icons.warning_amber_rounded,
-          );
-        }
-        return;
-      }
-
-      if (scannedSessionIndex != null && scannedSessionIndex != sessionIndex) {
-        triggerScanFeedback(isSuccess: false);
-        if (onShowFeedback != null) {
-          onShowFeedback(
-            '⚠️ Sesi Ujian tidak sesuai! QR ini untuk Sesi ke-${scannedSessionIndex + 1}.',
-            const Color(0xFFDC2626),
-            Icons.warning_amber_rounded,
-          );
-        }
-        return;
-      }
-
       triggerScanFeedback(isSuccess: false);
       if (onShowFeedback != null) {
         onShowFeedback(

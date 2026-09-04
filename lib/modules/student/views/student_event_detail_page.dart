@@ -61,8 +61,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   void initState() {
     super.initState();
     _loadStudentAndEventDetails();
-    // Tick every 30 seconds so time-based session buttons update without requiring a manual refresh
-    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    // Tick every 1 second so time-based session buttons update instantly when session start time is reached
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
   }
@@ -74,10 +74,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   }
 
   Future<void> _loadStudentAndEventDetails() async {
-    _allocatedSeat = null;
-    _myClassId = null;
-    _myClassName = null;
-    _sessionMap.clear();
     final authService = Provider.of<AuthService>(context, listen: false);
 
     // Wait for auth to load
@@ -1489,7 +1485,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   }
 
   bool _isSessionNotStartedYet(String? dateStr, String? timeStrOrRange) {
-    if (timeStrOrRange == null || timeStrOrRange.trim().isEmpty) return false;
+    if (timeStrOrRange == null || timeStrOrRange.trim().isEmpty || timeStrOrRange.contains('belum diatur')) return true;
 
     try {
       final now = DateTime.now();
@@ -1501,12 +1497,12 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       }
 
       final timeParts = startTimeStr.split(':');
-      if (timeParts.length < 2) return false;
+      if (timeParts.length < 2) return true;
 
       final hour = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[0]) ?? '');
       final minute = int.tryParse(RegExp(r'\d+').stringMatch(timeParts[1]) ?? '');
 
-      if (hour == null || minute == null) return false;
+      if (hour == null || minute == null) return true;
 
       DateTime targetDate = DateTime(now.year, now.month, now.day);
       if (dateStr != null && dateStr.trim().isNotEmpty) {
@@ -1836,6 +1832,11 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   final String currentStudentId = _student?.id ?? '';
                   final String currentStudentNis = _student?.nis ?? '';
 
+                  final subjectIdForMakeup = (item['subjectId'] ?? subjectName).toString();
+                  final makeupApproval = _makeupApprovals[subjectIdForMakeup];
+                  final bool hasApprovedMakeup = isExpired && makeupApproval?['status'] == 'approved';
+                  final String makeupRoom = (makeupApproval?['makeupRoom'] ?? '').toString();
+
                   for (var doc in attDocs) {
                     if (isAttendedByProctor) break;
                     final aData = doc.data() as Map<String, dynamic>? ?? {};
@@ -1853,21 +1854,44 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     final aDay = (aData['dayIndex'] as num?)?.toInt();
                     final aSess = (aData['sessionIndex'] as num?)?.toInt();
 
-                    // Match strictly by BOTH dayIndex AND sessionIndex
-                    if (aDay != null && aSess != null) {
-                      if (aDay == resolvedDayIndex && aSess == resolvedSessionIndex) {
+                    if (hasApprovedMakeup) {
+                      final aRoom = (aData['roomId'] ?? '').toString().toLowerCase().trim();
+                      final makeupRoomClean = makeupRoom.toLowerCase().trim();
+                      final roomMatches = makeupRoomClean.isEmpty ||
+                          aRoom == makeupRoomClean ||
+                          aRoom.contains(makeupRoomClean) ||
+                          makeupRoomClean.contains(aRoom);
+
+                      if (aDay == 0 && aSess == 0 && roomMatches) {
                         isAttendedByProctor = true;
                         break;
+                      }
+                    } else {
+                      // Match strictly by BOTH dayIndex AND sessionIndex
+                      if (aDay != null && aSess != null) {
+                        if (aDay == resolvedDayIndex && aSess == resolvedSessionIndex) {
+                          isAttendedByProctor = true;
+                          break;
+                        }
                       }
                     }
                   }
 
-                  final Map<String, dynamic> itemQrDataMap = {
-                    'studentId': _student?.id ?? '',
-                    'roomName': roomName,
-                    'dayIndex': resolvedDayIndex,
-                    'sessionIndex': resolvedSessionIndex,
-                  };
+                  final Map<String, dynamic> itemQrDataMap = hasApprovedMakeup
+                      ? {
+                          'studentId': _student?.id ?? '',
+                          'roomName': makeupRoom.isNotEmpty ? makeupRoom : 'Ruang Susulan',
+                          'dayIndex': 0,
+                          'sessionIndex': 0,
+                          'isMakeup': true,
+                          'subjectId': subjectIdForMakeup,
+                        }
+                      : {
+                          'studentId': _student?.id ?? '',
+                          'roomName': roomName,
+                          'dayIndex': resolvedDayIndex,
+                          'sessionIndex': resolvedSessionIndex,
+                        };
                   final String itemQrDataString = jsonEncode(itemQrDataMap);
 
                   return Padding(
@@ -1875,19 +1899,23 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     child: Row(
                       children: [
                         Tooltip(
-                          message: 'Klik untuk memperbesar QR Code Sesi',
+                          message: hasApprovedMakeup
+                              ? 'Klik untuk memperbesar QR Code Ujian Susulan'
+                              : 'Klik untuk memperbesar QR Code Sesi',
                           child: GestureDetector(
                             onTap: () {
                               _showEnlargedQrDialog(
                                 context: context,
                                 qrData: itemQrDataString,
                                 participantNumber: participantNumber,
-                                roomName: roomName,
-                                seatNumber: seatNumber,
+                                roomName: hasApprovedMakeup
+                                    ? (makeupRoom.isNotEmpty ? makeupRoom : 'Ruang Susulan')
+                                    : roomName,
+                                seatNumber: hasApprovedMakeup ? '-' : seatNumber,
                                 subjectName: subjectName.toString(),
-                                sessionName: sName,
-                                dayIndex: resolvedDayIndex,
-                                sessionIndex: resolvedSessionIndex,
+                                sessionName: hasApprovedMakeup ? 'Ujian Susulan' : sName,
+                                dayIndex: hasApprovedMakeup ? 0 : resolvedDayIndex,
+                                sessionIndex: hasApprovedMakeup ? 0 : resolvedSessionIndex,
                               );
                             },
                             child: Container(
@@ -2004,7 +2032,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                             startTime: startTime,
                             endTime: endTime,
                           )
-                        else if (isNotStarted)
+                        else if (isNotStarted && !isAttendedByProctor)
                           OutlinedButton.icon(
                             onPressed: () => _showSessionGuidelinesDialog(
                               item: item,
@@ -2033,7 +2061,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                           )
-                        else if (!isAttendedByProctor)
+                        else if (!isAttendedByProctor || isNotStarted)
                           ElevatedButton.icon(
                             onPressed: null,
                             icon: const Icon(Icons.play_circle_fill_rounded, size: 16, color: Color(0xFF94A3B8)),
@@ -2067,6 +2095,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                               const SizedBox(width: 4),
                               ElevatedButton.icon(
                                 onPressed: () {
+                                  if (item['isSubmitted'] == true) return;
                                   final sid = (item['subjectId'] ?? subjectName).toString();
                                   debugPrint('🚀 Navigating to StudentExamPage');
                                   debugPrint('   subjectId  : "$sid"');
@@ -2093,7 +2122,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                         endTimeStr: endTime,
                                       ),
                                     ),
-                                  ).then((_) => _loadStudentAndEventDetails());
+                                  ).then((_) {
+                                    if (mounted) {
+                                      setState(() {
+                                        item['isSubmitted'] = true;
+                                      });
+                                    }
+                                    _loadStudentAndEventDetails();
+                                  });
                                 },
                                 icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
                                 label: const Text('Kerjakan'),
@@ -2188,17 +2224,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       final makeupStart = (approval['makeupStartTime'] ?? startTime).toString();
       final makeupEnd = (approval['makeupEndTime'] ?? endTime).toString();
 
-      // QR data for makeup: use makeupRoom as roomId, dayIndex=0, sessionIndex=0
-      final Map<String, dynamic> makeupQrDataMap = {
-        'studentId': _student?.id ?? '',
-        'roomName': makeupRoom,
-        'dayIndex': 0,
-        'sessionIndex': 0,
-        'isMakeup': true,
-        'subjectId': subjectId,
-      };
-      final String makeupQrDataString = jsonEncode(makeupQrDataMap);
-
       return StreamBuilder<QuerySnapshot>(
         stream: _makeupAttendancesStream,
         builder: (context, attSnap) {
@@ -2244,31 +2269,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   ),
                 ),
               if (!isMakeupAttended) ...[
-                OutlinedButton.icon(
-                  onPressed: () => _showEnlargedQrDialog(
-                    context: context,
-                    qrData: makeupQrDataString,
-                    participantNumber: _allocatedSeat?['participantNumber']?.toString() ?? _student?.nis ?? '-',
-                    roomName: makeupRoom.isNotEmpty ? makeupRoom : 'Ruang Susulan',
-                    seatNumber: '-',
-                    subjectName: subjectName,
-                    sessionName: 'Ujian Susulan',
-                    dayIndex: 0,
-                    sessionIndex: 0,
-                  ),
-                  icon: const Icon(Icons.qr_code_2_rounded, size: 14, color: Color(0xFF7C3AED)),
-                  label: Text(
-                    'Tampilkan QR ke Pengawas',
-                    style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF7C3AED)),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEDE9FE),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    side: const BorderSide(color: Color(0xFF7C3AED)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-                const SizedBox(height: 6),
                 ElevatedButton.icon(
                   onPressed: null,
                   icon: const Icon(Icons.lock_rounded, size: 14),
@@ -2309,6 +2309,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   const SizedBox(height: 6),
                   ElevatedButton.icon(
                     onPressed: () {
+                      if (item['isSubmitted'] == true) return;
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -2331,7 +2332,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                             isMakeup: true,
                           ),
                         ),
-                      ).then((_) => _loadStudentAndEventDetails());
+                      ).then((_) {
+                        if (mounted) {
+                          setState(() {
+                            item['isSubmitted'] = true;
+                          });
+                        }
+                        _loadStudentAndEventDetails();
+                      });
                     },
                     icon: const Icon(Icons.history_edu_rounded, size: 16),
                     label: Text(

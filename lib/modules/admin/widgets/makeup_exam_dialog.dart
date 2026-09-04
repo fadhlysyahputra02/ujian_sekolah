@@ -31,6 +31,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
   List<Map<String, dynamic>> _missedStudents = [];
   final Set<String> _selectedStudentSubjectKeys = {};
   int _tab1Filter = 0; // 0 = Semua, 1 = Tidak Mengikuti Ujian, 2 = Request Susulan
+  String? _selectedSubjectFilter; // null = Semua Mapel
 
   DateTime? _makeupDate;
   TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
@@ -56,6 +57,42 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     _tabController.dispose();
     _roomController.dispose();
     super.dispose();
+  }
+
+  bool _isSubjectCompatibleWithStudentTrack({
+    required String subjectName,
+    required String studentName,
+    required String className,
+    required Set<String> targetClasses,
+  }) {
+    final sNameLower = studentName.toLowerCase();
+    final cNameLower = className.toLowerCase();
+    final subNameLower = subjectName.toLowerCase();
+    final targetLower = targetClasses.join(' ').toLowerCase();
+
+    final bool isIpsStudent = sNameLower.contains('ips') || cNameLower.contains('ips');
+    final bool isIpaStudent = sNameLower.contains('ipa') || cNameLower.contains('ipa');
+
+    final bool isIpaSubject = subNameLower.contains('fisika') ||
+        subNameLower.contains('kimia') ||
+        subNameLower.contains('biologi') ||
+        targetLower.contains('ipa');
+
+    final bool isIpsSubject = subNameLower.contains('geografi') ||
+        subNameLower.contains('sosiologi') ||
+        subNameLower.contains('ekonomi') ||
+        targetLower.contains('ips');
+
+    // If student is explicitly IPS and subject is IPA-only -> incompatible
+    if (isIpsStudent && !isIpaStudent && isIpaSubject && !isIpsSubject) {
+      return false;
+    }
+    // If student is explicitly IPA and subject is IPS-only -> incompatible
+    if (isIpaStudent && !isIpsStudent && isIpsSubject && !isIpaSubject) {
+      return false;
+    }
+
+    return true;
   }
 
   Future<void> _loadData() async {
@@ -242,6 +279,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
       // Build missed list from timetable
       final List<Map<String, dynamic>> missed = [];
       final Set<String> processedKeys = {};
+      final Map<String, int> studentSessionSlotIndexMap = {};
       final now = DateTime.now();
 
       for (var tDoc in timetableSnap.docs) {
@@ -331,6 +369,15 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           final cleanSubId = subjectId.trim().toLowerCase();
           final cleanSubName = subjectName.trim().toLowerCase();
 
+          // 0. Track/Major compatibility check: IPS student cannot take IPA subjects & vice versa
+          final isCompatibleTrack = _isSubjectCompatibleWithStudentTrack(
+            subjectName: subjectName,
+            studentName: stName,
+            className: stClass,
+            targetClasses: targetClasses,
+          );
+          if (!isCompatibleTrack) continue; // Skip incompatible track subjects!
+
           // 1. Strict Subject-Class verification: If timetable specifies targetClasses, student MUST belong to targetClasses!
           if (targetClasses.isNotEmpty) {
             final belongsToTargetClass = targetClasses.contains(cleanStClass) ||
@@ -409,9 +456,38 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           // Skip students who attended the regular session OR completed the exam UNLESS they filed a pending makeup request for THIS subject!
           if ((attended || studentHasSubmitted) && !hasPendingRequest) continue;
 
-          processedKeys.add(submitKey);
-
           final statusLabel = hasPendingRequest ? 'Request Susulan' : 'Tidak Hadir';
+
+          // Enforce 1 regular subject per student per session slot
+          final slotKey = '${cleanStId}_${dayIdx}_${sessionId.isNotEmpty ? sessionId : sessIdx}';
+          if (studentSessionSlotIndexMap.containsKey(slotKey)) {
+            final existingIndex = studentSessionSlotIndexMap[slotKey]!;
+            final existingItem = missed[existingIndex];
+
+            // If current item has a pending request while existing does not, replace it
+            if (hasPendingRequest && !(existingItem['hasPendingRequest'] == true)) {
+              missed[existingIndex] = {
+                'key': submitKey,
+                'studentId': stId,
+                'studentName': stName,
+                'nis': stNis,
+                'className': stClass.isNotEmpty ? stClass : 'Umum',
+                'subjectId': subjectId,
+                'subjectName': subjectName,
+                'sessionName': sessionName,
+                'sessionId': sessionId,
+                'dayIndex': dayIdx,
+                'statusLabel': statusLabel,
+                'attended': attended,
+                'hasPendingRequest': hasPendingRequest,
+                'pendingReason': pendingReason,
+              };
+            }
+            continue; // Skip duplicate subject for the same student in the same session
+          }
+
+          studentSessionSlotIndexMap[slotKey] = missed.length;
+          processedKeys.add(submitKey);
 
           missed.add({
             'key': submitKey,
@@ -472,16 +548,38 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         }
       }
 
-      // Teachers
-      final List<Map<String, dynamic>> teachers = teachersSnap.docs.map((t) {
+      // Teachers: combine schoolRef.collection('teachers') and schoolRef.collection('users') (role == teacher)
+      final Map<String, Map<String, dynamic>> teacherMap = {};
+      for (var t in teachersSnap.docs) {
         final d = (t.data() as Map<String, dynamic>?) ?? {};
-        final displayName = (d['displayName'] ?? d['name'] ?? d['fullName'] ?? '').toString().trim();
-        return {
+        final displayName = (d['displayName'] ?? d['name'] ?? d['fullName'] ?? d['username'] ?? t.id).toString().trim();
+        teacherMap[t.id] = {
           'id': t.id,
           'name': displayName.isNotEmpty ? displayName : t.id,
           'displayName': displayName.isNotEmpty ? displayName : t.id,
         };
-      }).toList();
+      }
+
+      try {
+        final usersTeacherSnap = await schoolRef
+            .collection('users')
+            .where('role', isEqualTo: 'teacher')
+            .get();
+        for (var t in usersTeacherSnap.docs) {
+          final d = (t.data() as Map<String, dynamic>?) ?? {};
+          final displayName = (d['displayName'] ?? d['name'] ?? d['fullName'] ?? d['username'] ?? t.id).toString().trim();
+          teacherMap.putIfAbsent(t.id, () => {
+            'id': t.id,
+            'name': displayName.isNotEmpty ? displayName : t.id,
+            'displayName': displayName.isNotEmpty ? displayName : t.id,
+          });
+        }
+      } catch (e) {
+        debugPrint('Fetch teacher users note: $e');
+      }
+
+      final List<Map<String, dynamic>> teachers = teacherMap.values.toList();
+      teachers.sort((a, b) => (a['displayName'] as String).compareTo(b['displayName'] as String));
 
       if (mounted) {
         setState(() {
@@ -497,6 +595,130 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     }
   }
 
+  Map<String, List<String>> _findConflictingStudents() {
+    final Map<String, Set<String>> studentSubjectsMap = {};
+    final Map<String, String> studentNameMap = {};
+
+    for (final key in _selectedStudentSubjectKeys) {
+      final s = _missedStudents.firstWhere(
+        (m) => m['key'] == key,
+        orElse: () => {},
+      );
+      if (s.isEmpty) continue;
+      final sId = (s['studentId'] ?? s['nis'] ?? s['studentName']).toString();
+      final sName = (s['studentName'] ?? 'Siswa').toString();
+      final subName = (s['subjectName'] ?? 'Mata Pelajaran').toString();
+
+      studentNameMap[sId] = sName;
+      studentSubjectsMap.putIfAbsent(sId, () => {}).add(subName);
+    }
+
+    final Map<String, List<String>> conflicts = {};
+    studentSubjectsMap.forEach((sId, subjects) {
+      if (subjects.length > 1) {
+        conflicts[studentNameMap[sId] ?? sId] = subjects.toList();
+      }
+    });
+    return conflicts;
+  }
+
+  void _showConflictWarningDialog(Map<String, List<String>> conflicts) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Bentrok Sesi Ujian!',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: const Color(0xFF991B1B),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Terdeteksi siswa yang dipilih untuk lebih dari 1 mata pelajaran sekaligus dalam 1 sesi:',
+                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 140),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Scrollbar(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: conflicts.entries.map((e) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(
+                          '• ${e.key}: ${e.value.join(', ')}',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF991B1B),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Aturan Keamanan Ujian Susulan:\nUntuk mencegah bentrok jam di HP siswa, silakan atur sesi susulan secara terpisah per mata pelajaran (misal: buat Sesi 1 untuk Agama terlebih dahulu, lalu Sesi 2 untuk Sastra).',
+                style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B), height: 1.4),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text('Ubah Pilihan (Pisah Sesi)', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _isTimeOverlapping(String start1, String end1, String start2, String end2) {
+    int parseMin(String t) {
+      final p = t.split(':');
+      if (p.length < 2) return 0;
+      return (int.tryParse(p[0]) ?? 0) * 60 + (int.tryParse(p[1]) ?? 0);
+    }
+
+    final s1 = parseMin(start1);
+    final e1 = parseMin(end1);
+    final s2 = parseMin(start2);
+    final e2 = parseMin(end2);
+
+    return s1 < e2 && s2 < e1;
+  }
+
   Future<void> _saveMakeupSession() async {
     if (_makeupDate == null) {
       _showSnack('Tanggal ujian susulan wajib diisi.', isError: true);
@@ -510,6 +732,132 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
       _showSnack('Nama ruangan wajib diisi.', isError: true);
       return;
     }
+
+    // Validation 1: Simultaneous Multi-Subject Conflict Check
+    final conflicts = _findConflictingStudents();
+    if (conflicts.isNotEmpty) {
+      _showConflictWarningDialog(conflicts);
+      return;
+    }
+
+    final String makeupDateStr = DateFormat('yyyy-MM-dd').format(_makeupDate!);
+    final String startStr =
+        '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}';
+    final String endStr =
+        '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}';
+
+    // Validation 2: Time Overlap against active makeup sessions for any student in selection
+    final Map<String, List<String>> timeOverlaps = {};
+
+    for (final key in _selectedStudentSubjectKeys) {
+      final student = _missedStudents.firstWhere(
+        (m) => m['key'] == key,
+        orElse: () => {},
+      );
+      if (student.isEmpty) continue;
+      final stId = (student['studentId'] ?? '').toString().trim();
+      final stName = (student['studentName'] ?? 'Siswa').toString();
+
+      for (final sess in _activeMakeupSessions) {
+        final sessDate = (sess['date'] ?? '').toString();
+        if (sessDate != makeupDateStr) continue;
+
+        final sessStart = (sess['startTime'] ?? '').toString();
+        final sessEnd = (sess['endTime'] ?? '').toString();
+
+        if (_isTimeOverlapping(startStr, endStr, sessStart, sessEnd)) {
+          final approvedList = sess['approvedStudents'] as List<dynamic>? ?? [];
+          for (final appSt in approvedList) {
+            final appStId = (appSt['studentId'] ?? '').toString().trim();
+            if (appStId.isNotEmpty && appStId == stId) {
+              final appSubName = (appSt['subjectName'] ?? 'Mapel Lain').toString();
+              timeOverlaps.putIfAbsent(stName, () => []).add('$appSubName ($sessStart - $sessEnd WIB)');
+            }
+          }
+        }
+      }
+    }
+
+    if (timeOverlaps.isNotEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626), size: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Bentrok Jam Sesi Susulan!',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: const Color(0xFF991B1B),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Siswa berikut sudah terdaftar pada sesi susulan aktif lain dengan jam yang bentrok:',
+                  style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: timeOverlaps.entries.map((e) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(
+                          '• ${e.key} → Sesi Terdaftar: ${e.value.join(', ')}',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF991B1B),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Solusi: Harap atur jam mulai / jam selesai atau tanggal ujian yang berbeda untuk sesi ini.',
+                  style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: Text('Ubah Jam Sesi', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
       final db = FirebaseFirestore.instance;
@@ -784,9 +1132,16 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     final noShowCount = _missedStudents.where((s) => s['hasPendingRequest'] != true).length;
     final requestCount = _missedStudents.where((s) => s['hasPendingRequest'] == true).length;
 
+    final Set<String> availableSubjectNames = {};
+    for (final s in _missedStudents) {
+      final sub = (s['subjectName'] ?? '').toString().trim();
+      if (sub.isNotEmpty) availableSubjectNames.add(sub);
+    }
+
     final filteredStudents = _missedStudents.where((s) {
-      if (_tab1Filter == 1) return s['hasPendingRequest'] != true;
-      if (_tab1Filter == 2) return s['hasPendingRequest'] == true;
+      if (_tab1Filter == 1 && s['hasPendingRequest'] == true) return false;
+      if (_tab1Filter == 2 && s['hasPendingRequest'] != true) return false;
+      if (_selectedSubjectFilter != null && (s['subjectName'] ?? '').toString().trim() != _selectedSubjectFilter) return false;
       return true;
     }).toList();
 
@@ -813,6 +1168,45 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           ],
         ),
       ),
+      if (availableSubjectNames.length > 1)
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.filter_list_rounded, size: 16, color: Color(0xFF7C3AED)),
+              const SizedBox(width: 8),
+              Text('Filter Mapel: ',
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF7C3AED))),
+              const SizedBox(width: 8),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    value: _selectedSubjectFilter,
+                    isExpanded: true,
+                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF0F172A), fontWeight: FontWeight.w600),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('Semua Mata Pelajaran'),
+                      ),
+                      ...availableSubjectNames.map((sub) => DropdownMenuItem<String?>(
+                        value: sub,
+                        child: Text(sub),
+                      )),
+                    ],
+                    onChanged: (val) => setState(() => _selectedSubjectFilter = val),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
         child: Row(children: [
@@ -872,7 +1266,14 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                       color: const Color(0xFF5B21B6))),
             ),
             ElevatedButton.icon(
-              onPressed: () => _tabController.animateTo(1),
+              onPressed: () {
+                final conflicts = _findConflictingStudents();
+                if (conflicts.isNotEmpty) {
+                  _showConflictWarningDialog(conflicts);
+                  return;
+                }
+                _tabController.animateTo(1);
+              },
               icon: const Icon(Icons.arrow_forward_rounded, size: 14),
               label: Text('Atur Jadwal',
                   style: GoogleFonts.inter(
@@ -1437,9 +1838,9 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     );
   }
 
-  void _showProctorPicker() {
+  Future<void> _showProctorPicker() async {
     final tempSelected = Set<String>.from(_selectedProctorIds);
-    showDialog(
+    final result = await showDialog<Set<String>>(
       context: context,
       barrierDismissible: true,
       builder: (dialogContext) {
@@ -1488,37 +1889,13 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  onPressed: () => Navigator.of(dialogContext).pop(null),
                   child: Text('Batal',
                       style: GoogleFonts.inter(color: const Color(0xFF64748B))),
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    try {
-                      final List<String> names = [];
-                      final List<String> ids = [];
-                      for (final tid in tempSelected) {
-                        if (tid.trim().isEmpty) continue;
-                        ids.add(tid);
-                        final t = _teachers.firstWhere(
-                          (elem) => elem['id']?.toString() == tid,
-                          orElse: () => {'name': tid},
-                        );
-                        final nameStr = (t['name'] ?? t['displayName'] ?? tid).toString().trim();
-                        names.add(nameStr.isNotEmpty ? nameStr : tid);
-                      }
-
-                      if (mounted) {
-                        setState(() {
-                          _selectedProctorIds = ids;
-                          _selectedProctorNames = names;
-                        });
-                      }
-                    } catch (e) {
-                      debugPrint('Error confirming proctor picker: $e');
-                    } finally {
-                      Navigator.of(dialogContext).pop();
-                    }
+                    Navigator.of(dialogContext).pop(tempSelected);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF7C3AED),
@@ -1536,6 +1913,26 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         );
       },
     );
+
+    if (result != null && mounted) {
+      final List<String> names = [];
+      final List<String> ids = [];
+      for (final tid in result) {
+        if (tid.trim().isEmpty) continue;
+        ids.add(tid);
+        final t = _teachers.firstWhere(
+          (elem) => elem['id']?.toString() == tid,
+          orElse: () => {'name': tid},
+        );
+        final nameStr = (t['name'] ?? t['displayName'] ?? tid).toString().trim();
+        names.add(nameStr.isNotEmpty ? nameStr : tid);
+      }
+
+      setState(() {
+        _selectedProctorIds = ids;
+        _selectedProctorNames = names;
+      });
+    }
   }
 
   // ── TAB 3: SESI AKTIF ───────────────────────────────────────────

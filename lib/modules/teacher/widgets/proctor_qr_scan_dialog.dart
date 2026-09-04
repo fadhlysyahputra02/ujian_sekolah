@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:sys_exam_school/core/utils/camera_helper.dart';
 import 'package:sys_exam_school/modules/teacher/controllers/teacher_proctor_controller.dart';
 
 class ProctorQrScanDialog extends StatefulWidget {
@@ -59,6 +60,9 @@ class ProctorQrScanDialog extends StatefulWidget {
       try {
         await scannerController.stop();
       } catch (_) {}
+      if (kIsWeb) {
+        stopWebCameraStreams();
+      }
       try {
         await scannerController.dispose();
       } catch (_) {}
@@ -108,7 +112,24 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
   Timer? _feedbackTimer;
 
   @override
+  void deactivate() {
+    try {
+      widget.scannerController.stop();
+    } catch (_) {}
+    if (kIsWeb) {
+      stopWebCameraStreams();
+    }
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
+    try {
+      widget.scannerController.stop();
+    } catch (_) {}
+    if (kIsWeb) {
+      stopWebCameraStreams();
+    }
     _searchCtrl.dispose();
     _feedbackTimer?.cancel();
     super.dispose();
@@ -287,6 +308,9 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                           await widget.scannerController.stop();
                         } catch (e) {
                           debugPrint('Scanner stop warning: $e');
+                        }
+                        if (kIsWeb) {
+                          stopWebCameraStreams();
                         }
                       },
                       borderRadius: BorderRadius.circular(10),
