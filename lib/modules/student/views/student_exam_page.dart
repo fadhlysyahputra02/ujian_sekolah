@@ -155,8 +155,17 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         'className': widget.className,
         'subjectId': widget.subjectId,
         'subjectName': widget.subjectName,
+        'sessionName': widget.sessionName,
         'status': status,
         'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      final logEntry = <String, dynamic>{
+        'event': isLeftApp ? 'left_app' : (isCompleted ? 'completed' : 'returned'),
+        'timestamp': DateTime.now().toIso8601String(),
+        'subjectId': widget.subjectId,
+        'subjectName': widget.subjectName,
+        'sessionName': widget.sessionName,
       };
 
       if (isLeftApp) {
@@ -165,12 +174,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         data['isCompleted'] = false;
         data['lastLeftAppAt'] = FieldValue.serverTimestamp();
         data['leftAppCount'] = FieldValue.increment(1);
-        data['logs'] = FieldValue.arrayUnion([
-          {
-            'event': 'left_app',
-            'timestamp': DateTime.now().toIso8601String(),
-          }
-        ]);
+        data['logs'] = FieldValue.arrayUnion([logEntry]);
       } else if (isCompleted) {
         data['isLeftApp'] = false;
         data['isWorking'] = false;
@@ -181,25 +185,25 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         data['isLeftApp'] = false;
         data['isCompleted'] = false;
         data['isWorking'] = true;
-        data['logs'] = FieldValue.arrayUnion([
-          {
-            'event': 'returned',
-            'timestamp': DateTime.now().toIso8601String(),
-          }
-        ]);
+        data['logs'] = FieldValue.arrayUnion([logEntry]);
       }
 
-      // Primary write (1 document per student)
-      final ref = db
+      // Write session-scoped document to prevent cross-session log leakage
+      final String cleanSubjId = widget.subjectId.trim().toLowerCase();
+      final String sessionDocId = cleanSubjId.isNotEmpty
+          ? '${studentDocId}_$cleanSubjId'
+          : '${studentDocId}_${widget.sessionName.trim().toLowerCase()}';
+
+      final realtimeColl = db
           .collection('schools')
           .doc(widget.schoolId)
           .collection('events')
           .doc(widget.eventId)
-          .collection('realtime_control')
-          .doc(studentDocId);
+          .collection('realtime_control');
 
-      await ref.set(data, SetOptions(merge: true));
-      debugPrint('⚡ Realtime control updated: $status for docId=$studentDocId');
+      await realtimeColl.doc(sessionDocId).set(data, SetOptions(merge: true));
+      await realtimeColl.doc(studentDocId).set(data, SetOptions(merge: true));
+      debugPrint('⚡ Realtime control updated: $status for docId=$sessionDocId and $studentDocId');
     } catch (e) {
       debugPrint('❌ Error updating realtime control: $e');
     }

@@ -153,22 +153,83 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         // Load makeup approvals for this student (separate fetch – non-blocking if collection not yet created)
         _makeupApprovals.clear();
         try {
-          final makeupApprovalsSnap = await eventRef
-              .collection('makeup_approvals')
-              .get();
+          final makeupApprovalsSnap = await eventRef.collection('makeup_approvals').get();
           for (var mDoc in makeupApprovalsSnap.docs) {
             final mData = mDoc.data();
-            final mStudentId = (mData['studentId'] ?? '').toString();
-            final mNis = (mData['nis'] ?? '').toString();
-            if (mStudentId == doc.id || (mNis.isNotEmpty && _student?.nis != null && mNis == _student!.nis)) {
-              final subId = (mData['subjectId'] ?? '').toString();
+            final mStudentId = (mData['studentId'] ?? '').toString().trim();
+            final mNis = (mData['nis'] ?? '').toString().trim();
+            final currentStudentId = (doc.id).trim();
+            final currentStudentNis = (_student?.nis ?? '').trim();
+
+            final bool isStudentMatch = (currentStudentId.isNotEmpty && mStudentId == currentStudentId) ||
+                (currentStudentNis.isNotEmpty && mNis.isNotEmpty && mNis == currentStudentNis);
+
+            if (isStudentMatch) {
+              final subId = (mData['subjectId'] ?? '').toString().trim();
+              final subName = (mData['subjectName'] ?? '').toString().trim();
               if (subId.isNotEmpty) {
                 _makeupApprovals[subId] = mData;
+              }
+              if (subName.isNotEmpty) {
+                _makeupApprovals[subName] = mData;
+                _makeupApprovals[subName.toLowerCase()] = mData;
+              }
+            }
+          }
+
+          // Supplement with makeup_sessions collection
+          final makeupSessionsSnap = await eventRef.collection('makeup_sessions').get();
+          for (var sDoc in makeupSessionsSnap.docs) {
+            final sData = sDoc.data();
+            final room = (sData['roomName'] ?? sData['room'] ?? '').toString();
+            final date = (sData['date'] ?? sData['makeupDate'] ?? '').toString();
+            final start = (sData['startTime'] ?? sData['makeupStartTime'] ?? '').toString();
+            final end = (sData['endTime'] ?? sData['makeupEndTime'] ?? '').toString();
+            final students = sData['approvedStudents'] as List<dynamic>? ?? [];
+
+            for (var st in students) {
+              if (st is Map<String, dynamic>) {
+                final stId = (st['studentId'] ?? '').toString().trim();
+                final stNis = (st['nis'] ?? '').toString().trim();
+                final stSubId = (st['subjectId'] ?? '').toString().trim();
+                final stSubName = (st['subjectName'] ?? '').toString().trim();
+
+                final currentStudentId = (doc.id).trim();
+                final currentStudentNis = (_student?.nis ?? '').trim();
+
+                final bool isStudentMatch = (currentStudentId.isNotEmpty && stId == currentStudentId) ||
+                    (currentStudentNis.isNotEmpty && stNis.isNotEmpty && stNis == currentStudentNis);
+
+                if (isStudentMatch) {
+                  final Map<String, dynamic> mergedData = {
+                    'status': 'approved',
+                    'makeupRoom': room,
+                    'makeupDate': date,
+                    'makeupStartTime': start,
+                    'makeupEndTime': end,
+                    'subjectId': stSubId,
+                    'subjectName': stSubName,
+                  };
+                  void applyMerged(String key) {
+                    if (key.isEmpty) return;
+                    if (!_makeupApprovals.containsKey(key)) {
+                      _makeupApprovals[key] = mergedData;
+                    } else {
+                      if (start.isNotEmpty) _makeupApprovals[key]!['makeupStartTime'] = start;
+                      if (end.isNotEmpty) _makeupApprovals[key]!['makeupEndTime'] = end;
+                      if (room.isNotEmpty) _makeupApprovals[key]!['makeupRoom'] = room;
+                      if (date.isNotEmpty) _makeupApprovals[key]!['makeupDate'] = date;
+                    }
+                  }
+                  applyMerged(stSubId);
+                  applyMerged(stSubName);
+                  applyMerged(stSubName.toLowerCase());
+                }
               }
             }
           }
         } catch (e) {
-          debugPrint('⚠️ makeup_approvals fetch skipped: $e');
+          debugPrint('⚠️ makeup_approvals fetch skipped/error: $e');
         }
 
         // Set up real-time stream for makeup attendances (used to gate start button behind QR scan)
@@ -421,32 +482,55 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded, size: 18),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/student');
-            }
-          },
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.eventName,
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            Text(
-              'Kartu Peserta & Jadwal Ujian',
-              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFFA7F3D0)),
-            ),
-          ],
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(72),
+        child: AppBar(
+          backgroundColor: const Color(0xFF0F172A),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          toolbarHeight: 72,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_rounded, size: 18),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/student');
+              }
+            },
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                widget.eventName,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 17,
+                  color: Colors.white,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+              const SizedBox(height: 3),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF6EE7B7)),
+                  const SizedBox(width: 5),
+                  Text(
+                    _eventDateRange.isNotEmpty ? _eventDateRange : '-',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: const Color(0xFF6EE7B7),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
       body: SafeArea(
@@ -467,7 +551,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                 roomName: roomName,
                 seatNumber: seatNumber,
                 participantNumber: participantNumber,
-                dateRange: _eventDateRange,
               ),
               const SizedBox(height: 28),
 
@@ -521,27 +604,30 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   );
 }
 
-  /// Card Peserta Ujian berisi: Nama Event Ujian, Tanggal Event, No Peserta, Ruangan, No Kursi
+  /// Card Peserta Ujian berisi: Nama Student, NIS, Kelas, No Peserta, Ruangan, No Kursi
   Widget _buildParticipantCard({
     required String roomName,
     required String seatNumber,
     required String participantNumber,
-    required String dateRange,
   }) {
+    final studentInitial = (_student?.displayName != null && _student!.displayName.isNotEmpty)
+        ? _student!.displayName.trim().substring(0, 1).toUpperCase()
+        : 'S';
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF065F46), Color(0xFF0F766E), Color(0xFF115E59)],
+          colors: [Color(0xFF064E3B), Color(0xFF047857), Color(0xFF0F766E)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF047857).withValues(alpha: 0.25),
+            color: const Color(0xFF047857).withValues(alpha: 0.30),
             blurRadius: 20,
-            offset: const Offset(0, 10),
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -549,110 +635,73 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         children: [
           // Background circles accent
           Positioned(
-            right: -20,
-            top: -20,
+            right: -25,
+            top: -25,
             child: CircleAvatar(
-              radius: 80,
-              backgroundColor: Colors.white.withValues(alpha: 0.05),
+              radius: 90,
+              backgroundColor: Colors.white.withValues(alpha: 0.06),
             ),
           ),
           Positioned(
-            left: -40,
-            bottom: -40,
+            left: -45,
+            bottom: -45,
             child: CircleAvatar(
-              radius: 100,
-              backgroundColor: Colors.white.withValues(alpha: 0.03),
+              radius: 110,
+              backgroundColor: Colors.white.withValues(alpha: 0.04),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(22.0),
+            padding: const EdgeInsets.all(20.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top Header Row: Event Name, Date Range
+                // Student Identity Section with Avatar
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              'KARTU PESERTA UJIAN',
-                              style: GoogleFonts.inter(
-                                color: const Color(0xFFA7F3D0),
-                                fontWeight: FontWeight.w800,
-                                fontSize: 11,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.20),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.35), width: 1.5),
+                      ),
+                      child: Center(
+                        child: Text(
+                          studentInitial,
+                          style: GoogleFonts.plusJakartaSans(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
                           ),
-                          const SizedBox(height: 10),
-                          Text(
-                            widget.eventName,
-                            style: GoogleFonts.inter(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 19,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              const Icon(Icons.calendar_today_rounded, size: 13, color: Color(0xFFA7F3D0)),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  dateRange,
-                                  style: GoogleFonts.inter(
-                                    color: const Color(0xFFA7F3D0),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Divider(color: Colors.white24, height: 1),
-                const SizedBox(height: 14),
-
-                // Student Identity Info
-                Row(
-                  children: [
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             _student?.displayName ?? 'Siswa SesiCermat',
-                            style: GoogleFonts.inter(
+                            style: GoogleFonts.plusJakartaSans(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                              fontSize: 18,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 4),
                           Text(
-                            'NIS: ${_student?.nis ?? "-"}  •  Kelas: ${_myClassName ?? "-"}',
+                            'NIS: ${_student?.nis ?? "-"}   •   Kelas: ${_myClassName ?? "-"}',
                             style: GoogleFonts.inter(
                               color: const Color(0xFFA7F3D0),
-                              fontSize: 12,
+                              fontSize: 13,
                               fontWeight: FontWeight.w500,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -663,11 +712,11 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
                 // Grid Details: Nomor Peserta, Ruangan, Nomor Kursi
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
                   ),
                   child: Row(
                     children: [
@@ -679,18 +728,27 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           children: [
                             Text(
                               'NO. PESERTA',
-                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFFA7F3D0),
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               participantNumber,
-                              style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              style: GoogleFonts.plusJakartaSans(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
                       ),
-                      Container(height: 28, width: 1, color: Colors.white24),
+                      Container(height: 28, width: 1, color: Colors.white.withValues(alpha: 0.25)),
                       const SizedBox(width: 12),
                       // Ruangan
                       Expanded(
@@ -700,18 +758,27 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           children: [
                             Text(
                               'RUANGAN',
-                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFFA7F3D0),
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               roomName,
-                              style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              style: GoogleFonts.plusJakartaSans(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
                       ),
-                      Container(height: 28, width: 1, color: Colors.white24),
+                      Container(height: 28, width: 1, color: Colors.white.withValues(alpha: 0.25)),
                       const SizedBox(width: 12),
                       // Nomor Kursi
                       Expanded(
@@ -721,12 +788,21 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           children: [
                             Text(
                               'NO. KURSI',
-                              style: GoogleFonts.inter(color: const Color(0xFFA7F3D0), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFFA7F3D0),
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               seatNumber,
-                              style: GoogleFonts.inter(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900),
+                              style: GoogleFonts.plusJakartaSans(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ],
                         ),
@@ -749,6 +825,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     required String roomName,
     required String seatNumber,
     String? subjectName,
+    String? subjectId,
     String? sessionName,
     int? dayIndex,
     int? sessionIndex,
@@ -777,6 +854,23 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                 final aSess = (data['sessionIndex'] as num?)?.toInt();
 
                 if (isAtt && aDay == dayIndex && aSess == sessionIndex) {
+                  if (dayIndex == 0 && sessionIndex == 0) {
+                    final aSubjId = (data['subjectId'] ?? '').toString().trim();
+                    final aSubjName = (data['subjectName'] ?? '').toString().trim().toLowerCase();
+                    final targetSubjId = (subjectId ?? '').trim();
+                    final targetSubjName = (subjectName ?? '').trim().toLowerCase();
+
+                    final bool subjectMatches = aSubjId.isEmpty ||
+                        aSubjId == targetSubjId ||
+                        aSubjName == targetSubjName ||
+                        targetSubjId.contains(aSubjId) ||
+                        aSubjId.contains(targetSubjId) ||
+                        (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
+                        (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName));
+
+                    if (!subjectMatches) continue;
+                  }
+
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (dialogCtx.mounted && Navigator.of(dialogCtx).canPop()) {
                       Navigator.of(dialogCtx).pop();
@@ -1559,168 +1653,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     }
   }
 
-  void _showExpiredSessionDialog(String subjectName, String sName, String timeLabel) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        clipBehavior: Clip.antiAlias,
-        backgroundColor: Colors.white,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 420),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF1F5F9),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.history_toggle_off_rounded, color: Color(0xFF64748B), size: 36),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Sesi Ujian Telah Berakhir',
-                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A)),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Waktu pengerjaan untuk mata pelajaran $subjectName ($sName: $timeLabel) telah melewati batas jam pelaksanaan.',
-                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569), height: 1.5),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Murid tidak dapat lagi menekan tombol Kerjakan atau memulai pengerjaan soal pada sesi ini.',
-                style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B), height: 1.5),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0F172A),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text('Saya Mengerti', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
-  void _showLockedAttendanceDialog(Map<String, dynamic> item) {
-    final subjectName = (item['subjectName'] ?? item['subject'] ?? 'Mata Pelajaran').toString();
-    final sId = item['sessionId']?.toString() ?? '';
-    final session = _sessionMap[sId];
-    final sName = session?['name'] ?? session?['sessionName'] ?? 'Sesi Ujian';
-    final roomName = (_allocatedSeat?['roomCode'] ?? _allocatedSeat?['roomName'] ?? _allocatedSeat?['roomId'] ?? 'Ruangan Ujian').toString();
-    final seatNum = (_allocatedSeat?['seatNumber'] ?? '-').toString();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        clipBehavior: Clip.antiAlias,
-        backgroundColor: Colors.white,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 420),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFEF3C7),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.lock_person_rounded, color: Color(0xFFD97706), size: 36),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Akses Ujian Terkunci',
-                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A)),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Anda belum dikonfirmasi hadir oleh Pengawas Ruangan untuk mata pelajaran $subjectName.',
-                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569), height: 1.5),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Silakan tunjukkan QR Kartu Ujian Anda kepada Pengawas di ruangan tempat Anda ujian untuk meng-scan presensi dan membuka akses ujian ini.',
-                style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B), height: 1.5),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 18),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Ruangan Ujian:', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
-                        Text(roomName, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Sesi Ujian:', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
-                        Text(sName, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Nomor Kursi:', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
-                        Text('No. $seatNum', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF059669))),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0F172A),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text('Saya Mengerti', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildDayScheduleGroup(String dateKey, List<Map<String, dynamic>> items, int dayIndex) {
     final roomName = _allocatedSeat?['roomName'] ?? _allocatedSeat?['roomId'] ?? 'Belum Alokasi';
@@ -1833,9 +1766,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   final String currentStudentNis = _student?.nis ?? '';
 
                   final subjectIdForMakeup = (item['subjectId'] ?? subjectName).toString();
-                  final makeupApproval = _makeupApprovals[subjectIdForMakeup];
+                  final makeupApproval = _makeupApprovals[subjectIdForMakeup] ??
+                      _makeupApprovals[subjectName.toString()] ??
+                      _makeupApprovals[subjectName.toString().toLowerCase()];
                   final bool hasApprovedMakeup = isExpired && makeupApproval?['status'] == 'approved';
-                  final String makeupRoom = (makeupApproval?['makeupRoom'] ?? '').toString();
+                  final String makeupRoom = (makeupApproval?['makeupRoom'] ?? makeupApproval?['roomName'] ?? '').toString();
+                  final String makeupDate = (makeupApproval?['makeupDate'] ?? makeupApproval?['date'] ?? '').toString();
+                  final String makeupStart = (makeupApproval?['makeupStartTime'] ?? makeupApproval?['startTime'] ?? makeupApproval?['startStr'] ?? '').toString();
+                  final String makeupEnd = (makeupApproval?['makeupEndTime'] ?? makeupApproval?['endTime'] ?? makeupApproval?['endStr'] ?? '').toString();
 
                   for (var doc in attDocs) {
                     if (isAttendedByProctor) break;
@@ -1862,16 +1800,49 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           aRoom.contains(makeupRoomClean) ||
                           makeupRoomClean.contains(aRoom);
 
-                      if (aDay == 0 && aSess == 0 && roomMatches) {
+                      final aSubjId = (aData['subjectId'] ?? '').toString().trim();
+                      final aSubjName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
+                      final targetSubjId = subjectIdForMakeup.trim();
+                      final targetSubjName = subjectName.toString().trim().toLowerCase();
+
+                      final bool hasSubjectInDoc = aSubjId.isNotEmpty || aSubjName.isNotEmpty;
+                      final bool subjectMatches = hasSubjectInDoc
+                          ? (aSubjId == targetSubjId ||
+                              aSubjName == targetSubjName ||
+                              (targetSubjId.isNotEmpty && targetSubjId.contains(aSubjId)) ||
+                              (aSubjId.isNotEmpty && aSubjId.contains(targetSubjId)) ||
+                              (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
+                              (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)))
+                          : (doc.id.toLowerCase().contains(targetSubjId.toLowerCase()) ||
+                              doc.id.toLowerCase().contains(targetSubjName.toLowerCase()));
+
+                      if (aDay == 0 && aSess == 0 && roomMatches && subjectMatches) {
                         isAttendedByProctor = true;
                         break;
                       }
                     } else {
-                      // Match strictly by BOTH dayIndex AND sessionIndex
+                      // Match strictly by BOTH dayIndex AND sessionIndex, AND subject
                       if (aDay != null && aSess != null) {
                         if (aDay == resolvedDayIndex && aSess == resolvedSessionIndex) {
-                          isAttendedByProctor = true;
-                          break;
+                          final aSubjId = (aData['subjectId'] ?? '').toString().trim();
+                          final aSubjName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
+                          final targetSubjId = (item['subjectId'] ?? subjectName).toString().trim();
+                          final targetSubjName = subjectName.toString().trim().toLowerCase();
+                          final bool hasSubjectInDoc = aSubjId.isNotEmpty || aSubjName.isNotEmpty;
+                          final bool subjectMatches = hasSubjectInDoc
+                              ? (aSubjId == targetSubjId ||
+                                  aSubjName == targetSubjName ||
+                                  (targetSubjId.isNotEmpty && targetSubjId.contains(aSubjId)) ||
+                                  (aSubjId.isNotEmpty && aSubjId.contains(targetSubjId)) ||
+                                  (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
+                                  (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)))
+                              : (doc.id.toLowerCase().contains(targetSubjId.toLowerCase()) ||
+                                  doc.id.toLowerCase().contains(targetSubjName.toLowerCase()));
+
+                          if (!hasSubjectInDoc || subjectMatches) {
+                            isAttendedByProctor = true;
+                            break;
+                          }
                         }
                       }
                     }
@@ -1885,276 +1856,309 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           'sessionIndex': 0,
                           'isMakeup': true,
                           'subjectId': subjectIdForMakeup,
+                          'subjectName': subjectName.toString(),
                         }
                       : {
                           'studentId': _student?.id ?? '',
                           'roomName': roomName,
                           'dayIndex': resolvedDayIndex,
                           'sessionIndex': resolvedSessionIndex,
+                          'subjectId': (item['subjectId'] ?? subjectName).toString(),
+                          'subjectName': subjectName.toString(),
                         };
                   final String itemQrDataString = jsonEncode(itemQrDataMap);
 
                   return Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Tooltip(
-                          message: hasApprovedMakeup
-                              ? 'Klik untuk memperbesar QR Code Ujian Susulan'
-                              : 'Klik untuk memperbesar QR Code Sesi',
-                          child: GestureDetector(
-                            onTap: () {
-                              _showEnlargedQrDialog(
-                                context: context,
-                                qrData: itemQrDataString,
-                                participantNumber: participantNumber,
-                                roomName: hasApprovedMakeup
-                                    ? (makeupRoom.isNotEmpty ? makeupRoom : 'Ruang Susulan')
-                                    : roomName,
-                                seatNumber: hasApprovedMakeup ? '-' : seatNumber,
-                                subjectName: subjectName.toString(),
-                                sessionName: hasApprovedMakeup ? 'Ujian Susulan' : sName,
-                                dayIndex: hasApprovedMakeup ? 0 : resolvedDayIndex,
-                                sessionIndex: hasApprovedMakeup ? 0 : resolvedSessionIndex,
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.05),
-                                    blurRadius: 4,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Tooltip(
+                              message: hasApprovedMakeup
+                                  ? 'Klik untuk memperbesar QR Code Ujian Susulan'
+                                  : 'Klik untuk memperbesar QR Code Sesi',
+                              child: GestureDetector(
+                                onTap: () {
+                                  _showEnlargedQrDialog(
+                                    context: context,
+                                    qrData: itemQrDataString,
+                                    participantNumber: participantNumber,
+                                    roomName: hasApprovedMakeup
+                                        ? (makeupRoom.isNotEmpty ? makeupRoom : 'Ruang Susulan')
+                                        : roomName,
+                                    seatNumber: hasApprovedMakeup ? '-' : seatNumber,
+                                    subjectName: subjectName.toString(),
+                                    subjectId: hasApprovedMakeup ? subjectIdForMakeup : null,
+                                    sessionName: hasApprovedMakeup ? 'Ujian Susulan' : sName,
+                                    dayIndex: hasApprovedMakeup ? 0 : resolvedDayIndex,
+                                    sessionIndex: hasApprovedMakeup ? 0 : resolvedSessionIndex,
+                                  );
+                                },
+                                child: Container(
+                                  width: 50,
+                                  height: 50,
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.05),
+                                        blurRadius: 4,
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                              child: QrImageView(
-                                data: itemQrDataString,
-                                version: QrVersions.auto,
-                                errorCorrectionLevel: QrErrorCorrectLevel.M,
-                                size: 36.0,
-                                padding: EdgeInsets.zero,
+                                  child: QrImageView(
+                                    data: itemQrDataString,
+                                    version: QrVersions.auto,
+                                    errorCorrectionLevel: QrErrorCorrectLevel.M,
+                                    size: 44.0,
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                subjectName,
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: const Color(0xFF0F172A),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '$sName ($timeLabel)',
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: const Color(0xFF64748B),
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: isAttendedByProctor
-                                      ? const Color(0xFFD1FAE5)
-                                      : const Color(0xFFFEF3C7),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      isAttendedByProctor
-                                          ? Icons.check_circle_rounded
-                                          : Icons.cancel_rounded,
-                                      size: 11,
-                                      color: isAttendedByProctor
-                                          ? const Color(0xFF065F46)
-                                          : const Color(0xFFD97706),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    subjectName,
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      color: const Color(0xFF0F172A),
                                     ),
-                                    const SizedBox(width: 4),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 3),
+                                  if (hasApprovedMakeup) ...[
                                     Text(
-                                      isAttendedByProctor ? 'Sudah Scan' : 'Belum Scan',
+                                      (makeupStart.isNotEmpty && makeupEnd.isNotEmpty)
+                                          ? 'Sesi Susulan ($makeupStart - $makeupEnd)'
+                                          : 'Sesi Susulan ($timeLabel)',
                                       style: GoogleFonts.inter(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w800,
-                                        color: isAttendedByProctor
-                                            ? const Color(0xFF065F46)
-                                            : const Color(0xFFD97706),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: const Color(0xFF7C3AED),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '📅 ${makeupDate.isNotEmpty ? makeupDate : "-"}  •  📍 ${makeupRoom.isNotEmpty ? makeupRoom : "Ruang Susulan"}',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                  ] else ...[
+                                    Text(
+                                      '$sName ($timeLabel)',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: const Color(0xFF475569),
                                       ),
                                     ),
                                   ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-
-                        // Action Button or Status Badge
-                        if (isSubmitted)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFFCBD5E1)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF059669)),
-                                const SizedBox(width: 6),
-                                Text(
-                                  submittedScore != null ? 'Selesai ($submittedScore)' : 'Sudah Dikumpulkan',
-                                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
-                                ),
-                              ],
-                            ),
-                          )
-                        else if (isExpired)
-                          _buildMakeupButton(
-                            item: item,
-                            subjectName: subjectName.toString(),
-                            sName: sName,
-                            timeLabel: timeLabel,
-                            startTime: startTime,
-                            endTime: endTime,
-                          )
-                        else if (isNotStarted && !isAttendedByProctor)
-                          OutlinedButton.icon(
-                            onPressed: () => _showSessionGuidelinesDialog(
-                              item: item,
-                              subjectName: subjectName.toString(),
-                              sName: sName,
-                              timeLabel: timeLabel,
-                            ),
-                            icon: const Icon(Icons.menu_book_rounded, size: 14, color: Color(0xFF2563EB)),
-                            label: SizedBox(
-                              width: 130,
-                              child: Text(
-                                'Sesi belum mulai. Klik untuk membaca panduan',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF2563EB),
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 2,
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              backgroundColor: const Color(0xFFEFF6FF),
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              side: const BorderSide(color: Color(0xFF93C5FD)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          )
-                        else if (!isAttendedByProctor || isNotStarted)
-                          ElevatedButton.icon(
-                            onPressed: null,
-                            icon: const Icon(Icons.play_circle_fill_rounded, size: 16, color: Color(0xFF94A3B8)),
-                            label: const Text('Kerjakan'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFE2E8F0),
-                              foregroundColor: const Color(0xFF94A3B8),
-                              disabledBackgroundColor: const Color(0xFFE2E8F0),
-                              disabledForegroundColor: const Color(0xFF94A3B8),
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          )
-                        else if (isQuestionReady)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                onPressed: () => _showSessionGuidelinesDialog(
-                                  item: item,
-                                  subjectName: subjectName.toString(),
-                                  sName: sName,
-                                  timeLabel: timeLabel,
-                                ),
-                                icon: const Icon(Icons.help_outline_rounded, color: Color(0xFF2563EB), size: 20),
-                                tooltip: 'Panduan Ujian',
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(6),
-                              ),
-                              const SizedBox(width: 4),
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  if (item['isSubmitted'] == true) return;
-                                  final sid = (item['subjectId'] ?? subjectName).toString();
-                                  debugPrint('🚀 Navigating to StudentExamPage');
-                                  debugPrint('   subjectId  : "$sid"');
-                                  debugPrint('   subjectName: "$subjectName"');
-                                  debugPrint('   angkatan   : "${_student?.angkatan}"');
-                                  debugPrint('   className  : "$_myClassName"');
-                                  debugPrint('   item keys  : ${item.keys.toList()}');
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => StudentExamPage(
-                                        schoolId: _schoolId,
-                                        eventId: widget.eventId,
-                                        eventName: widget.eventName,
-                                        subjectId: sid,
-                                        subjectName: subjectName.toString(),
-                                        studentId: _student?.id ?? '',
-                                        studentName: _student?.displayName ?? 'Siswa',
-                                        nis: _student?.nis ?? '',
-                                        className: _myClassName ?? '',
-                                        angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty) ? _student!.angkatan : (_myClassName ?? ''),
-                                        sessionName: sName,
-                                        startTimeStr: startTime,
-                                        endTimeStr: endTime,
-                                      ),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: isAttendedByProctor
+                                          ? const Color(0xFFD1FAE5)
+                                          : const Color(0xFFFEF3C7),
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
-                                  ).then((_) {
-                                    if (mounted) {
-                                      setState(() {
-                                        item['isSubmitted'] = true;
-                                      });
-                                    }
-                                    _loadStudentAndEventDetails();
-                                  });
-                                },
-                                icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
-                                label: const Text('Kerjakan'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF10B981),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          isAttendedByProctor
+                                              ? Icons.check_circle_rounded
+                                              : Icons.cancel_rounded,
+                                          size: 11,
+                                          color: isAttendedByProctor
+                                              ? const Color(0xFF065F46)
+                                              : const Color(0xFFD97706),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          isAttendedByProctor ? 'Sudah Scan' : 'Belum Scan',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w800,
+                                            color: isAttendedByProctor
+                                                ? const Color(0xFF065F46)
+                                                : const Color(0xFFD97706),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          )
-                        else
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(16),
                             ),
-                            child: Text(
-                              'Soal Belum Siap',
-                              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w600),
-                            ),
-                          ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Bottom Right Action Button or Status Badge
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: isSubmitted
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF059669)),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        submittedScore != null ? 'Selesai ($submittedScore)' : 'Sudah Dikumpulkan',
+                                        style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : isExpired
+                                  ? _buildMakeupButton(
+                                      item: item,
+                                      subjectName: subjectName.toString(),
+                                      sName: sName,
+                                      timeLabel: timeLabel,
+                                      startTime: startTime,
+                                      endTime: endTime,
+                                    )
+                                  : isNotStarted && !isAttendedByProctor
+                                      ? OutlinedButton.icon(
+                                          onPressed: () => _showSessionGuidelinesDialog(
+                                            item: item,
+                                            subjectName: subjectName.toString(),
+                                            sName: sName,
+                                            timeLabel: timeLabel,
+                                          ),
+                                          icon: const Icon(Icons.menu_book_rounded, size: 14, color: Color(0xFF2563EB)),
+                                          label: SizedBox(
+                                            width: 130,
+                                            child: Text(
+                                              'Sesi belum mulai. Klik untuk membaca panduan',
+                                              style: GoogleFonts.plusJakartaSans(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: const Color(0xFF2563EB),
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 2,
+                                            ),
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            backgroundColor: const Color(0xFFEFF6FF),
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                            side: const BorderSide(color: Color(0xFF93C5FD)),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          ),
+                                        )
+                                      : !isAttendedByProctor || isNotStarted
+                                          ? ElevatedButton.icon(
+                                              onPressed: null,
+                                              icon: const Icon(Icons.play_circle_fill_rounded, size: 16, color: Color(0xFF94A3B8)),
+                                              label: const Text('Kerjakan'),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFFE2E8F0),
+                                                foregroundColor: const Color(0xFF94A3B8),
+                                                disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                                disabledForegroundColor: const Color(0xFF94A3B8),
+                                                elevation: 0,
+                                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                              ),
+                                            )
+                                          : isQuestionReady
+                                              ? Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    IconButton(
+                                                      onPressed: () => _showSessionGuidelinesDialog(
+                                                        item: item,
+                                                        subjectName: subjectName.toString(),
+                                                        sName: sName,
+                                                        timeLabel: timeLabel,
+                                                      ),
+                                                      icon: const Icon(Icons.help_outline_rounded, color: Color(0xFF2563EB), size: 20),
+                                                      tooltip: 'Panduan Ujian',
+                                                      constraints: const BoxConstraints(),
+                                                      padding: const EdgeInsets.all(6),
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    ElevatedButton.icon(
+                                                      onPressed: () {
+                                                        if (item['isSubmitted'] == true) return;
+                                                        final sid = (item['subjectId'] ?? subjectName).toString();
+                                                        Navigator.push(
+                                                          context,
+                                                          MaterialPageRoute(
+                                                            builder: (context) => StudentExamPage(
+                                                              schoolId: _schoolId,
+                                                              eventId: widget.eventId,
+                                                              eventName: widget.eventName,
+                                                              subjectId: sid,
+                                                              subjectName: subjectName.toString(),
+                                                              studentId: _student?.id ?? '',
+                                                              studentName: _student?.displayName ?? 'Siswa',
+                                                              nis: _student?.nis ?? '',
+                                                              className: _myClassName ?? '',
+                                                              angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty) ? _student!.angkatan : (_myClassName ?? ''),
+                                                              sessionName: sName,
+                                                              startTimeStr: startTime,
+                                                              endTimeStr: endTime,
+                                                            ),
+                                                          ),
+                                                        ).then((_) {
+                                                          if (mounted) {
+                                                            setState(() {
+                                                              item['isSubmitted'] = true;
+                                                            });
+                                                          }
+                                                          _loadStudentAndEventDetails();
+                                                        });
+                                                      },
+                                                      icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
+                                                      label: const Text('Kerjakan'),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: const Color(0xFF10B981),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                )
+                                              : Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFF1F5F9),
+                                                    borderRadius: BorderRadius.circular(16),
+                                                  ),
+                                                  child: Text(
+                                                    'Soal Belum Siap',
+                                                    style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w600),
+                                                  ),
+                                                ),
+                        ),
                       ],
                     ),
                   );
@@ -2220,7 +2224,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     // Status: approved → Harus scan QR dahulu sebelum Mulai Ujian Susulan
     if (status == 'approved') {
       final makeupRoom = (approval!['makeupRoom'] ?? '').toString();
-      final makeupDate = (approval['makeupDate'] ?? '').toString();
       final makeupStart = (approval['makeupStartTime'] ?? startTime).toString();
       final makeupEnd = (approval['makeupEndTime'] ?? endTime).toString();
 
@@ -2246,7 +2249,20 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   aRoom.contains(makeupRoomClean) ||
                   makeupRoomClean.contains(aRoom);
 
-              if (aDay == 0 && aSess == 0 && roomMatches) {
+              final aSubjId = (aData['subjectId'] ?? '').toString().trim();
+              final aSubjName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
+              final targetSubjId = (item['subjectId'] ?? subjectName).toString().trim();
+              final targetSubjName = subjectName.toString().trim().toLowerCase();
+
+              final bool subjectMatches = aSubjId.isEmpty ||
+                  aSubjId == targetSubjId ||
+                  aSubjName == targetSubjName ||
+                  targetSubjId.contains(aSubjId) ||
+                  aSubjId.contains(targetSubjId) ||
+                  (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
+                  (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName));
+
+              if (aDay == 0 && aSess == 0 && roomMatches && subjectMatches) {
                 isMakeupAttended = true;
                 break;
               }
@@ -2256,18 +2272,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (makeupDate.isNotEmpty || makeupRoom.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    '📅 $makeupDate${makeupRoom.isNotEmpty ? '  •  $makeupRoom' : ''}',
-                    style: GoogleFonts.inter(
-                        fontSize: 9,
-                        color: const Color(0xFF7C3AED),
-                        fontWeight: FontWeight.w600),
-                    textAlign: TextAlign.right,
-                  ),
-                ),
               if (!isMakeupAttended) ...[
                 ElevatedButton.icon(
                   onPressed: null,
@@ -2284,29 +2288,6 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   ),
                 ),
               ] else ...[
-                  // Attended badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD1FAE5),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF065F46)),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Sudah Scan ✓',
-                          style: GoogleFonts.inter(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: const Color(0xFF065F46)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 6),
                   ElevatedButton.icon(
                     onPressed: () {
                       if (item['isSubmitted'] == true) return;

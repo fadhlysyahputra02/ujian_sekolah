@@ -843,13 +843,26 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
               final sNis = (aData['nis'] ?? '').toString().toLowerCase();
               final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
+              final sSubj = (aData['subjectId'] ?? aData['subjectName'] ?? '').toString().toLowerCase();
               final seatNum = (aData['seatNumber'] as num?)?.toInt();
-              if (sId.isNotEmpty) _localAttendedMap[sId] = true;
-              if (sNis.isNotEmpty) _localAttendedMap[sNis] = true;
-              if (sName.isNotEmpty) _localAttendedMap[sName] = true;
+              if (sId.isNotEmpty) {
+                _localAttendedMap[sId] = true;
+                if (sSubj.isNotEmpty) _localAttendedMap['${sId}_$sSubj'] = true;
+              }
+              if (sNis.isNotEmpty) {
+                _localAttendedMap[sNis] = true;
+                if (sSubj.isNotEmpty) _localAttendedMap['${sNis}_$sSubj'] = true;
+              }
+              if (sName.isNotEmpty) {
+                _localAttendedMap[sName] = true;
+                if (sSubj.isNotEmpty) _localAttendedMap['${sName}_$sSubj'] = true;
+              }
               if (seatNum != null && seatNum > 0) {
                 _localAttendedMap['${widget.roomId}_seat_$seatNum'] = true;
                 _localAttendedMap['seat_${widget.roomId}_$seatNum'] = true;
+                if (sSubj.isNotEmpty) {
+                  _localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = true;
+                }
               }
             }
           }
@@ -1151,18 +1164,31 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 final sId = (sData['studentId'] ?? sData['id'] ?? '').toString().toLowerCase();
                                 final sNis = (sData['nis'] ?? '').toString().toLowerCase();
                                 final sName = (sData['displayName'] ?? sData['studentName'] ?? '').toString().toLowerCase();
+                                final sSubj = (sData['subjectId'] ?? sData['subjectName'] ?? '').toString().toLowerCase();
 
                                 bool isAttended = false;
-                                if (sId.isNotEmpty && _localAttendedMap[sId] == true) {
-                                  isAttended = true;
-                                } else if (sNis.isNotEmpty && _localAttendedMap[sNis] == true) {
-                                  isAttended = true;
-                                } else if (sName.isNotEmpty && _localAttendedMap[sName] == true) {
-                                  isAttended = true;
-                                } else if (sId.isEmpty && sNis.isEmpty && sName.isEmpty) {
-                                  if (_localAttendedMap['${widget.roomId}_seat_$seatNum'] == true ||
-                                      _localAttendedMap['seat_${widget.roomId}_$seatNum'] == true) {
+                                if (isMakeupRoom && sSubj.isNotEmpty) {
+                                  if (sId.isNotEmpty && _localAttendedMap['${sId}_$sSubj'] == true) {
                                     isAttended = true;
+                                  } else if (sNis.isNotEmpty && _localAttendedMap['${sNis}_$sSubj'] == true) {
+                                    isAttended = true;
+                                  } else if (sName.isNotEmpty && _localAttendedMap['${sName}_$sSubj'] == true) {
+                                    isAttended = true;
+                                  } else if (_localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubj'] == true) {
+                                    isAttended = true;
+                                  }
+                                } else {
+                                  if (sId.isNotEmpty && _localAttendedMap[sId] == true) {
+                                    isAttended = true;
+                                  } else if (sNis.isNotEmpty && _localAttendedMap[sNis] == true) {
+                                    isAttended = true;
+                                  } else if (sName.isNotEmpty && _localAttendedMap[sName] == true) {
+                                    isAttended = true;
+                                  } else if (sId.isEmpty && sNis.isEmpty && sName.isEmpty) {
+                                    if (_localAttendedMap['${widget.roomId}_seat_$seatNum'] == true ||
+                                        _localAttendedMap['seat_${widget.roomId}_$seatNum'] == true) {
+                                      isAttended = true;
+                                    }
                                   }
                                 }
 
@@ -1301,6 +1327,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                               seatNotifier: _seatNotifier,
                                               dayIndex: widget.dayIndex,
                                               sessionIndex: widget.sessionIndex,
+                                              allowedSubjectNames: cleanActiveSubjectNames,
+                                              allowedSubjectIds: matchedSubjectIds,
                                             ),
                                             const SizedBox(height: 20),
 
@@ -1334,6 +1362,9 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                 eventId: widget.eventId,
                                                 allowedStudentIds: roomStudentIds,
                                                 allowedStudentNises: roomStudentNises,
+                                                allowedSubjectNames: cleanActiveSubjectNames,
+                                                allowedSubjectIds: matchedSubjectIds,
+                                                sessionName: sessionLabel,
                                               ),
                                               exitLogCount: realtimeDocs.where((doc) {
                                                 final d = doc.data() as Map<String, dynamic>;
@@ -1349,11 +1380,41 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
                                                 if (!isRoomStudent && roomStudentIds.isNotEmpty) return false;
 
+                                                // Check subject / session match
+                                                final rtSubjId = (d['subjectId'] ?? '').toString().toLowerCase().trim();
+                                                final rtSubjName = (d['subjectName'] ?? '').toString().toLowerCase().trim();
+                                                if (cleanActiveSubjectNames.isNotEmpty) {
+                                                  bool subjMatches = cleanActiveSubjectNames.contains(rtSubjName) ||
+                                                      matchedSubjectIds.contains(rtSubjId) ||
+                                                      matchedSubjectIds.contains(rtSubjName);
+
+                                                  if (!subjMatches && (docId.contains('_') || docId.contains('-'))) {
+                                                    for (final sub in cleanActiveSubjectNames) {
+                                                      if (sub.isNotEmpty && docId.toLowerCase().contains(sub)) {
+                                                        subjMatches = true;
+                                                        break;
+                                                      }
+                                                    }
+                                                  }
+
+                                                  if (!subjMatches) return false;
+                                                }
+
                                                 final isLeftApp = d['isLeftApp'] == true || d['status'] == 'left_app';
                                                 final logs = d['logs'] as List? ?? [];
                                                 int actualLeft = 0;
                                                 for (var l in logs) {
                                                   if (l is Map && (l['event'] == 'left_app' || l['status'] == 'left_app')) {
+                                                    final entrySubjId = (l['subjectId'] ?? '').toString().toLowerCase().trim();
+                                                    final entrySubjName = (l['subjectName'] ?? '').toString().toLowerCase().trim();
+                                                    if (cleanActiveSubjectNames.isNotEmpty) {
+                                                      if (entrySubjName.isNotEmpty || entrySubjId.isNotEmpty) {
+                                                        bool entryMatches = cleanActiveSubjectNames.contains(entrySubjName) ||
+                                                            matchedSubjectIds.contains(entrySubjId) ||
+                                                            matchedSubjectIds.contains(entrySubjName);
+                                                        if (!entryMatches) continue;
+                                                      }
+                                                    }
                                                     actualLeft++;
                                                   }
                                                 }

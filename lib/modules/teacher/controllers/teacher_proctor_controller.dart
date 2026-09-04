@@ -133,9 +133,13 @@ class TeacherProctorController {
 
     seatNotifier.value++;
 
+    final subjectId = (seatData['subjectId'] ?? '').toString().trim();
+    final subjectName = (seatData['subjectName'] ?? '').toString().trim();
+
+    final docKeySuffix = subjectId.isNotEmpty ? '_$subjectId' : '';
     final docKey = studentId.isNotEmpty
-        ? '${roomId}_${dayIndex}_${sessionIndex}_$studentId'
-        : (nis.isNotEmpty ? '${roomId}_${dayIndex}_${sessionIndex}_$nis' : '${roomId}_${dayIndex}_${sessionIndex}_seat_$seatNum');
+        ? '${roomId}_${dayIndex}_${sessionIndex}_$studentId$docKeySuffix'
+        : (nis.isNotEmpty ? '${roomId}_${dayIndex}_${sessionIndex}_$nis$docKeySuffix' : '${roomId}_${dayIndex}_${sessionIndex}_seat_$seatNum$docKeySuffix');
 
     final attRef = FirebaseFirestore.instance
         .collection('schools')
@@ -150,7 +154,7 @@ class TeacherProctorController {
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         if (isAttended) {
-          await attRef.set({
+          final payload = <String, dynamic>{
             'eventId': eventId,
             'roomId': roomId,
             'dayIndex': dayIndex,
@@ -163,7 +167,11 @@ class TeacherProctorController {
             'isAttended': true,
             'attendedAt': FieldValue.serverTimestamp(),
             'updatedBy': 'proctor',
-          }, SetOptions(merge: true));
+          };
+          if (subjectId.isNotEmpty) payload['subjectId'] = subjectId;
+          if (subjectName.isNotEmpty) payload['subjectName'] = subjectName;
+
+          await attRef.set(payload, SetOptions(merge: true));
         } else {
           await attRef.delete();
         }
@@ -199,6 +207,8 @@ class TeacherProctorController {
     void Function(String text, Color color, IconData icon)? onShowFeedback,
     int dayIndex = 0,
     int sessionIndex = 0,
+    Set<String>? allowedSubjectNames,
+    Set<String>? allowedSubjectIds,
   }) {
     if (rawData.isEmpty) return;
 
@@ -210,6 +220,8 @@ class TeacherProctorController {
     String scannedParticipantNumber = '';
     String scannedName = '';
     String scannedRoomName = '';
+    String scannedSubjectId = '';
+    String scannedSubjectName = '';
     int? scannedDayIndex;
     int? scannedSessionIndex;
 
@@ -225,6 +237,8 @@ class TeacherProctorController {
         scannedParticipantNumber = (parsedJson['participantNumber'] ?? '').toString().trim();
         scannedName = (parsedJson['studentName'] ?? parsedJson['name'] ?? '').toString().trim();
         scannedRoomName = (parsedJson['roomName'] ?? parsedJson['roomId'] ?? '').toString().trim();
+        scannedSubjectId = (parsedJson['subjectId'] ?? '').toString().trim();
+        scannedSubjectName = (parsedJson['subjectName'] ?? '').toString().trim();
         if (parsedJson.containsKey('dayIndex')) {
           scannedDayIndex = int.tryParse(parsedJson['dayIndex'].toString());
         }
@@ -287,9 +301,38 @@ class TeacherProctorController {
       }
     }
 
+    // 3.5. Room Level Subject Verification
+    if (scannedSubjectId.isNotEmpty || scannedSubjectName.isNotEmpty) {
+      if (allowedSubjectNames != null && allowedSubjectNames.isNotEmpty) {
+        final cleanScannedName = scannedSubjectName.toLowerCase().trim();
+        final cleanScannedId = scannedSubjectId.toLowerCase().trim();
+
+        bool isAllowed = allowedSubjectNames.any((allowed) {
+          final cleanAllowed = allowed.toLowerCase().trim();
+          return cleanAllowed == cleanScannedName ||
+              cleanAllowed.contains(cleanScannedName) ||
+              cleanScannedName.contains(cleanAllowed) ||
+              (allowedSubjectIds != null && allowedSubjectIds.contains(cleanScannedId));
+        });
+
+        if (!isAllowed) {
+          triggerScanFeedback(isSuccess: false);
+          if (onShowFeedback != null) {
+            onShowFeedback(
+              '⚠️ Mata pelajaran tidak sesuai! QR ini untuk "${scannedSubjectName.isNotEmpty ? scannedSubjectName : scannedSubjectId}".',
+              const Color(0xFFDC2626),
+              Icons.warning_amber_rounded,
+            );
+          }
+          return;
+        }
+      }
+    }
+
     // 4. Search student in this room's seatMap
     Map<String, dynamic>? matchedSeat;
     int? matchedSeatNum;
+    bool hasSubjectMismatch = false;
 
     for (var entry in seatMap.entries) {
       final s = entry.value;
@@ -297,6 +340,8 @@ class TeacherProctorController {
       final sNis = (s['nis'] ?? '').toString().trim();
       final sPart = (s['participantNumber'] ?? '').toString().trim();
       final sName = (s['displayName'] ?? s['studentName'] ?? '').toString().trim();
+      final sSubjId = (s['subjectId'] ?? '').toString().trim();
+      final sSubjName = (s['subjectName'] ?? '').toString().trim();
 
       bool isMatch = false;
       if (scannedStudentId.isNotEmpty && (sId.toLowerCase() == scannedStudentId.toLowerCase() || sId.toLowerCase().contains(scannedStudentId.toLowerCase()))) {
@@ -310,20 +355,41 @@ class TeacherProctorController {
       }
 
       if (isMatch) {
-        matchedSeat = s;
-        matchedSeatNum = entry.key;
-        break;
+        if ((scannedSubjectId.isNotEmpty || scannedSubjectName.isNotEmpty) && (sSubjId.isNotEmpty || sSubjName.isNotEmpty)) {
+          final subMatch = (scannedSubjectId.isNotEmpty && (sSubjId.toLowerCase() == scannedSubjectId.toLowerCase() || sSubjId.toLowerCase().contains(scannedSubjectId.toLowerCase()) || scannedSubjectId.toLowerCase().contains(sSubjId.toLowerCase()))) ||
+              (scannedSubjectName.isNotEmpty && (sSubjName.toLowerCase() == scannedSubjectName.toLowerCase() || sSubjName.toLowerCase().contains(scannedSubjectName.toLowerCase()) || scannedSubjectName.toLowerCase().contains(sSubjName.toLowerCase())));
+          if (subMatch) {
+            matchedSeat = s;
+            matchedSeatNum = entry.key;
+            hasSubjectMismatch = false;
+            break;
+          } else {
+            hasSubjectMismatch = true;
+          }
+        } else {
+          matchedSeat = s;
+          matchedSeatNum = entry.key;
+          break;
+        }
       }
     }
 
     if (matchedSeat == null || matchedSeatNum == null) {
       triggerScanFeedback(isSuccess: false);
       if (onShowFeedback != null) {
-        onShowFeedback(
-          '⚠️ Siswa "${scannedName.isNotEmpty ? scannedName : scannedStudentId}" tidak ditemukan di ruangan ini.',
-          const Color(0xFFDC2626),
-          Icons.warning_amber_rounded,
-        );
+        if (hasSubjectMismatch) {
+          onShowFeedback(
+            '⚠️ Mata pelajaran tidak sesuai! QR ini untuk "${scannedSubjectName.isNotEmpty ? scannedSubjectName : scannedSubjectId}".',
+            const Color(0xFFDC2626),
+            Icons.warning_amber_rounded,
+          );
+        } else {
+          onShowFeedback(
+            '⚠️ Siswa "${scannedName.isNotEmpty ? scannedName : scannedStudentId}" tidak ditemukan di ruangan ini.',
+            const Color(0xFFDC2626),
+            Icons.warning_amber_rounded,
+          );
+        }
       }
       return;
     }
@@ -679,7 +745,21 @@ class TeacherProctorController {
     required String eventId,
     Set<String>? allowedStudentIds,
     Set<String>? allowedStudentNises,
+    Set<String>? allowedSubjectNames,
+    Set<String>? allowedSubjectIds,
+    String? sessionName,
   }) {
+    final cleanAllowedSubjNames = allowedSubjectNames
+        ?.map((s) => s.toLowerCase().trim())
+        .where((s) => s.isNotEmpty)
+        .toSet() ??
+        {};
+    final cleanAllowedSubjIds = allowedSubjectIds
+        ?.map((s) => s.toLowerCase().trim())
+        .where((s) => s.isNotEmpty)
+        .toSet() ??
+        {};
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -767,6 +847,7 @@ class TeacherProctorController {
                     final sNis = (data['nis'] ?? '').toString().trim();
                     final docId = doc.id.trim();
 
+                    // 1. Room Student Check
                     if (allowedStudentIds != null && allowedStudentIds.isNotEmpty) {
                       final bool isRoomStudent = allowedStudentIds.contains(sId) ||
                           (sNis.isNotEmpty && allowedStudentNises != null && allowedStudentNises.contains(sNis)) ||
@@ -777,19 +858,62 @@ class TeacherProctorController {
                       if (!isRoomStudent) continue;
                     }
 
-                    final isLeftApp = data['isLeftApp'] == true || data['status'] == 'left_app';
-                    final logs = data['logs'] as List? ?? [];
+                    // 2. Subject / Session Check
+                    final rtSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
+                    final rtSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
 
-                    int actualLeftCount = 0;
-                    for (var l in logs) {
-                      if (l is Map && (l['event'] == 'left_app' || l['status'] == 'left_app')) {
-                        actualLeftCount++;
+                    if (cleanAllowedSubjNames.isNotEmpty) {
+                      bool subjMatches = cleanAllowedSubjNames.contains(rtSubjName) ||
+                          cleanAllowedSubjIds.contains(rtSubjId) ||
+                          cleanAllowedSubjIds.contains(rtSubjName);
+
+                      if (!subjMatches && (docId.contains('_') || docId.contains('-'))) {
+                        for (final sub in cleanAllowedSubjNames) {
+                          if (sub.isNotEmpty && docId.toLowerCase().contains(sub)) {
+                            subjMatches = true;
+                            break;
+                          }
+                        }
+                      }
+
+                      if (!subjMatches) {
+                        continue; // Skip document from another subject/session!
                       }
                     }
+
+                    final isLeftApp = data['isLeftApp'] == true || data['status'] == 'left_app';
+                    final rawLogs = data['logs'] as List? ?? [];
+
+                    // Filter logs array entries for the active subject/session
+                    final filteredLogs = <Map<String, dynamic>>[];
+                    int actualLeftCount = 0;
+
+                    for (var l in rawLogs) {
+                      if (l is Map) {
+                        final entrySubjId = (l['subjectId'] ?? '').toString().toLowerCase().trim();
+                        final entrySubjName = (l['subjectName'] ?? '').toString().toLowerCase().trim();
+
+                        if (cleanAllowedSubjNames.isNotEmpty) {
+                          if (entrySubjName.isNotEmpty || entrySubjId.isNotEmpty) {
+                            bool entryMatches = cleanAllowedSubjNames.contains(entrySubjName) ||
+                                cleanAllowedSubjIds.contains(entrySubjId) ||
+                                cleanAllowedSubjIds.contains(entrySubjName);
+                            if (!entryMatches) continue; // Skip log entry from another session
+                          }
+                        }
+
+                        final event = (l['event'] ?? l['status'] ?? '').toString();
+                        if (event == 'left_app' || event == 'status_left_app') {
+                          actualLeftCount++;
+                        }
+                        filteredLogs.add(Map<String, dynamic>.from(l));
+                      }
+                    }
+
                     final leftAppCount = actualLeftCount > 0
                         ? actualLeftCount
                         : ((data['leftAppCount'] as num?)?.toInt() ?? (isLeftApp ? 1 : 0));
-                    final hasLogs = logs.isNotEmpty || isLeftApp || leftAppCount > 0;
+                    final hasLogs = filteredLogs.isNotEmpty || isLeftApp || leftAppCount > 0;
 
                     if (hasLogs) {
                       logsList.add({
@@ -803,7 +927,7 @@ class TeacherProctorController {
                         'status': data['status'] ?? (isLeftApp ? 'left_app' : 'in_progress'),
                         'lastLeftAppAt': data['lastLeftAppAt'],
                         'updatedAt': data['updatedAt'],
-                        'logs': logs,
+                        'logs': filteredLogs,
                       });
                     }
                   }

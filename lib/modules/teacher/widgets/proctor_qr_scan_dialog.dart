@@ -19,6 +19,8 @@ class ProctorQrScanDialog extends StatefulWidget {
 
   final int dayIndex;
   final int sessionIndex;
+  final Set<String>? allowedSubjectNames;
+  final Set<String>? allowedSubjectIds;
 
   const ProctorQrScanDialog({
     super.key,
@@ -33,6 +35,8 @@ class ProctorQrScanDialog extends StatefulWidget {
     required this.onStopCamera,
     this.dayIndex = 0,
     this.sessionIndex = 0,
+    this.allowedSubjectNames,
+    this.allowedSubjectIds,
   });
 
   static Future<void> show({
@@ -46,6 +50,8 @@ class ProctorQrScanDialog extends StatefulWidget {
     required ValueNotifier<int> seatNotifier,
     int dayIndex = 0,
     int sessionIndex = 0,
+    Set<String>? allowedSubjectNames,
+    Set<String>? allowedSubjectIds,
   }) {
     final MobileScannerController scannerController = MobileScannerController(
       detectionSpeed: DetectionSpeed.unrestricted,
@@ -87,6 +93,8 @@ class ProctorQrScanDialog extends StatefulWidget {
           onStopCamera: stopCamera,
           dayIndex: dayIndex,
           sessionIndex: sessionIndex,
+          allowedSubjectNames: allowedSubjectNames,
+          allowedSubjectIds: allowedSubjectIds,
         ),
       ),
     ).then((_) async {
@@ -648,6 +656,8 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
               onShowFeedback: _showFeedback,
               dayIndex: widget.dayIndex,
               sessionIndex: widget.sessionIndex,
+              allowedSubjectNames: widget.allowedSubjectNames,
+              allowedSubjectIds: widget.allowedSubjectIds,
             );
             break;
           }
