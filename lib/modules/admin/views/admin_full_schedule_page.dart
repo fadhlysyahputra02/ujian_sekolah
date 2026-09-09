@@ -286,11 +286,15 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
       }
     }
     if (sessionsPerDay == 0) {
-      final evSessions = _eventData?['sessions'] as List?;
-      if (evSessions != null && evSessions.isNotEmpty) {
-        sessionsPerDay = evSessions.length;
+      if (_sessions.isNotEmpty) {
+        sessionsPerDay = _sessions.length;
       } else {
-        sessionsPerDay = 2;
+        final evSessions = _eventData?['sessions'] as List?;
+        if (evSessions != null && evSessions.isNotEmpty) {
+          sessionsPerDay = evSessions.length;
+        } else {
+          sessionsPerDay = 2;
+        }
       }
     }
 

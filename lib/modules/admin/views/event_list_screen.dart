@@ -772,39 +772,43 @@ class _EventListScreenState extends State<EventListScreen> {
                               const SizedBox(height: 16),
                               if (isDesktop)
                                 Wrap(
-                                  spacing: 12,
-                                  runSpacing: 12,
+                                  spacing: 10,
+                                  runSpacing: 10,
                                   children: [
+                                    // 1. Primary CTA: Lihat Jadwal Lengkap
                                     ElevatedButton.icon(
                                       onPressed: () {
                                         context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
                                       },
-                                      icon: const Icon(Icons.calendar_month_rounded, size: 16),
-                                      label: const Text('Lihat Jadwal Lengkap'),
+                                      icon: const Icon(Icons.calendar_month_rounded, size: 15),
+                                      label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: const Color(0xFF4F46E5),
                                         foregroundColor: Colors.white,
                                         elevation: 0,
                                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
+                                    // 2. Rekap Nilai: Soft Indigo Tint
                                     ElevatedButton.icon(
                                       onPressed: () {
                                         context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
                                       },
-                                      icon: const Icon(Icons.assessment_rounded, size: 16),
-                                      label: const Text('Rekap Nilai'),
+                                      icon: const Icon(Icons.assessment_rounded, size: 15),
+                                      label: Text('Rekap Nilai', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF0F172A),
-                                        foregroundColor: Colors.white,
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        foregroundColor: const Color(0xFF4F46E5),
                                         elevation: 0,
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
                                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
+                                    // 3. Edit Event: Soft Slate Tint
                                     if (status == 'draft')
-                                      OutlinedButton.icon(
+                                      ElevatedButton.icon(
                                         onPressed: () {
                                           Navigator.of(context).push(
                                             MaterialPageRoute(
@@ -815,16 +819,18 @@ class _EventListScreenState extends State<EventListScreen> {
                                             ),
                                           );
                                         },
-                                        icon: const Icon(Icons.edit_rounded, size: 16),
-                                        label: const Text('Edit Event'),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: const Color(0xFF4F46E5),
-                                          side: const BorderSide(color: Color(0xFF4F46E5)),
+                                        icon: const Icon(Icons.edit_rounded, size: 15),
+                                        label: Text('Edit Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFFF8FAFC),
+                                          foregroundColor: const Color(0xFF475569),
+                                          elevation: 0,
+                                          side: const BorderSide(color: Color(0xFFE2E8F0)),
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                         ),
                                       ),
-                                    // Ujian Susulan button – tampil jika event sudah publish/closed
+                                    // 4. Ujian Susulan: Soft Lavender Tint
                                     if (status == 'published' || status == 'closed')
                                       ElevatedButton.icon(
                                         onPressed: () => showDialog(
@@ -836,38 +842,44 @@ class _EventListScreenState extends State<EventListScreen> {
                                             eventName: name,
                                           ),
                                         ),
-                                        icon: const Icon(Icons.history_edu_rounded, size: 16),
-                                        label: const Text('Ujian Susulan'),
+                                        icon: const Icon(Icons.history_edu_rounded, size: 15),
+                                        label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFF7C3AED),
-                                          foregroundColor: Colors.white,
+                                          backgroundColor: const Color(0xFFF3E8FF),
+                                          foregroundColor: const Color(0xFF7C3AED),
                                           elevation: 0,
+                                          side: const BorderSide(color: Color(0xFFDDD6FE)),
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                         ),
                                       ),
+                                    // 5. Publish / Tutup Event: Accent Fill
                                     if (status != 'closed')
                                       ElevatedButton.icon(
                                         onPressed: () => _updateStatus(e['id'], status),
-                                        icon: Icon(status == 'draft' ? Icons.publish_rounded : Icons.check_circle_outline, size: 16),
-                                        label: Text(status == 'draft' ? 'Publish Event' : 'Tutup Event'),
+                                        icon: Icon(status == 'draft' ? Icons.publish_rounded : Icons.check_circle_outline, size: 15),
+                                        label: Text(status == 'draft' ? 'Publish Event' : 'Tutup Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: status == 'draft' ? const Color(0xFF10B981) : const Color(0xFF0F172A),
-                                          foregroundColor: Colors.white,
+                                          backgroundColor: status == 'draft' ? const Color(0xFF059669) : const Color(0xFFF1F5F9),
+                                          foregroundColor: status == 'draft' ? Colors.white : const Color(0xFF334155),
                                           elevation: 0,
+                                          side: status == 'draft' ? BorderSide.none : const BorderSide(color: Color(0xFFCBD5E1)),
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                         ),
                                       ),
-                                    OutlinedButton.icon(
+                                    // 6. Hapus Event: Soft Rose Tint
+                                    ElevatedButton.icon(
                                       onPressed: () => _deleteEvent(e['id'], e['name'] ?? 'Tanpa Nama'),
-                                      icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                                      label: const Text('Hapus'),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: const Color(0xFFEF4444),
-                                        side: const BorderSide(color: Color(0xFFEF4444)),
+                                      icon: const Icon(Icons.delete_outline_rounded, size: 15),
+                                      label: Text('Hapus', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFFEF2F2),
+                                        foregroundColor: const Color(0xFFDC2626),
+                                        elevation: 0,
+                                        side: const BorderSide(color: Color(0xFFFECACA)),
                                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
                                   ],
@@ -877,36 +889,37 @@ class _EventListScreenState extends State<EventListScreen> {
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    OutlinedButton.icon(
+                                    ElevatedButton.icon(
                                       onPressed: () {
                                         context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
                                       },
-                                      icon: const Icon(Icons.calendar_month_rounded, size: 16),
-                                      label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: const Color(0xFF4F46E5),
-                                        side: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                                      icon: const Icon(Icons.calendar_month_rounded, size: 15),
+                                      label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF4F46E5),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
                                         padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
+                                    const SizedBox(height: 8),
                                     ElevatedButton.icon(
                                       onPressed: () {
                                         context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
                                       },
-                                      icon: const Icon(Icons.assessment_rounded, size: 16),
-                                      label: Text('Rekap Nilai', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                                      icon: const Icon(Icons.assessment_rounded, size: 15),
+                                      label: Text('Rekap Nilai', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF0F172A),
-                                        foregroundColor: Colors.white,
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        foregroundColor: const Color(0xFF4F46E5),
                                         elevation: 0,
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
                                         padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
-                                    // Ujian Susulan – mobile
+                                    const SizedBox(height: 8),
                                     if (status == 'published' || status == 'closed') ...[
                                       ElevatedButton.icon(
                                         onPressed: () => showDialog(
@@ -918,39 +931,40 @@ class _EventListScreenState extends State<EventListScreen> {
                                             eventName: name,
                                           ),
                                         ),
-                                        icon: const Icon(Icons.history_edu_rounded, size: 16),
-                                        label: Text('Ujian Susulan',
-                                            style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                                        icon: const Icon(Icons.history_edu_rounded, size: 15),
+                                        label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFF7C3AED),
-                                          foregroundColor: Colors.white,
+                                          backgroundColor: const Color(0xFFF3E8FF),
+                                          foregroundColor: const Color(0xFF7C3AED),
                                           elevation: 0,
+                                          side: const BorderSide(color: Color(0xFFDDD6FE)),
                                           padding: const EdgeInsets.symmetric(vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                         ),
                                       ),
-                                      const SizedBox(height: 10),
+                                      const SizedBox(height: 8),
                                     ],
                                     if (status != 'closed') ...[
                                       ElevatedButton.icon(
                                         onPressed: () => _updateStatus(e['id'], status),
-                                        icon: Icon(status == 'draft' ? Icons.publish_rounded : Icons.check_circle_outline, size: 16),
-                                        label: Text(status == 'draft' ? 'Publish Event' : 'Tutup Event', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                                        icon: Icon(status == 'draft' ? Icons.publish_rounded : Icons.check_circle_outline, size: 15),
+                                        label: Text(status == 'draft' ? 'Publish Event' : 'Tutup Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: status == 'draft' ? const Color(0xFF10B981) : const Color(0xFF0F172A),
-                                          foregroundColor: Colors.white,
+                                          backgroundColor: status == 'draft' ? const Color(0xFF059669) : const Color(0xFFF1F5F9),
+                                          foregroundColor: status == 'draft' ? Colors.white : const Color(0xFF334155),
                                           elevation: 0,
+                                          side: status == 'draft' ? BorderSide.none : const BorderSide(color: Color(0xFFCBD5E1)),
                                           padding: const EdgeInsets.symmetric(vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                         ),
                                       ),
-                                      const SizedBox(height: 10),
+                                      const SizedBox(height: 8),
                                     ],
                                     Row(
                                       children: [
                                         if (status == 'draft') ...[
                                           Expanded(
-                                            child: OutlinedButton.icon(
+                                            child: ElevatedButton.icon(
                                               onPressed: () {
                                                 Navigator.of(context).push(
                                                   MaterialPageRoute(
@@ -961,28 +975,32 @@ class _EventListScreenState extends State<EventListScreen> {
                                                   ),
                                                 );
                                               },
-                                              icon: const Icon(Icons.edit_rounded, size: 16),
-                                              label: Text('Edit', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                                              style: OutlinedButton.styleFrom(
-                                                foregroundColor: const Color(0xFF4F46E5),
-                                                side: const BorderSide(color: Color(0xFF4F46E5)),
+                                              icon: const Icon(Icons.edit_rounded, size: 15),
+                                              label: Text('Edit', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFFF8FAFC),
+                                                foregroundColor: const Color(0xFF475569),
+                                                elevation: 0,
+                                                side: const BorderSide(color: Color(0xFFE2E8F0)),
                                                 padding: const EdgeInsets.symmetric(vertical: 12),
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                               ),
                                             ),
                                           ),
-                                          const SizedBox(width: 10),
+                                          const SizedBox(width: 8),
                                         ],
                                         Expanded(
-                                          child: OutlinedButton.icon(
+                                          child: ElevatedButton.icon(
                                             onPressed: () => _deleteEvent(e['id'], e['name'] ?? 'Tanpa Nama'),
-                                            icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                                            label: Text('Hapus', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: const Color(0xFFEF4444),
-                                              side: const BorderSide(color: Color(0xFFEF4444)),
+                                            icon: const Icon(Icons.delete_outline_rounded, size: 15),
+                                            label: Text('Hapus', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(0xFFFEF2F2),
+                                              foregroundColor: const Color(0xFFDC2626),
+                                              elevation: 0,
+                                              side: const BorderSide(color: Color(0xFFFECACA)),
                                               padding: const EdgeInsets.symmetric(vertical: 12),
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                             ),
                                           ),
                                         ),
