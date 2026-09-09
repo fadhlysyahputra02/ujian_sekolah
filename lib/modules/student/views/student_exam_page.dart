@@ -75,6 +75,9 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
   Timer? _draftDebounceTimer;
   Timer? _periodicSyncTimer;
 
+  // Main Question Scroll Controller
+  final ScrollController _mainScrollController = ScrollController();
+
   String _currentRealtimeStatus = ''; // Empty so first write always goes through
   DateTime? _lastRealtimeStatusUpdate;
 
@@ -95,10 +98,24 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     _draftDebounceTimer?.cancel();
     _periodicSyncTimer?.cancel();
     _remainingSecondsNotifier.dispose();
+    _mainScrollController.dispose();
     for (var controller in _essayControllers.values) {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  void _goToQuestion(int index) {
+    if (index >= 0 && index < _questions.length) {
+      setState(() {
+        _currentIndex = index;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_mainScrollController.hasClients) {
+          _mainScrollController.jumpTo(0);
+        }
+      });
+    }
   }
 
   @override
@@ -253,10 +270,16 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       controller.addListener(() {
         final text = controller.text;
         if (_essayAnswers[qId] != text) {
-          setState(() {
-            _essayAnswers[qId] = text;
-          });
+          final wasEmpty = (_essayAnswers[qId] ?? '').trim().isEmpty;
+          final isNowEmpty = text.trim().isEmpty;
+          _essayAnswers[qId] = text;
           _saveDraftLocally();
+
+          // Only trigger setState if answered state (empty vs non-empty) changed
+          // This eliminates full-page rebuilds and scroll jumps on every keystroke!
+          if (wasEmpty != isNowEmpty) {
+            setState(() {});
+          }
         }
       });
       _essayControllers[qId] = controller;
@@ -1241,7 +1264,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
                       return InkWell(
                         onTap: () {
-                          setState(() => _currentIndex = idx);
+                          _goToQuestion(idx);
                           Navigator.of(context).pop();
                         },
                         borderRadius: BorderRadius.circular(12),
@@ -1316,7 +1339,13 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         if (commaIdx != -1) {
           final base64Str = clean.substring(commaIdx + 1);
           final bytes = base64Decode(base64Str);
-          return Image.memory(bytes, height: height, fit: fit);
+          return Image.memory(
+            bytes,
+            key: ValueKey(clean.hashCode),
+            height: height,
+            fit: fit,
+            gaplessPlayback: true,
+          );
         }
       } catch (e) {
         debugPrint("Error decoding base64 image: $e");
@@ -1326,9 +1355,33 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     if (clean.startsWith('http://') || clean.startsWith('https://')) {
       return Image.network(
         clean,
+        key: ValueKey(clean),
         height: height,
         fit: fit,
-        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, size: 40, color: Colors.grey),
+        gaplessPlayback: true,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return SizedBox(
+            height: height ?? 180,
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                      : null,
+                  color: const Color(0xFF10B981),
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
+          );
+        },
+        errorBuilder: (_, __, ___) => const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Icon(Icons.broken_image_rounded, size: 40, color: Colors.grey),
+        ),
       );
     }
 
@@ -1620,9 +1673,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                           }
 
                           return InkWell(
-                            onTap: () {
-                              setState(() => _currentIndex = idx);
-                            },
+                            onTap: () => _goToQuestion(idx),
                             borderRadius: BorderRadius.circular(10),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
@@ -1672,6 +1723,8 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                   await _loadQuestions();
                 },
                 child: SingleChildScrollView(
+                  controller: _mainScrollController,
+                  key: ValueKey('question_scroll_$_currentIndex'),
                   physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
@@ -1976,9 +2029,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: _currentIndex > 0
-                          ? () {
-                              setState(() => _currentIndex--);
-                            }
+                          ? () => _goToQuestion(_currentIndex - 1)
                           : null,
                       icon: const Icon(Icons.arrow_back_ios_rounded, size: 14),
                       label: FittedBox(
@@ -2036,9 +2087,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: _currentIndex < _questions.length - 1
-                          ? () {
-                              setState(() => _currentIndex++);
-                            }
+                          ? () => _goToQuestion(_currentIndex + 1)
                           : _showSubmitConfirmationDialog,
                       icon: Icon(
                         _currentIndex < _questions.length - 1 ? Icons.arrow_forward_ios_rounded : Icons.check_circle_outline_rounded,
