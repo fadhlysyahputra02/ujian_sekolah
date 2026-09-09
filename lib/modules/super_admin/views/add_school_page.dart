@@ -15,6 +15,8 @@ class _AddSchoolDialogState extends State<AddSchoolDialog> {
   final _adminNameController = TextEditingController();
   final _adminEmailController = TextEditingController();
   final _adminPasswordController = TextEditingController();
+  final _maxStudentQuotaController = TextEditingController(text: '500');
+  final _maxTeacherQuotaController = TextEditingController(text: '50');
   final _schoolService = SchoolService();
 
   bool _isLoading = false;
@@ -27,6 +29,8 @@ class _AddSchoolDialogState extends State<AddSchoolDialog> {
     _adminNameController.dispose();
     _adminEmailController.dispose();
     _adminPasswordController.dispose();
+    _maxStudentQuotaController.dispose();
+    _maxTeacherQuotaController.dispose();
     super.dispose();
   }
 
@@ -45,6 +49,8 @@ class _AddSchoolDialogState extends State<AddSchoolDialog> {
         adminEmail: _adminEmailController.text.trim(),
         adminPassword: _adminPasswordController.text,
         adminName: _adminNameController.text.trim(),
+        maxStudentQuota: int.tryParse(_maxStudentQuotaController.text.trim()) ?? 500,
+        maxTeacherQuota: int.tryParse(_maxTeacherQuotaController.text.trim()) ?? 50,
       );
 
       if (mounted) {
@@ -168,6 +174,46 @@ class _AddSchoolDialogState extends State<AddSchoolDialog> {
                     }
                     return null;
                   },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _maxTeacherQuotaController,
+                        enabled: !_isLoading,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Batas Kuota Guru',
+                          prefixIcon: const Icon(Icons.group_rounded),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) return 'Wajib diisi';
+                          if (int.tryParse(val.trim()) == null) return 'Angka saja';
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _maxStudentQuotaController,
+                        enabled: !_isLoading,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Batas Kuota Murid',
+                          prefixIcon: const Icon(Icons.school_rounded),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) return 'Wajib diisi';
+                          if (int.tryParse(val.trim()) == null) return 'Angka saja';
+                          return null;
+                        },
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
 

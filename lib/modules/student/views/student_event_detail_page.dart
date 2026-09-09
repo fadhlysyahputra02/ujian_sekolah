@@ -271,10 +271,11 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           }
         }
 
-        // Process Timetable Filter for student's class
+        // Process Timetable Filter for student's class and religion
         final filteredTimetable = <Map<String, dynamic>>[];
         final cleanMyClass = _myClassName?.toLowerCase().replaceAll(' ', '') ?? '';
         final cleanMyClassId = _myClassId?.toLowerCase().replaceAll(' ', '') ?? '';
+        final studentReligion = (_student?.religion ?? 'Islam').trim();
 
         for (var tDoc in timetableSnap.docs) {
           final tData = tDoc.data() as Map<String, dynamic>;
@@ -290,7 +291,16 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
               (cleanMyClassId.isNotEmpty && cleanTClassId.contains(cleanMyClassId));
 
           if (matched) {
-            filteredTimetable.add(tData);
+            final subjectName = (tData['subjectName'] ?? tData['subject'] ?? '').toString().trim();
+            final subjectReligion = (tData['religion'] ?? tData['agama'] ?? '').toString().trim();
+
+            if (_isReligionSubjectMatching(
+              subjectName: subjectName,
+              subjectReligion: subjectReligion,
+              studentReligion: studentReligion,
+            )) {
+              filteredTimetable.add(tData);
+            }
           }
         }
 
@@ -2574,6 +2584,63 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         );
       }
     }
+  }
+
+  /// Determines if a timetable subject matches the student's religion
+  bool _isReligionSubjectMatching({
+    required String subjectName,
+    required String subjectReligion,
+    required String studentReligion,
+  }) {
+    final sNameLower = subjectName.toLowerCase();
+    final stReligionLower = studentReligion.toLowerCase();
+
+    // If explicit religion field is specified on subject/timetable doc
+    if (subjectReligion.isNotEmpty) {
+      return subjectReligion.toLowerCase() == stReligionLower;
+    }
+
+    // Check if subject title specifies a specific religion or contains religion terms
+    final religionKeywords = [
+      'agama', 'religion', 'religius', 'relig',
+      'islam', 'kristen', 'protestan', 'katolik', 'hindu', 'buddha', 'budha', 'konghucu', 'khonghucu',
+      'paibp', 'pakk', 'pabp', 'pake', 'pai'
+    ];
+    final isAgamaSubject = religionKeywords.any((kw) => sNameLower.contains(kw));
+    if (!isAgamaSubject) return true;
+
+    final religionsMap = {
+      'islam': ['islam', 'pai'],
+      'kristen': ['kristen', 'protestan'],
+      'katolik': ['katolik'],
+      'hindu': ['hindu'],
+      'buddha': ['buddha', 'budha'],
+      'konghucu': ['konghucu', 'khonghucu'],
+    };
+
+    // Find if subject name specifies any known religion
+    String? specifiedReligionInSubject;
+    for (var entry in religionsMap.entries) {
+      for (var keyword in entry.value) {
+        if (sNameLower.contains(keyword)) {
+          specifiedReligionInSubject = entry.key;
+          break;
+        }
+      }
+      if (specifiedReligionInSubject != null) break;
+    }
+
+    // If subject name specifies a specific religion, only match if student religion matches!
+    if (specifiedReligionInSubject != null) {
+      final studentRelKey = religionsMap.keys.firstWhere(
+        (k) => stReligionLower.contains(k) || religionsMap[k]!.contains(stReligionLower),
+        orElse: () => stReligionLower,
+      );
+      return specifiedReligionInSubject == studentRelKey;
+    }
+
+    // Generic "Pendidikan Agama" subject without specified religion -> show to all
+    return true;
   }
 }
 

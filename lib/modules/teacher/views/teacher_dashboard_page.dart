@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/constants/app_version.dart';
+import '../../admin/views/rekap_nilai_view.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
   final String? tabName;
@@ -147,6 +148,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   int _getIndexFromTab(String? tab) {
     if (tab == 'ringkasan') return 0;
     if (tab == 'eventujian') return 1;
+    if (tab == 'rekapnilai') return 2;
     return 0; // Default
   }
 
@@ -155,6 +157,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     String route = '/teacher/ringkasan';
     if (index == 1) {
       route = '/teacher/eventujian';
+    } else if (index == 2) {
+      route = '/teacher/rekapnilai';
     }
     context.go(route);
   }
@@ -284,6 +288,13 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     final pages = [
       _buildOverviewTab(authService, currentTeacher, schoolId),
       _buildEventUjianTab(schoolId),
+      RekapNilaiView(
+        schoolId: schoolId,
+        isTeacher: true,
+        currentTeacherId: currentTeacher?.id,
+        currentTeacherName: currentTeacher?.displayName,
+        teacherSubjects: currentTeacher?.subjects ?? [],
+      ),
     ];
 
     final backgroundGradient = const BoxDecoration(
@@ -432,6 +443,13 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                     idx: 1,
                     extended: extended,
                   ),
+                  _buildSidebarItem(
+                    icon: Icons.assessment_outlined,
+                    activeIcon: Icons.assessment_rounded,
+                    label: 'Rekap Nilai Murid',
+                    idx: 2,
+                    extended: extended,
+                  ),
                 ],
               ),
             ),
@@ -453,23 +471,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   }
 
   Widget _buildLogoIcon() {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF10B981), Color(0xFF059669)],
-        ),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF10B981).withValues(alpha: 0.4),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: const Icon(Icons.psychology_rounded, color: Colors.white, size: 22),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.asset('assets/images/Logo_SesiCermat.png', width: 40, height: 40, fit: BoxFit.cover),
     );
   }
 
@@ -780,6 +784,11 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
             icon: const Icon(Icons.event_note_outlined),
             activeIcon: const Icon(Icons.event_note_rounded),
             label: 'Event Ujian',
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.assessment_outlined),
+            activeIcon: const Icon(Icons.assessment_rounded),
+            label: 'Rekap Nilai',
           ),
         ],
       ),

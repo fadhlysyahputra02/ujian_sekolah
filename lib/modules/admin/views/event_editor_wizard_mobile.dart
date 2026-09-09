@@ -1625,14 +1625,33 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
 
       final realList = self.classRealStudentsMap[cName] ?? self.classRealStudentsMap[cleanC] ?? [];
       final skipIdx = skipCountMap[cName] ?? skipCountMap[cleanC] ?? 0;
+      final studentIdsList = (assignments[i]['studentIds'] is List)
+          ? (assignments[i]['studentIds'] as List).map((e) => e.toString()).toList()
+          : <String>[];
+
+      final unallocatedList = self._getUnallocatedStudentsForClass(cName, cName, excludeRoomId: self._selectedRoomId);
 
       final classList = <Map<String, dynamic>>[];
       for (int k = 0; k < cnt; k++) {
-        final targetIdx = skipIdx + k;
         String sName = '$cName #${k + 1}';
-        if (targetIdx < realList.length) {
-          final r = realList[targetIdx];
+        if (studentIdsList.isNotEmpty && k < studentIdsList.length) {
+          final targetSid = studentIdsList[k];
+          final found = realList.firstWhere(
+            (r) => (r['studentId'] ?? r['id'] ?? '').toString() == targetSid,
+            orElse: () => {},
+          );
+          if (found.isNotEmpty) {
+            sName = (found['displayName'] ?? found['studentName'] ?? sName).toString();
+          }
+        } else if (k < unallocatedList.length) {
+          final r = unallocatedList[k];
           sName = (r['displayName'] ?? r['studentName'] ?? sName).toString();
+        } else {
+          final targetIdx = skipIdx + k;
+          if (targetIdx < realList.length) {
+            final r = realList[targetIdx];
+            sName = (r['displayName'] ?? r['studentName'] ?? sName).toString();
+          }
         }
         final item = {'color': color, 'label': sName};
         classList.add(item);
@@ -2026,12 +2045,26 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(cname, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF1E293B))),
-                        Text('Sisa: $remaining / $totalStudents', style: TextStyle(fontSize: 10, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF64748B))),
-                      ],
+                    InkWell(
+                      onTap: () => self._showClassStudentSelectionDialog(context, cls, selectedRoom),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(cname, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF1E293B))),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.touch_app_rounded, size: 13, color: Color(0xFF4F46E5)),
+                              ],
+                            ),
+                            Text('Sisa: $remaining / $totalStudents', style: TextStyle(fontSize: 10, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF64748B))),
+                          ],
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -2050,38 +2083,44 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                               onPressed: currentAssigned > 0
                                   ? () {
                                       self.updateState(() {
-                                        final list = self._roomAssignments[self._selectedRoomId!]!;
-                                        final idx = list.indexWhere((a) => a['classId'] == cid);
-                                        if (idx >= 0) {
-                                          final currentCount = (list[idx]['count'] as num).toInt();
-                                          if (currentCount > 1) {
-                                            list[idx]['count'] = currentCount - 1;
-                                          } else {
-                                            list.removeAt(idx);
-                                            if (list.isEmpty) self._roomAssignments.remove(self._selectedRoomId!);
-                                          }
-                                        }
+                                        self._assignClassStudentsToRoom(
+                                          roomId: self._selectedRoomId!,
+                                          classId: cid,
+                                          className: cname,
+                                          targetCount: currentAssigned - 1,
+                                        );
                                       });
                                       self._autoSaveDraft();
                                     }
                                   : null,
                             ),
                             const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: currentAssigned > 0 ? const Color(0xFFEEF2FF) : const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFFCBD5E1),
+                            InkWell(
+                              onTap: () => self._showClassStudentSelectionDialog(context, cls, selectedRoom),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: currentAssigned > 0 ? const Color(0xFFEEF2FF) : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFFCBD5E1),
+                                  ),
                                 ),
-                              ),
-                              child: Text(
-                                '$currentAssigned Murid',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '$currentAssigned Murid',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.list_alt_rounded, size: 13, color: Color(0xFF4F46E5)),
+                                  ],
                                 ),
                               ),
                             ),
@@ -2103,20 +2142,12 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                         return;
                                       }
                                       self.updateState(() {
-                                        self._roomAssignments.putIfAbsent(self._selectedRoomId!, () => []);
-                                        final list = self._roomAssignments[self._selectedRoomId!]!;
-                                        final idx = list.indexWhere((a) => a['classId'] == cid);
-                                        if (idx >= 0) {
-                                          final currentCount = (list[idx]['count'] as num).toInt();
-                                          list[idx]['count'] = currentCount + 1;
-                                        } else {
-                                          list.add({
-                                            'classId': cid,
-                                            'className': cname,
-                                            'count': 1,
-                                            'isAll': false,
-                                          });
-                                        }
+                                        self._assignClassStudentsToRoom(
+                                          roomId: self._selectedRoomId!,
+                                          classId: cid,
+                                          className: cname,
+                                          targetCount: currentAssigned + 1,
+                                        );
                                       });
                                       self._autoSaveDraft();
                                     }
@@ -2127,7 +2158,19 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            OutlinedButton.icon(
+                              onPressed: () => self._showClassStudentSelectionDialog(context, cls, selectedRoom),
+                              icon: const Icon(Icons.people_alt_rounded, size: 13, color: Color(0xFF4F46E5)),
+                              label: const Text('Pilih Murid', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5))),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                visualDensity: VisualDensity.compact,
+                                side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                            ),
                             if (currentAssigned > 0) ...[
+                              const SizedBox(width: 6),
                               ElevatedButton.icon(
                                 icon: const Icon(Icons.remove_done_rounded, size: 13),
                                 label: const Text('Lepas Semua', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
@@ -2141,11 +2184,12 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                 ),
                                 onPressed: () {
                                   self.updateState(() {
-                                    final list = self._roomAssignments[self._selectedRoomId!];
-                                    if (list != null) {
-                                      list.removeWhere((a) => a['classId'] == cid);
-                                      if (list.isEmpty) self._roomAssignments.remove(self._selectedRoomId!);
-                                    }
+                                    self._assignClassStudentsToRoom(
+                                      roomId: self._selectedRoomId!,
+                                      classId: cid,
+                                      className: cname,
+                                      targetCount: 0,
+                                    );
                                   });
                                   self._autoSaveDraft();
                                 },
@@ -2187,21 +2231,12 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                   }
 
                                   self.updateState(() {
-                                    self._roomAssignments.putIfAbsent(self._selectedRoomId!, () => []);
-                                    final list = self._roomAssignments[self._selectedRoomId!]!;
-                                    final idx = list.indexWhere((a) => a['classId'] == cid);
-                                    if (idx >= 0) {
-                                      final currentCount = (list[idx]['count'] as num).toInt();
-                                      list[idx]['count'] = currentCount + addCount;
-                                      list[idx]['isAll'] = addCount == remaining;
-                                    } else {
-                                      list.add({
-                                        'classId': cid,
-                                        'className': cname,
-                                        'count': addCount,
-                                        'isAll': addCount == remaining,
-                                      });
-                                    }
+                                    self._assignClassStudentsToRoom(
+                                      roomId: self._selectedRoomId!,
+                                      classId: cid,
+                                      className: cname,
+                                      targetCount: currentAssigned + addCount,
+                                    );
                                   });
                                   self._autoSaveDraft();
                                 },
@@ -2412,19 +2447,52 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                             final cid = cls['classId'] as String;
                                                             final cname = cls['className'] as String;
                                                             final classSubjects = self._timetable.where((t) => t['classId'] == cid).toList();
-
-                                                            final Map<String, String> uniqueClassSubs = {};
+                                                            final relSubs = <Map<String, dynamic>>[];
+                                                            final nonRelSubs = <Map<String, dynamic>>[];
                                                             for (var t in classSubjects) {
-                                                              final sid = t['subjectId'] as String? ?? '';
-                                                              final sname = t['subjectName'] as String? ?? sid;
-                                                              if (sid.isNotEmpty) uniqueClassSubs[sid] = sname;
+                                                              final sname = (t['subjectName'] ?? '').toString();
+                                                              if (self._isReligionSubject(sname)) {
+                                                                relSubs.add(t);
+                                                              } else {
+                                                                nonRelSubs.add(t);
+                                                              }
                                                             }
 
-                                                            final currentScheduledEntry = self._timetable.firstWhere(
-                                                              (t) => t['classId'] == cid && t['sessionId'] == sessionKey,
-                                                              orElse: () => {},
-                                                            );
-                                                            final currentSubjectId = currentScheduledEntry.isNotEmpty ? currentScheduledEntry['subjectId'] as String? : null;
+                                                            const religionGroupKey = '__RELIGION_GROUP__';
+                                                            final Map<String, String> dropdownOptions = {};
+
+                                                            if (relSubs.isNotEmpty) {
+                                                              final List<String> relNames = [];
+                                                              for (var r in relSubs) {
+                                                                final name = (r['subjectName'] ?? '').toString().trim();
+                                                                final clean = name.replaceAll(RegExp(r'^(Agama|Pendidikan Agama|PAIBP|PAKK|Pembelajaran|Keilmuan)\s*', caseSensitive: false), '').trim();
+                                                                relNames.add(clean.isNotEmpty ? clean : name);
+                                                              }
+                                                              final relListStr = relNames.join(', ');
+                                                              dropdownOptions[religionGroupKey] = relSubs.length == 1
+                                                                  ? (relSubs.first['subjectName'] as String? ?? 'Pendidikan Agama')
+                                                                  : 'Pendidikan Agama ($relListStr)';
+                                                            }
+
+                                                            for (var t in nonRelSubs) {
+                                                              final sid = (t['subjectId'] ?? '').toString();
+                                                              final sname = (t['subjectName'] ?? sid).toString();
+                                                              if (sid.isNotEmpty) dropdownOptions[sid] = sname;
+                                                            }
+
+                                                            String? currentSubjectId;
+                                                            final scheduledRel = relSubs.any((t) => t['sessionId'] == sessionKey);
+                                                            if (scheduledRel) {
+                                                              currentSubjectId = religionGroupKey;
+                                                            } else {
+                                                              final scheduledEntry = nonRelSubs.firstWhere(
+                                                                (t) => t['sessionId'] == sessionKey,
+                                                                orElse: () => {},
+                                                              );
+                                                              if (scheduledEntry.isNotEmpty) {
+                                                                currentSubjectId = (scheduledEntry['subjectId'] ?? '').toString();
+                                                              }
+                                                            }
 
                                                             return Padding(
                                                               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -2448,8 +2516,18 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                                             value: null,
                                                                             child: Text('Belum Dijadwalkan', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey)),
                                                                           ),
-                                                                          ...uniqueClassSubs.entries.map((e) {
-                                                                            return DropdownMenuItem<String?>(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 11)));
+                                                                          ...dropdownOptions.entries.map((e) {
+                                                                            return DropdownMenuItem<String?>(
+                                                                              value: e.key,
+                                                                              child: Text(
+                                                                                e.value,
+                                                                                style: TextStyle(
+                                                                                  fontSize: 11,
+                                                                                  fontWeight: e.key == religionGroupKey ? FontWeight.bold : FontWeight.normal,
+                                                                                  color: e.key == religionGroupKey ? const Color(0xFF4F46E5) : const Color(0xFF1E293B),
+                                                                                ),
+                                                                              ),
+                                                                            );
                                                                           }),
                                                                         ],
                                                                         onChanged: (val) {
@@ -2460,10 +2538,20 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                                                 t['sessionName'] = null;
                                                                               }
                                                                             }
-                                                                            if (val != null) {
-                                                                              final target = self._timetable.firstWhere((t) => t['classId'] == cid && t['subjectId'] == val);
-                                                                              target['sessionId'] = sessionKey;
-                                                                              target['sessionName'] = session['name'];
+                                                                            if (val == religionGroupKey) {
+                                                                              for (var t in relSubs) {
+                                                                                t['sessionId'] = sessionKey;
+                                                                                t['sessionName'] = session['name'];
+                                                                              }
+                                                                            } else if (val != null) {
+                                                                              final target = self._timetable.firstWhere(
+                                                                                (t) => t['classId'] == cid && t['subjectId'] == val,
+                                                                                orElse: () => {},
+                                                                              );
+                                                                              if (target.isNotEmpty) {
+                                                                                target['sessionId'] = sessionKey;
+                                                                                target['sessionName'] = session['name'];
+                                                                              }
                                                                             }
                                                                           });
                                                                           self._autoSaveDraft();

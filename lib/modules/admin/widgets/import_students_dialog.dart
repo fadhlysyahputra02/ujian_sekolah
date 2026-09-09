@@ -46,6 +46,7 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
         ex.TextCellValue('gender'),
         ex.TextCellValue('nis'),
         ex.TextCellValue('angkatan'),
+        ex.TextCellValue('religion'),
         ex.TextCellValue('email'),
       ]);
       sheet.appendRow([
@@ -53,6 +54,7 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
         ex.TextCellValue('M'),
         ex.TextCellValue('12345'),
         ex.TextCellValue('2024'),
+        ex.TextCellValue('Islam'),
         ex.TextCellValue('budi@student.sekolah.sch.id'),
       ]);
       final bytes = excel.save(fileName: 'Template_Impor_Murid.xlsx');
@@ -138,6 +140,7 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
       final int genderIdx = headers.indexOf('gender');
       final int nisIdx = headers.indexOf('nis');
       final int angkatanIdx = headers.indexOf('angkatan');
+      final int religionIdx = headers.contains('religion') ? headers.indexOf('religion') : headers.indexOf('agama');
       final int emailIdx = headers.indexOf('email');
 
       if (nameIdx == -1 || genderIdx == -1 || nisIdx == -1 || angkatanIdx == -1) {
@@ -157,6 +160,8 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
         final gender = _getCellValue(row, genderIdx).toUpperCase();
         final nis = _getCellValue(row, nisIdx);
         final angkatan = _getCellValue(row, angkatanIdx);
+        final rawRel = religionIdx != -1 && religionIdx < row.length ? _getCellValue(row, religionIdx) : '';
+        final religion = rawRel.isEmpty ? 'Islam' : rawRel;
         final email = emailIdx != -1 && emailIdx < row.length ? _getCellValue(row, emailIdx) : '';
 
         final List<String> errors = [];
@@ -177,6 +182,7 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
           'gender': gender,
           'nis': nis,
           'angkatan': angkatan,
+          'religion': religion,
           'email': email,
           'errors': errors,
           'isValid': errors.isEmpty,
@@ -224,6 +230,8 @@ class _ImportStudentsDialogState extends State<ImportStudentsDialog> {
         'gender': r['gender'],
         'nis': r['nis'],
         'angkatan': r['angkatan'],
+        'religion': r['religion'] ?? 'Islam',
+        'agama': r['religion'] ?? 'Islam',
         'email': r['email'].toString().isEmpty ? null : r['email'],
       }).toList();
 

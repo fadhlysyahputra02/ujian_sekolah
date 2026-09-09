@@ -173,22 +173,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
 
             return Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF10B981), Color(0xFF059669)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF10B981).withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(Icons.school_rounded, color: Colors.white, size: 20),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.asset('assets/images/Logo_SesiCermat.png', width: 36, height: 36, fit: BoxFit.cover),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -689,10 +676,31 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
         }
 
         final docs = snapshot.data?.docs ?? [];
+        final cleanMyClass = _myClassName?.toLowerCase().replaceAll(' ', '') ?? '';
+        final cleanMyClassId = _myClassId?.toLowerCase().replaceAll(' ', '') ?? '';
+
         final publishedEvents = docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           final status = data['status'] as String? ?? 'draft';
-          return status != 'closed';
+          if (status == 'closed') return false;
+
+          // Filter target classes if the event specifies participating classes
+          final rawTargetClasses = data['targetClasses'] ?? data['classes'] ?? data['targetClassNames'];
+          if (rawTargetClasses is List && rawTargetClasses.isNotEmpty) {
+            final targetList = rawTargetClasses
+                .map((e) => e.toString().toLowerCase().replaceAll(' ', ''))
+                .toList();
+
+            final isMatched = targetList.any((t) =>
+                t == cleanMyClass ||
+                t == cleanMyClassId ||
+                (cleanMyClass.isNotEmpty && (t.contains(cleanMyClass) || cleanMyClass.contains(t))) ||
+                (cleanMyClassId.isNotEmpty && (t.contains(cleanMyClassId) || cleanMyClassId.contains(t))));
+
+            if (!isMatched) return false;
+          }
+
+          return true;
         }).toList();
 
         // Section Title & Counter

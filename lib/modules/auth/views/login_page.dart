@@ -148,7 +148,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     String emailOrUsername = '';
 
-    if (typedText.toLowerCase() == 'sadmin') {
+    bool isSuperAdminLogin = typedText.toLowerCase() == 'sadmin';
+    if (!isSuperAdminLogin && typedText.isNotEmpty) {
+      try {
+        final HttpsCallable sadminCallable = FirebaseFunctions.instance.httpsCallable('resolveSuperAdminUsername');
+        final sadminRes = await sadminCallable.call({'username': typedText});
+        if (sadminRes.data != null && sadminRes.data['isSuperAdmin'] == true) {
+          isSuperAdminLogin = true;
+        }
+      } catch (_) {}
+    }
+
+    if (isSuperAdminLogin) {
       emailOrUsername = 'sadmin@sesicermat.com';
     } else {
       if (_selectedSchool == null || _selectedSchool!['name'] != typedText) {
@@ -741,21 +752,20 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-            ),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF4F46E5).withValues(alpha: 0.4),
-                blurRadius: 16,
+                color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                blurRadius: 14,
                 offset: const Offset(0, 4),
               ),
             ],
           ),
-          child: const Icon(Icons.school_rounded, color: Colors.white, size: 24),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.asset('assets/images/Logo_SesiCermat.png', width: 40, height: 40, fit: BoxFit.cover),
+          ),
         ),
         const SizedBox(width: 12),
         Text(
@@ -777,22 +787,21 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-              ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF4F46E5).withValues(alpha: 0.5),
+                  color: const Color(0xFF4F46E5).withValues(alpha: 0.45),
                   blurRadius: 24,
                   spreadRadius: 2,
                   offset: const Offset(0, 6),
                 ),
               ],
             ),
-            child: const Icon(Icons.school_rounded, color: Colors.white, size: 32),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset('assets/images/Logo_SesiCermat.png', width: 76, height: 76, fit: BoxFit.cover),
+            ),
           ),
           const SizedBox(height: 12),
           Text(

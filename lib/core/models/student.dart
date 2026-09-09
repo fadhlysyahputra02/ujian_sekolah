@@ -8,6 +8,7 @@ class Student {
   final String gender;
   final String nis;
   final String angkatan;
+  final String religion;
   final String schoolId;
   final bool disabled;
   final bool archived;
@@ -24,6 +25,7 @@ class Student {
     required this.gender,
     required this.nis,
     required this.angkatan,
+    this.religion = 'Islam',
     required this.schoolId,
     required this.disabled,
     required this.archived,
@@ -50,6 +52,8 @@ class Student {
       return null;
     }
 
+    final rawReligion = data['religion'] ?? data['agama'];
+
     return Student(
       id: doc.id,
       uid: data['uid']?.toString(),
@@ -58,6 +62,7 @@ class Student {
       gender: (data['gender'] ?? 'M').toString(),
       nis: (data['nis'] ?? '').toString(),
       angkatan: (data['angkatan'] ?? '').toString(),
+      religion: (rawReligion == null || rawReligion.toString().trim().isEmpty) ? 'Islam' : rawReligion.toString().trim(),
       schoolId: (data['schoolId'] ?? '').toString(),
       disabled: data['disabled'] == true,
       archived: data['archived'] == true,
@@ -76,6 +81,8 @@ class Student {
       'gender': gender,
       'nis': nis,
       'angkatan': angkatan,
+      'religion': religion,
+      'agama': religion,
       'schoolId': schoolId,
       'disabled': disabled,
       'archived': archived,

@@ -64,6 +64,15 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     return 0;
   }
 
+  String _getInitials(String name) {
+    if (name.isEmpty) return 'S';
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
+  }
+
   // Step 1: Info Dasar
   final _nameController = TextEditingController();
   final _academicYearController = TextEditingController(text: '2026/2027');
@@ -90,10 +99,704 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
   // Step 5: Alokasi Murid ke Ruangan
   String? _selectedRoomId;
-  // roomId -> [ { classId, className, count, isAll } ]
+  // roomId -> [ { classId, className, count, isAll, studentIds } ]
   Map<String, List<Map<String, dynamic>>> _roomAssignments = {};
   // Persist local selection UI configurations for each class
   final Map<String, Map<String, dynamic>> _addState = {};
+  final Map<String, List<Map<String, dynamic>>> _cachedClassStudents = {};
+
+  Future<List<Map<String, dynamic>>> _loadStudentsForClass(Map<String, dynamic> cls) async {
+    final cid = (cls['id'] ?? '').toString();
+    final cname = (cls['name'] ?? '').toString().trim();
+    final cacheKey = '$cid-$cname';
+
+    if (_cachedClassStudents.containsKey(cacheKey)) {
+      return _cachedClassStudents[cacheKey]!;
+    }
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(widget.schoolId)
+          .collection('students')
+          .get();
+
+      final List<Map<String, dynamic>> list = [];
+      final cleanCname = cname.toLowerCase().replaceAll(' ', '');
+      final cleanCid = cid.toLowerCase().replaceAll(' ', '');
+
+      for (var doc in snap.docs) {
+        final data = doc.data();
+        if (data['archived'] == true || data['disabled'] == true) continue;
+
+        final sClass = (data['className'] ?? data['classId'] ?? '').toString().trim();
+        final cleanSClass = sClass.toLowerCase().replaceAll(' ', '');
+        final sDocId = doc.id;
+
+        bool belongs = (cls['studentIds'] is List && (cls['studentIds'] as List).contains(sDocId)) ||
+            cleanSClass == cleanCname ||
+            cleanSClass == cleanCid ||
+            (cleanCname.isNotEmpty && cleanSClass.contains(cleanCname));
+
+        if (belongs) {
+          final sName = (data['displayName'] ?? data['name'] ?? 'Siswa').toString().trim();
+          final sNis = (data['nis'] ?? '').toString().trim();
+          final sGender = (data['gender'] ?? 'M').toString().trim();
+
+          list.add({
+            'studentId': sDocId,
+            'studentName': sName,
+            'displayName': sName,
+            'nis': sNis,
+            'gender': sGender,
+            'className': cname,
+            'classId': cid,
+          });
+        }
+      }
+
+      list.sort((a, b) => naturalCompare(a['studentName'] as String, b['studentName'] as String));
+      _cachedClassStudents[cacheKey] = list;
+      return list;
+    } catch (e) {
+      debugPrint('Error loading class students: $e');
+      return [];
+    }
+  }
+
+  /// Returns the list of students for a class who have NOT yet been allocated to any room (excluding excludeRoomId)
+  List<Map<String, dynamic>> _getUnallocatedStudentsForClass(
+    String classId,
+    String className, {
+    String? excludeRoomId,
+  }) {
+    final cleanClass = className.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+    final cacheKey = '$classId-$className';
+    List<Map<String, dynamic>> allStudents = [];
+    for (var entry in _cachedClassStudents.entries) {
+      final k = entry.key.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+      if (entry.key == cacheKey || entry.key == classId || entry.key == className || (cleanClass.isNotEmpty && k.contains(cleanClass))) {
+        allStudents = entry.value;
+        if (allStudents.isNotEmpty) break;
+      }
+    }
+
+    final Set<String> allocatedStudentIds = {};
+
+    _roomAssignments.forEach((rId, assignments) {
+      if (excludeRoomId != null && rId == excludeRoomId) return;
+      for (var a in assignments) {
+        final aClassId = (a['classId'] ?? '').toString();
+        final aClassName = (a['className'] ?? '').toString();
+        if (aClassId == classId || aClassName == className || aClassId == className || aClassName == classId) {
+          final sIds = a['studentIds'];
+          if (sIds is List && sIds.isNotEmpty) {
+            for (var id in sIds) {
+              allocatedStudentIds.add(id.toString());
+            }
+          } else {
+            // Infer from count if studentIds is missing
+            final count = (a['count'] as num?)?.toInt() ?? 0;
+            int taken = 0;
+            for (var s in allStudents) {
+              final sId = (s['studentId'] ?? s['id'] ?? '').toString();
+              if (sId.isNotEmpty && !allocatedStudentIds.contains(sId)) {
+                allocatedStudentIds.add(sId);
+                taken++;
+                if (taken >= count) break;
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return allStudents.where((s) {
+      final sId = (s['studentId'] ?? s['id'] ?? '').toString();
+      return sId.isNotEmpty && !allocatedStudentIds.contains(sId);
+    }).toList();
+  }
+
+  /// Assigns a target count of students from a class to a room, updating studentIds automatically
+  void _assignClassStudentsToRoom({
+    required String roomId,
+    required String classId,
+    required String className,
+    required int targetCount,
+  }) {
+    _roomAssignments.putIfAbsent(roomId, () => []);
+    final list = _roomAssignments[roomId]!;
+    final idx = list.indexWhere((a) => a['classId'] == classId || a['className'] == className);
+
+    if (targetCount <= 0) {
+      if (idx >= 0) {
+        list.removeAt(idx);
+        if (list.isEmpty) _roomAssignments.remove(roomId);
+      }
+      return;
+    }
+
+    List<String> currentSelectedIds = [];
+    if (idx >= 0 && list[idx]['studentIds'] is List) {
+      currentSelectedIds = (list[idx]['studentIds'] as List).map((e) => e.toString()).toList();
+    }
+
+    final unallocated = _getUnallocatedStudentsForClass(classId, className, excludeRoomId: roomId);
+
+    List<String> finalStudentIds = [];
+    // Retain existing valid IDs up to targetCount
+    for (var id in currentSelectedIds) {
+      if (finalStudentIds.length < targetCount) {
+        finalStudentIds.add(id);
+      }
+    }
+
+    // Add unallocated students up to targetCount
+    for (var s in unallocated) {
+      if (finalStudentIds.length >= targetCount) break;
+      final sId = (s['studentId'] ?? s['id'] ?? '').toString();
+      if (sId.isNotEmpty && !finalStudentIds.contains(sId)) {
+        finalStudentIds.add(sId);
+      }
+    }
+
+    final actualCount = finalStudentIds.length;
+    final entry = {
+      'classId': classId,
+      'className': className,
+      'count': actualCount,
+      'studentIds': finalStudentIds,
+      'isAll': unallocated.length <= targetCount,
+    };
+
+    if (idx >= 0) {
+      list[idx] = entry;
+    } else {
+      list.add(entry);
+    }
+  }
+
+  void _showClassStudentSelectionDialog(
+    BuildContext context,
+    Map<String, dynamic> cls,
+    Map<String, dynamic> selectedRoom,
+  ) async {
+    final cid = (cls['id'] ?? '').toString();
+    final cname = (cls['name'] ?? cls['className'] ?? '').toString().trim();
+    final selectedRoomId = (selectedRoom['id'] ?? '').toString();
+    final roomName = (selectedRoom['name'] ?? '-').toString();
+    final int roomCapacity = (selectedRoom['capacity'] as num?)?.toInt() ?? 0;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
+      ),
+    );
+
+    final allClassStudents = await _loadStudentsForClass(cls);
+
+    if (context.mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    if (!context.mounted) return;
+
+    final roomAssignmentsList = _roomAssignments[selectedRoomId] ?? [];
+    final existingClassAssignIdx = roomAssignmentsList.indexWhere((a) => a['classId'] == cid);
+    final existingAssign = existingClassAssignIdx >= 0 ? roomAssignmentsList[existingClassAssignIdx] : null;
+
+    int totalOtherClassesInRoom = 0;
+    for (var a in roomAssignmentsList) {
+      if (a['classId'] != cid) {
+        totalOtherClassesInRoom += (a['count'] as num?)?.toInt() ?? 0;
+      }
+    }
+    final int roomAvailableSeatsForThisClass = (roomCapacity - totalOtherClassesInRoom).clamp(0, roomCapacity);
+
+    final Map<String, String> studentRoomMap = {};
+    final Map<String, String> studentRoomIdMap = {};
+    _roomAssignments.forEach((rId, list) {
+      final rObj = _rooms.firstWhere((r) => r['id'] == rId, orElse: () => {'name': rId});
+      final rN = (rObj['name'] ?? rId).toString();
+      for (var a in list) {
+        if (a['classId'] == cid && a['studentIds'] is List) {
+          for (var sId in (a['studentIds'] as List)) {
+            studentRoomMap[sId.toString()] = rN;
+            studentRoomIdMap[sId.toString()] = rId;
+          }
+        }
+      }
+    });
+
+    final Set<String> selectedStudentIds = {};
+    if (existingAssign != null && existingAssign['studentIds'] is List && (existingAssign['studentIds'] as List).isNotEmpty) {
+      for (var sId in (existingAssign['studentIds'] as List)) {
+        selectedStudentIds.add(sId.toString());
+      }
+    } else {
+      final int currentAssignedCount = existingAssign != null ? (existingAssign['count'] as num).toInt() : 0;
+      int added = 0;
+      for (var s in allClassStudents) {
+        final sId = s['studentId'].toString();
+        final currentRoomId = studentRoomIdMap[sId];
+        if (currentRoomId == selectedRoomId || (currentRoomId == null && added < currentAssignedCount)) {
+          selectedStudentIds.add(sId);
+          added++;
+        }
+      }
+    }
+
+    String searchQuery = '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            final filteredStudents = allClassStudents.where((s) {
+              if (searchQuery.trim().isEmpty) return true;
+              final q = searchQuery.toLowerCase().trim();
+              final name = s['studentName'].toString().toLowerCase();
+              final nis = s['nis'].toString().toLowerCase();
+              return name.contains(q) || nis.contains(q);
+            }).toList();
+
+            final int currentSelectedCount = selectedStudentIds.length;
+            final int remainingRoomCapacity = (roomCapacity - totalOtherClassesInRoom - currentSelectedCount).clamp(0, roomCapacity);
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              clipBehavior: Clip.antiAlias,
+              child: Container(
+                width: 580,
+                constraints: const BoxConstraints(maxHeight: 700),
+                color: Colors.white,
+                child: Column(
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF4F46E5), Color(0xFF3730A3)],
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Pilih Murid - Kelas $cname',
+                                      style: GoogleFonts.plusJakartaSans(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Alokasi ke Ruangan: "$roomName"',
+                                      style: GoogleFonts.inter(
+                                        color: const Color(0xFFC7D2FE),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                                onPressed: () => Navigator.of(dialogCtx).pop(),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              _buildWizardBadge(
+                                icon: Icons.people_rounded,
+                                label: 'Terpilih: $currentSelectedCount / ${allClassStudents.length} Murid',
+                                color: const Color(0xFFEEF2FF),
+                                textColor: const Color(0xFF3730A3),
+                              ),
+                              const SizedBox(width: 8),
+                              _buildWizardBadge(
+                                icon: Icons.event_seat_rounded,
+                                label: 'Sisa Kursi Ruang: $remainingRoomCapacity',
+                                color: remainingRoomCapacity > 0 ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                                textColor: remainingRoomCapacity > 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Search & Controls Row
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Column(
+                        children: [
+                          TextField(
+                            onChanged: (val) => setDialogState(() => searchQuery = val),
+                            decoration: InputDecoration(
+                              hintText: 'Cari nama murid atau NIS...',
+                              hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                              prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Color(0xFF64748B)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    int availableSlots = roomAvailableSeatsForThisClass;
+                                    selectedStudentIds.clear();
+                                    for (var s in allClassStudents) {
+                                      if (selectedStudentIds.length < availableSlots) {
+                                        selectedStudentIds.add(s['studentId'].toString());
+                                      }
+                                    }
+                                  });
+                                },
+                                icon: const Icon(Icons.select_all_rounded, size: 16),
+                                label: const Text('Pilih Semua Sisa'),
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  foregroundColor: const Color(0xFF4F46E5),
+                                  side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              OutlinedButton.icon(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    selectedStudentIds.clear();
+                                  });
+                                },
+                                icon: const Icon(Icons.deselect_rounded, size: 16),
+                                label: const Text('Kosongkan'),
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  foregroundColor: const Color(0xFFEF4444),
+                                  side: const BorderSide(color: Color(0xFFFCA5A5)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Student List View
+                    Expanded(
+                      child: filteredStudents.isEmpty
+                          ? Center(
+                              child: Text(
+                                searchQuery.isNotEmpty ? 'Tidak ada murid yang cocok dengan pencarian.' : 'Belum ada data murid di kelas ini.',
+                                style: GoogleFonts.inter(color: const Color(0xFF94A3B8), fontSize: 13),
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              itemCount: filteredStudents.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 6),
+                              itemBuilder: (lCtx, index) {
+                                final s = filteredStudents[index];
+                                final sId = s['studentId'].toString();
+                                final sName = s['studentName'].toString();
+                                final sNis = s['nis'].toString();
+                                final sGender = s['gender'].toString();
+                                final isSelected = selectedStudentIds.contains(sId);
+                                final otherAssignedRoom = studentRoomMap[sId];
+
+                                return InkWell(
+                                  onTap: () {
+                                    setDialogState(() {
+                                      if (isSelected) {
+                                        selectedStudentIds.remove(sId);
+                                      } else {
+                                        if (selectedStudentIds.length >= roomAvailableSeatsForThisClass) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Kapasitas ruangan "$roomName" sudah penuh ($roomCapacity kursi)!'),
+                                              backgroundColor: Colors.red,
+                                              duration: const Duration(seconds: 2),
+                                            ),
+                                          );
+                                          return;
+                                        }
+                                        selectedStudentIds.add(sId);
+                                      }
+                                    });
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0),
+                                        width: isSelected ? 1.5 : 1,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Checkbox(
+                                          value: isSelected,
+                                          activeColor: const Color(0xFF4F46E5),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                          onChanged: (val) {
+                                            setDialogState(() {
+                                              if (val == true) {
+                                                if (selectedStudentIds.length >= roomAvailableSeatsForThisClass) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text('Kapasitas ruangan "$roomName" sudah penuh ($roomCapacity kursi)!'),
+                                                      backgroundColor: Colors.red,
+                                                      duration: const Duration(seconds: 2),
+                                                    ),
+                                                  );
+                                                  return;
+                                                }
+                                                selectedStudentIds.add(sId);
+                                              } else {
+                                                selectedStudentIds.remove(sId);
+                                              }
+                                            });
+                                          },
+                                        ),
+                                        const SizedBox(width: 6),
+                                        CircleAvatar(
+                                          radius: 16,
+                                          backgroundColor: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                                          child: Text(
+                                            _getInitials(sName),
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: isSelected ? Colors.white : const Color(0xFF475569),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                sName,
+                                                style: GoogleFonts.inter(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 13.5,
+                                                  color: const Color(0xFF0F172A),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'NIS: ${sNis.isNotEmpty ? sNis : "-"}   •   Gender: $sGender',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 11,
+                                                  color: const Color(0xFF64748B),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isSelected)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFD1FAE5),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              'Di $roomName',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: const Color(0xFF047857),
+                                              ),
+                                            ),
+                                          )
+                                        else if (otherAssignedRoom != null && otherAssignedRoom.isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFFEF3C7),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              'Di $otherAssignedRoom',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: const Color(0xFFD97706),
+                                              ),
+                                            ),
+                                          )
+                                        else
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F5F9),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              'Belum Dialokasikan',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 10,
+                                                color: const Color(0xFF94A3B8),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+
+                    // Footer Buttons
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF8FAFC),
+                        border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(),
+                            child: const Text('Batal'),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              updateState(() {
+                                _roomAssignments.putIfAbsent(selectedRoomId, () => []);
+                                final list = _roomAssignments[selectedRoomId]!;
+                                final idx = list.indexWhere((a) => a['classId'] == cid);
+
+                                if (selectedStudentIds.isEmpty) {
+                                  if (idx >= 0) {
+                                    list.removeAt(idx);
+                                    if (list.isEmpty) _roomAssignments.remove(selectedRoomId);
+                                  }
+                                } else {
+                                  final newEntry = {
+                                    'classId': cid,
+                                    'className': cname,
+                                    'count': selectedStudentIds.length,
+                                    'studentIds': selectedStudentIds.toList(),
+                                    'isAll': selectedStudentIds.length == allClassStudents.length,
+                                  };
+                                  if (idx >= 0) {
+                                    list[idx] = newEntry;
+                                  } else {
+                                    list.add(newEntry);
+                                  }
+                                }
+
+                                for (var sId in selectedStudentIds) {
+                                  final prevRoomId = studentRoomIdMap[sId];
+                                  if (prevRoomId != null && prevRoomId != selectedRoomId) {
+                                    final prevList = _roomAssignments[prevRoomId];
+                                    if (prevList != null) {
+                                      final pIdx = prevList.indexWhere((a) => a['classId'] == cid);
+                                      if (pIdx >= 0) {
+                                        final pItem = prevList[pIdx];
+                                        if (pItem['studentIds'] is List) {
+                                          (pItem['studentIds'] as List).remove(sId);
+                                          pItem['count'] = (pItem['studentIds'] as List).length;
+                                          if ((pItem['count'] as int) <= 0) {
+                                            prevList.removeAt(pIdx);
+                                            if (prevList.isEmpty) _roomAssignments.remove(prevRoomId);
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              });
+
+                              _autoSaveDraft();
+                              Navigator.of(dialogCtx).pop();
+                            },
+                            icon: const Icon(Icons.check_rounded, size: 18),
+                            label: Text('Simpan Alokasi (${selectedStudentIds.length} Murid)'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF4F46E5),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildWizardBadge({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required Color textColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: textColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
 
   // Step 5: Aturan Alokasi (retained for submit compatibility)
@@ -1023,7 +1726,11 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         customEventId = 'event_${DateTime.now().millisecondsSinceEpoch}';
       }
 
-      _updateSaveProgress(0.18, 'Menyimpan konfigurasi event ke Firestore...', 1);
+      final Set<String> targetClassesSet = {};
+      for (var item in _timetable) {
+        final cName = (item['className'] ?? item['classId'] ?? '').toString().trim();
+        if (cName.isNotEmpty) targetClassesSet.add(cName);
+      }
 
       final eventId = await _eventService.createEvent(
         schoolId: widget.schoolId,
@@ -1037,6 +1744,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           'description': _descController.text.trim(),
           'participantNumberFormat': '[angkatan][roomCode][seatNumber]',
           'seatNumberPadding': _seatPadding,
+          'targetClasses': targetClassesSet.toList(),
           'draftState': {
             'step': 7,
             'eventName': _nameController.text.trim(),
@@ -1440,6 +2148,16 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     return result;
   }
 
+  bool _isReligionSubject(String subjectName) {
+    final s = subjectName.toLowerCase();
+    final religionKeywords = [
+      'agama', 'religion', 'religius', 'relig',
+      'islam', 'kristen', 'protestan', 'katolik', 'hindu', 'buddha', 'budha', 'konghucu', 'khonghucu',
+      'paibp', 'pakk', 'pabp', 'pake', 'pai'
+    ];
+    return religionKeywords.any((kw) => s.contains(kw));
+  }
+
   /// Auto-generate: scatter all subjects across (day × session) slots
   /// - Priority 1: Subjects taken by all/more classes are scheduled in earlier days.
   /// - Priority 2: Subjects taken by specific/fewer classes are scheduled in later days.
@@ -1486,14 +2204,27 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         orderedSubjectIds.addAll(tier);
       }
 
-      // 4. Group subjects into parallel slots (subjects in same slot cannot share any class)
+      // 4. Group subjects into parallel slots (religion subjects share the same slot)
       final List<List<String>> subjectGroups = [];
       for (final sid in orderedSubjectIds) {
+        final sampleT = _timetable.firstWhere((t) => t['subjectId'] == sid, orElse: () => {});
+        final sName = (sampleT['subjectName'] ?? '').toString();
+        final isRel = _isReligionSubject(sName);
         final classes = subjectClasses[sid]!;
+
         bool placed = false;
         for (final group in subjectGroups) {
           bool canAddToGroup = true;
           for (final groupSid in group) {
+            final groupSampleT = _timetable.firstWhere((t) => t['subjectId'] == groupSid, orElse: () => {});
+            final groupSName = (groupSampleT['subjectName'] ?? '').toString();
+            final groupIsRel = _isReligionSubject(groupSName);
+
+            // Religion subjects for same/all classes can be scheduled in the SAME parallel session slot
+            if (isRel && groupIsRel) {
+              continue;
+            }
+
             final groupClasses = subjectClasses[groupSid]!;
             if (classes.intersection(groupClasses).isNotEmpty) {
               canAddToGroup = false;
@@ -1803,16 +2534,48 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     final List<Map<String, dynamic>> studentPool = [];
 
     for (var classGroup in assignedClassesInRoom) {
+      final classId = (classGroup['classId'] ?? '').toString().trim();
       final className = (classGroup['className'] ?? classGroup['classId'] ?? 'Kelas').toString().trim();
       final count = (classGroup['count'] as num?)?.toInt() ?? 0;
       final cleanClass = className.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
       final realList = classRealStudents[className] ?? classRealStudents[cleanClass] ?? [];
-      final skipIndex = skipCountMap[className] ?? skipCountMap[cleanClass] ?? 0;
+      final studentIdsList = (classGroup['studentIds'] is List)
+          ? (classGroup['studentIds'] as List).map((e) => e.toString()).toList()
+          : <String>[];
+
+      final unallocatedList = _getUnallocatedStudentsForClass(
+        classId.isNotEmpty ? classId : className,
+        className,
+        excludeRoomId: roomId,
+      );
 
       for (int i = 0; i < count; i++) {
-        final targetIndex = skipIndex + i;
-        final paddedIndex = (targetIndex + 1).toString().padLeft(2, '0');
+        Map<String, dynamic>? matchStudent;
 
+        if (studentIdsList.isNotEmpty && i < studentIdsList.length) {
+          final targetSid = studentIdsList[i];
+          final found = realList.firstWhere(
+            (r) => (r['studentId'] ?? r['id'] ?? '').toString() == targetSid,
+            orElse: () => {},
+          );
+          if (found.isNotEmpty) {
+            matchStudent = found;
+          }
+        }
+
+        if (matchStudent == null) {
+          if (i < unallocatedList.length) {
+            matchStudent = unallocatedList[i];
+          } else {
+            final skipIndex = skipCountMap[className] ?? skipCountMap[cleanClass] ?? 0;
+            final targetIndex = skipIndex + i;
+            if (targetIndex < realList.length) {
+              matchStudent = realList[targetIndex];
+            }
+          }
+        }
+
+        final paddedIndex = (i + 1).toString().padLeft(2, '0');
         String studentName = '';
         String nis = '';
         String angkatan = '';
@@ -1820,15 +2583,14 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         String participantNumber = '2026-${className.replaceAll(' ', '')}-$paddedIndex';
         String studentId = '';
 
-        if (targetIndex < realList.length) {
-          final r = realList[targetIndex];
-          studentId = (r['studentId'] ?? r['id'] ?? '').toString();
-          studentName = (r['displayName'] ?? r['studentName'] ?? '').toString();
-          nis = (r['nis'] ?? '').toString();
-          angkatan = (r['angkatan'] ?? '').toString();
-          gender = (r['gender'] ?? 'M').toString();
-          if (r['participantNumber'] != null && r['participantNumber'].toString().isNotEmpty) {
-            participantNumber = r['participantNumber'].toString();
+        if (matchStudent != null && matchStudent.isNotEmpty) {
+          studentId = (matchStudent['studentId'] ?? matchStudent['id'] ?? '').toString();
+          studentName = (matchStudent['displayName'] ?? matchStudent['studentName'] ?? '').toString();
+          nis = (matchStudent['nis'] ?? '').toString();
+          angkatan = (matchStudent['angkatan'] ?? '').toString();
+          gender = (matchStudent['gender'] ?? 'M').toString();
+          if (matchStudent['participantNumber'] != null && matchStudent['participantNumber'].toString().isNotEmpty) {
+            participantNumber = matchStudent['participantNumber'].toString();
           } else if (nis.isNotEmpty) {
             participantNumber = nis;
           }
@@ -1902,42 +2664,5 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     return resultSeats;
   }
 
-  Map<String, String> _getAuthenticStudentNameAZ(String className, int index) {
-    final List<Map<String, String>> namesAZ = [
-      {'displayName': 'Ahmad Pratama', 'nis': '1001', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Budi Santoso', 'nis': '1002', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Citra Dewi', 'nis': '1003', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Deni Kurniawan', 'nis': '1004', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Eka Wijaya', 'nis': '1005', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Fajar Hidayat', 'nis': '1006', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Gita Permata', 'nis': '1007', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Hadi Kusuma', 'nis': '1008', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Indah Lestari', 'nis': '1009', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Joko Susilo', 'nis': '1010', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Kiki Amalia', 'nis': '1011', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Lia Safitri', 'nis': '1012', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Muhammad Rizky', 'nis': '1013', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Nur Hidayah', 'nis': '1014', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Oki Setiawan', 'nis': '1015', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Putri Rahayu', 'nis': '1016', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Qori Anggraini', 'nis': '1017', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Rahmat Hidayat', 'nis': '1018', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Siti Nurhaliza', 'nis': '1019', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Taufik Hidayat', 'nis': '1020', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Utami Putri', 'nis': '1021', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Vina Panduwinata', 'nis': '1022', 'angkatan': '2026', 'gender': 'F'},
-      {'displayName': 'Wawan Setiawan', 'nis': '1023', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Xavier Pratama', 'nis': '1024', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Yudi Pratama', 'nis': '1025', 'angkatan': '2026', 'gender': 'M'},
-      {'displayName': 'Zahra Amalia', 'nis': '1026', 'angkatan': '2026', 'gender': 'F'},
-    ];
 
-    final item = namesAZ[index % namesAZ.length];
-    return {
-      'displayName': item['displayName']!,
-      'nis': item['nis']!,
-      'angkatan': item['angkatan']!,
-      'gender': item['gender']!,
-    };
-  }
 }

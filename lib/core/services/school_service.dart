@@ -21,6 +21,8 @@ class SchoolService {
     required String adminEmail,
     required String adminPassword,
     required String adminName,
+    int? maxStudentQuota,
+    int? maxTeacherQuota,
   }) async {
     try {
       final HttpsCallable callable = _functions.httpsCallable('createSchool');
@@ -30,10 +32,54 @@ class SchoolService {
         'adminEmail': adminEmail,
         'adminPassword': adminPassword,
         'adminName': adminName,
+        'maxStudentQuota': maxStudentQuota ?? 500,
+        'maxTeacherQuota': maxTeacherQuota ?? 50,
       });
     } catch (e) {
       debugPrint("Error in createSchool: $e");
       rethrow;
+    }
+  }
+
+  /// Triggers the updateSchoolQuota Cloud Function to update quotas.
+  Future<void> updateSchoolQuota({
+    required String schoolId,
+    required int maxStudentQuota,
+    required int maxTeacherQuota,
+  }) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('updateSchoolQuota');
+      await callable.call({
+        'schoolId': schoolId,
+        'maxStudentQuota': maxStudentQuota,
+        'maxTeacherQuota': maxTeacherQuota,
+      });
+    } catch (e) {
+      debugPrint("Error in updateSchoolQuota: $e");
+      rethrow;
+    }
+  }
+
+  /// Updates Super Admin login username
+  Future<void> updateSuperAdminUsername(String newUsername) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('updateSuperAdminUsername');
+      await callable.call({'newUsername': newUsername});
+    } catch (e) {
+      debugPrint("Error in updateSuperAdminUsername: $e");
+      rethrow;
+    }
+  }
+
+  /// Resolves Super Admin login username
+  Future<Map<String, dynamic>> resolveSuperAdminUsername(String username) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('resolveSuperAdminUsername');
+      final res = await callable.call({'username': username});
+      return Map<String, dynamic>.from(res.data as Map);
+    } catch (e) {
+      debugPrint("Error resolving super admin username: $e");
+      return {'isSuperAdmin': false};
     }
   }
 

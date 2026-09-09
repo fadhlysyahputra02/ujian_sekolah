@@ -189,12 +189,16 @@ class _AppRefreshIndicatorState extends State<AppRefreshIndicator>
                                   turns: _isRefreshing
                                       ? _rotationAnim
                                       : AlwaysStoppedAnimation(pullRatio * 0.5),
-                                  child: const Icon(
-                                    Icons.school_rounded,
-                                    size: 16,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                                   child: ClipRRect(
+                                     borderRadius: BorderRadius.circular(4),
+                                     child: Image.asset(
+                                       'assets/images/Logo_SesiCermat.png',
+                                       width: 18,
+                                       height: 18,
+                                       fit: BoxFit.cover,
+                                     ),
+                                   ),
+                                 ),
                         ),
                         const SizedBox(width: 10),
                         // Status Text

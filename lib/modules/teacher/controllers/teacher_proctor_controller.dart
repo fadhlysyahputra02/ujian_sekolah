@@ -839,13 +839,20 @@ class TeacherProctorController {
                   }
 
                   final docs = snapshot.data?.docs ?? [];
-                  final logsList = <Map<String, dynamic>>[];
+                  final studentMap = <String, Map<String, dynamic>>{};
 
                   for (var doc in docs) {
                     final data = doc.data() as Map<String, dynamic>;
                     final sId = (data['studentId'] ?? '').toString().trim();
                     final sNis = (data['nis'] ?? '').toString().trim();
                     final docId = doc.id.trim();
+
+                    // Unique student key for deduplication across studentId vs sessionDocId
+                    final studentKey = sId.isNotEmpty
+                        ? sId
+                        : (sNis.isNotEmpty ? sNis : docId.split('_').first);
+
+                    if (studentKey.isEmpty) continue;
 
                     // 1. Room Student Check
                     if (allowedStudentIds != null && allowedStudentIds.isNotEmpty) {
@@ -916,21 +923,49 @@ class TeacherProctorController {
                     final hasLogs = filteredLogs.isNotEmpty || isLeftApp || leftAppCount > 0;
 
                     if (hasLogs) {
-                      logsList.add({
-                        'docId': doc.id,
-                        'studentId': data['studentId'] ?? '',
-                        'studentName': data['studentName'] ?? data['nis'] ?? 'Siswa',
-                        'nis': data['nis'] ?? '',
-                        'className': data['className'] ?? '',
-                        'isLeftApp': isLeftApp,
-                        'leftAppCount': leftAppCount > 0 ? leftAppCount : 1,
-                        'status': data['status'] ?? (isLeftApp ? 'left_app' : 'in_progress'),
-                        'lastLeftAppAt': data['lastLeftAppAt'],
-                        'updatedAt': data['updatedAt'],
-                        'logs': filteredLogs,
-                      });
+                      if (studentMap.containsKey(studentKey)) {
+                        // Deduplicate: merge logs and keep highest count / active status
+                        final existing = studentMap[studentKey]!;
+                        final existingLogs = existing['logs'] as List<Map<String, dynamic>>;
+
+                        final Set<String> logKeys = existingLogs
+                            .map((l) => '${l['timestamp']}_${l['event'] ?? l['status']}')
+                            .toSet();
+
+                        for (var fl in filteredLogs) {
+                          final lk = '${fl['timestamp']}_${fl['event'] ?? fl['status']}';
+                          if (!logKeys.contains(lk)) {
+                            existingLogs.add(fl);
+                            logKeys.add(lk);
+                          }
+                        }
+
+                        final existingCount = (existing['leftAppCount'] as num?)?.toInt() ?? 0;
+                        if (leftAppCount > existingCount) {
+                          existing['leftAppCount'] = leftAppCount;
+                        }
+                        if (isLeftApp) {
+                          existing['isLeftApp'] = true;
+                        }
+                      } else {
+                        studentMap[studentKey] = {
+                          'docId': doc.id,
+                          'studentId': sId.isNotEmpty ? sId : data['studentId'] ?? '',
+                          'studentName': data['studentName'] ?? data['nis'] ?? 'Siswa',
+                          'nis': sNis,
+                          'className': data['className'] ?? '',
+                          'isLeftApp': isLeftApp,
+                          'leftAppCount': leftAppCount > 0 ? leftAppCount : 1,
+                          'status': data['status'] ?? (isLeftApp ? 'left_app' : 'in_progress'),
+                          'lastLeftAppAt': data['lastLeftAppAt'],
+                          'updatedAt': data['updatedAt'],
+                          'logs': filteredLogs,
+                        };
+                      }
                     }
                   }
+
+                  final logsList = studentMap.values.toList();
 
                   if (logsList.isEmpty) {
                     return Center(

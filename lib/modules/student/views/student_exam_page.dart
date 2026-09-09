@@ -202,8 +202,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           .collection('realtime_control');
 
       await realtimeColl.doc(sessionDocId).set(data, SetOptions(merge: true));
-      await realtimeColl.doc(studentDocId).set(data, SetOptions(merge: true));
-      debugPrint('⚡ Realtime control updated: $status for docId=$sessionDocId and $studentDocId');
+      debugPrint('⚡ Realtime control updated: $status for docId=$sessionDocId');
     } catch (e) {
       debugPrint('❌ Error updating realtime control: $e');
     }

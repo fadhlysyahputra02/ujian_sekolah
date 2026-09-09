@@ -108,6 +108,7 @@ class AdminUserService {
     required String gender,
     required String nis,
     required String angkatan,
+    String religion = 'Islam',
     String? email,
     required bool createAuth,
   }) async {
@@ -118,10 +119,25 @@ class AdminUserService {
       'gender': gender,
       'nis': nis,
       'angkatan': angkatan,
+      'religion': religion,
+      'agama': religion,
       'email': email,
       'createAuth': createAuth,
     });
-    return Map<String, dynamic>.from(response.data as Map);
+    final result = Map<String, dynamic>.from(response.data as Map);
+    final studentId = result['studentId']?.toString();
+    if (studentId != null && studentId.isNotEmpty) {
+      await _firestore
+          .collection('schools')
+          .doc(schoolId)
+          .collection('students')
+          .doc(studentId)
+          .set({
+        'religion': religion,
+        'agama': religion,
+      }, SetOptions(merge: true)).catchError((_) {});
+    }
+    return result;
   }
 
   /// Update an existing teacher
@@ -154,18 +170,39 @@ class AdminUserService {
     required String gender,
     required String nis,
     required String angkatan,
+    String religion = 'Islam',
     String? email,
   }) async {
-    final HttpsCallable callable = _functions.httpsCallable('updateStudent');
-    await callable.call({
-      'schoolId': schoolId,
-      'docId': docId,
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('updateStudent');
+      await callable.call({
+        'schoolId': schoolId,
+        'docId': docId,
+        'displayName': displayName,
+        'gender': gender,
+        'nis': nis,
+        'angkatan': angkatan,
+        'religion': religion,
+        'agama': religion,
+        'email': email,
+      });
+    } catch (_) {}
+
+    await _firestore
+        .collection('schools')
+        .doc(schoolId)
+        .collection('students')
+        .doc(docId)
+        .set({
       'displayName': displayName,
       'gender': gender,
       'nis': nis,
       'angkatan': angkatan,
+      'religion': religion,
+      'agama': religion,
       'email': email,
-    });
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Generate or reset temporary password

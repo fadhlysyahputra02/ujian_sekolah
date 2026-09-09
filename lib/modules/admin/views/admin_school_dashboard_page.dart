@@ -23,6 +23,7 @@ import '../widgets/generate_password_dialog.dart';
 import '../widgets/class_form_dialog.dart';
 import 'class_detail_screen.dart';
 import 'event_list_screen.dart';
+import 'rekap_nilai_view.dart';
 
 class AdminSchoolDashboardPage extends StatefulWidget {
   final String? tabName;
@@ -58,7 +59,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         case 'mapel': _currentTab = 3; break;
         case 'kelas': _currentTab = 4; break;
         case 'eventujian': _currentTab = 5; break;
-        case 'pengaturan': _currentTab = 6; break;
+        case 'rekapnilai': _currentTab = 6; break;
+        case 'pengaturan': _currentTab = 7; break;
         default: _currentTab = 0;
       }
     });
@@ -73,7 +75,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       case 3: path = 'mapel'; break;
       case 4: path = 'kelas'; break;
       case 5: path = 'eventujian'; break;
-      case 6: path = 'pengaturan'; break;
+      case 6: path = 'rekapnilai'; break;
+      case 7: path = 'pengaturan'; break;
       default: path = 'ringkasan';
     }
     context.go('/admin/$path');
@@ -244,6 +247,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         ex.TextCellValue('NIS'),
         ex.TextCellValue('Nama Lengkap'),
         ex.TextCellValue('Jenis Kelamin'),
+        ex.TextCellValue('Agama'),
         ex.TextCellValue('Angkatan'),
         ex.TextCellValue('Email'),
         ex.TextCellValue('Sandi Sementara'),
@@ -255,6 +259,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           ex.TextCellValue(s.nis),
           ex.TextCellValue(s.displayName),
           ex.TextCellValue(s.gender == 'M' ? 'Laki-laki (M)' : 'Perempuan (F)'),
+          ex.TextCellValue(s.religion),
           ex.TextCellValue(s.angkatan),
           ex.TextCellValue(s.email ?? '-'),
           ex.TextCellValue(s.tempPassword ?? '-'),
@@ -277,6 +282,74 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gagal mengekspor data: $e'), backgroundColor: const Color(0xFFEF4444)),
+        );
+      }
+    }
+  }
+
+  Future<void> _syncMissingStudentsReligion(String schoolId) async {
+    try {
+      final studentsSnap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('students')
+          .get();
+
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      int count = 0;
+      int totalUpdated = 0;
+
+      for (var doc in studentsSnap.docs) {
+        final data = doc.data();
+        final hasReligion = data.containsKey('religion') && data['religion'] != null && data['religion'].toString().isNotEmpty;
+        final hasAgama = data.containsKey('agama') && data['agama'] != null && data['agama'].toString().isNotEmpty;
+
+        if (!hasReligion || !hasAgama) {
+          final rel = (data['religion'] ?? data['agama'] ?? 'Islam').toString().trim();
+          final finalRel = rel.isEmpty ? 'Islam' : rel;
+          batch.update(doc.reference, {
+            'religion': finalRel,
+            'agama': finalRel,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          count++;
+          totalUpdated++;
+
+          if (count >= 400) {
+            await batch.commit();
+            batch = FirebaseFirestore.instance.batch();
+            count = 0;
+          }
+        }
+      }
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      if (mounted) {
+        if (totalUpdated > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Berhasil memperbarui atribut Agama untuk $totalUpdated murid di database!'),
+              backgroundColor: const Color(0xFF10B981),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Semua murid sudah memiliki atribut Agama lengkap di database.'),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memperbarui agama murid: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
         );
       }
     }
@@ -1067,6 +1140,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       const BottomNavigationBarItem(icon: Icon(Icons.book_outlined), activeIcon: Icon(Icons.book_rounded), label: 'Mapel'),
       const BottomNavigationBarItem(icon: Icon(Icons.class_outlined), activeIcon: Icon(Icons.class_rounded), label: 'Kelas'),
       const BottomNavigationBarItem(icon: Icon(Icons.event_note_outlined), activeIcon: Icon(Icons.event_note_rounded), label: 'Ujian'),
+      const BottomNavigationBarItem(icon: Icon(Icons.assessment_outlined), activeIcon: Icon(Icons.assessment_rounded), label: 'Rekap Nilai'),
       const BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings_rounded), label: 'Pengaturan'),
     ];
 
@@ -1106,16 +1180,13 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                         child: Row(
                           mainAxisAlignment: size.width > 1150 ? MainAxisAlignment.start : MainAxisAlignment.center,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF4F46E5).withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(
-                                Icons.school_rounded,
-                                color: Color(0xFF818CF8),
-                                size: 24,
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.asset(
+                                'assets/images/Logo_SesiCermat.png',
+                                width: 32,
+                                height: 32,
+                                fit: BoxFit.cover,
                               ),
                             ),
                             if (size.width > 1150) ...[
@@ -1151,7 +1222,9 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             const SizedBox(height: 8),
                             _buildSidebarItem(5, Icons.event_note_outlined, Icons.event_note_rounded, 'Event Ujian', size.width > 1150),
                             const SizedBox(height: 8),
-                            _buildSidebarItem(6, Icons.settings_outlined, Icons.settings_rounded, 'Pengaturan', size.width > 1150),
+                            _buildSidebarItem(6, Icons.assessment_outlined, Icons.assessment_rounded, 'Rekap Nilai', size.width > 1150),
+                            const SizedBox(height: 8),
+                            _buildSidebarItem(7, Icons.settings_outlined, Icons.settings_rounded, 'Pengaturan', size.width > 1150),
                           ],
                         ),
                       ),
@@ -1387,6 +1460,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       case 5:
         return EventListScreen(schoolId: schoolId);
       case 6:
+        return RekapNilaiView(schoolId: schoolId, isTeacher: false);
+      case 7:
         return _buildSettingsTab(authService, schoolId);
       default:
         return const Center(child: Text('Konten Tidak Ditemukan'));
@@ -1777,6 +1852,84 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     }
   }
 
+  Widget _buildQuotaWarningBanner(String schoolId) {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox.shrink();
+        final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
+        final meta = data['meta'] as Map<String, dynamic>? ?? {};
+        final currentStudentCount = meta['studentCount'] ?? 0;
+        final currentTeacherCount = meta['teacherCount'] ?? 0;
+        final maxStudentQuota = data['maxStudentQuota'] ?? 500;
+        final maxTeacherQuota = data['maxTeacherQuota'] ?? 50;
+
+        final isStudentFull = currentStudentCount >= maxStudentQuota;
+        final isTeacherFull = currentTeacherCount >= maxTeacherQuota;
+
+        if (!isStudentFull && !isTeacherFull) return const SizedBox.shrink();
+
+        final List<String> warnings = [];
+        if (isTeacherFull) {
+          warnings.add('Kuota Guru Terlampaui: saat ini $currentTeacherCount guru terdaftar (Batas maksimal SuperAdmin: $maxTeacherQuota).');
+        }
+        if (isStudentFull) {
+          warnings.add('Kuota Murid Terlampaui: saat ini $currentStudentCount murid terdaftar (Batas maksimal SuperAdmin: $maxStudentQuota).');
+        }
+
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 20),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFEF2F2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFFCA5A5)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEF4444),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Peringatan Batas Kuota Sekolah!',
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF991B1B),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ...warnings.map((w) => Text(
+                          '• $w',
+                          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFFB91C1C), height: 1.4),
+                        )),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Penambahan data baru telah dikunci. Silakan hubungi Super Admin untuk menambah alokasi kuota sekolah Anda.',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF7F1D1D)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildOverviewTab(String schoolId) {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
@@ -1816,6 +1969,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _buildQuotaWarningBanner(schoolId),
                     // 1. HERO HEADER BANNER
                     Container(
                       width: double.infinity,
@@ -2287,6 +2441,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _buildQuotaWarningBanner(schoolId),
               // Header & Buttons
               if (isDesktop) ...[
                 Row(
@@ -2649,6 +2804,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  _buildQuotaWarningBanner(schoolId),
                   // Header & Buttons
                   if (isDesktop) ...[
                     Row(
@@ -2685,6 +2841,21 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                               icon: const Icon(Icons.download_rounded, color: Color(0xFF06B6D4)),
                               onPressed: () => _exportStudentsExcel(allStudents),
                               tooltip: 'Ekspor ke Excel',
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: () => _syncMissingStudentsReligion(schoolId),
+                              icon: const Icon(Icons.sync_rounded, size: 16),
+                              label: Text(
+                                'Sinkronkan Agama',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF10B981),
+                                side: const BorderSide(color: Color(0xFF10B981)),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton.icon(
@@ -2912,6 +3083,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             DataColumn(label: Text('NIS', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Kelas', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: Text('Agama', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Angkatan', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Sandi Sementara', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -2923,6 +3095,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               DataCell(Text(s.nis)),
               DataCell(Text(studentClassMap[s.id] ?? '-')),
               DataCell(Text(s.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
+              DataCell(Text(s.religion)),
               DataCell(Text(s.angkatan)),
                DataCell(s.tempPassword != null && s.tempPassword!.isNotEmpty
                   ? SelectableText(
@@ -3206,7 +3379,47 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
+  void _showQuotaFullDialog(String type, int current, int maxQuota) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+            const SizedBox(width: 10),
+            Text('Batas Kuota $type Penuh', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: Text(
+          'Jumlah $type saat ini telah mencapai batas maksimal ($current / $maxQuota).\n\nPenambahan $type baru dinonaktifkan. Silakan hubungi Super Admin untuk menambah kuota sekolah Anda.',
+          style: GoogleFonts.inter(fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626), foregroundColor: Colors.white),
+            child: const Text('Mengerti'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showTeacherForm(String schoolId, {Teacher? teacher}) async {
+    if (teacher == null) {
+      final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+      if (sDoc.exists) {
+        final sData = sDoc.data() || {};
+        final teacherCount = (sData['meta'] as Map?)?['teacherCount'] ?? 0;
+        final maxQuota = sData['maxTeacherQuota'] ?? 50;
+        if (teacherCount >= maxQuota) {
+          _showQuotaFullDialog('Guru', teacherCount, maxQuota);
+          return;
+        }
+      }
+    }
+    if (!mounted) return;
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -3216,6 +3429,19 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Future<void> _showStudentForm(String schoolId, {Student? student}) async {
+    if (student == null) {
+      final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+      if (sDoc.exists) {
+        final sData = sDoc.data() || {};
+        final studentCount = (sData['meta'] as Map?)?['studentCount'] ?? 0;
+        final maxQuota = sData['maxStudentQuota'] ?? 500;
+        if (studentCount >= maxQuota) {
+          _showQuotaFullDialog('Murid', studentCount, maxQuota);
+          return;
+        }
+      }
+    }
+    if (!mounted) return;
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -3233,6 +3459,17 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Future<void> _showImportDialog(String schoolId) async {
+    final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+    if (sDoc.exists) {
+      final sData = sDoc.data() || {};
+      final studentCount = (sData['meta'] as Map?)?['studentCount'] ?? 0;
+      final maxQuota = sData['maxStudentQuota'] ?? 500;
+      if (studentCount >= maxQuota) {
+        _showQuotaFullDialog('Murid', studentCount, maxQuota);
+        return;
+      }
+    }
+    if (!mounted) return;
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -3242,6 +3479,17 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Future<void> _showImportTeachersDialog(String schoolId) async {
+    final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+    if (sDoc.exists) {
+      final sData = sDoc.data() || {};
+      final teacherCount = (sData['meta'] as Map?)?['teacherCount'] ?? 0;
+      final maxQuota = sData['maxTeacherQuota'] ?? 50;
+      if (teacherCount >= maxQuota) {
+        _showQuotaFullDialog('Guru', teacherCount, maxQuota);
+        return;
+      }
+    }
+    if (!mounted) return;
     await showDialog(
       context: context,
       barrierDismissible: false,

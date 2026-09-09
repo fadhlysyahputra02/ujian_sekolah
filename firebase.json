@@ -30,6 +30,7 @@
     "singleProjectMode": true
   },
   "hosting": {
+    "site": "sesicermat",
     "public": "build/web",
     "ignore": [
       "firebase.json",

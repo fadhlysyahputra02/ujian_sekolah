@@ -25,10 +25,21 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
   final _emailController = TextEditingController();
 
   String _selectedGender = 'M';
+  String _selectedReligion = 'Islam';
   bool _createAuth = false;
   bool _isLoading = false;
 
   final AdminUserService _adminUserService = AdminUserService();
+
+  static const List<String> _religionOptions = [
+    'Islam',
+    'Kristen',
+    'Katolik',
+    'Hindu',
+    'Buddha',
+    'Konghucu',
+    'Lainnya',
+  ];
 
   @override
   void initState() {
@@ -39,6 +50,7 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
       _angkatanController.text = widget.student!.angkatan;
       _emailController.text = widget.student!.email ?? '';
       _selectedGender = widget.student!.gender;
+      _selectedReligion = _religionOptions.contains(widget.student!.religion) ? widget.student!.religion : 'Islam';
       _createAuth = widget.student!.uid != null;
     }
   }
@@ -68,6 +80,7 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
           gender: _selectedGender,
           nis: _nisController.text.trim(),
           angkatan: _angkatanController.text.trim(),
+          religion: _selectedReligion,
           email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
           createAuth: _createAuth,
         );
@@ -100,6 +113,7 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
           gender: _selectedGender,
           nis: _nisController.text.trim(),
           angkatan: _angkatanController.text.trim(),
+          religion: _selectedReligion,
           email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
         );
 
@@ -339,6 +353,39 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
                             ],
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Religion (Agama) Dropdown Field
+                      DropdownButtonFormField<String>(
+                        initialValue: _selectedReligion,
+                        decoration: InputDecoration(
+                          labelText: 'Agama',
+                          prefixIcon: const Icon(Icons.auto_awesome_mosaic_outlined, color: Color(0xFF64748B)),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        ),
+                        items: _religionOptions.map((rel) {
+                          return DropdownMenuItem<String>(
+                            value: rel,
+                            child: Text(rel),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _selectedReligion = val;
+                            });
+                          }
+                        },
                       ),
                       const SizedBox(height: 18),
 

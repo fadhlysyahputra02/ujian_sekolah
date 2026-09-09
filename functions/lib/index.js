@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.changeOwnPassword = exports.resetSchoolAdminPassword = exports.deleteSchool = exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.deleteEvent = exports.createEvent = exports.importTeachersBulk = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
+exports.updateSchoolQuota = exports.resolveSuperAdminUsername = exports.updateSuperAdminUsername = exports.changeOwnPassword = exports.resetSchoolAdminPassword = exports.deleteSchool = exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.deleteEvent = exports.createEvent = exports.importTeachersBulk = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const firestore_1 = require("firebase-admin/firestore");
@@ -160,7 +160,7 @@ exports.createSchool = functions.https.onCall(async (request) => {
     if (!request.auth || request.auth.token.role !== 'super_admin') {
         throw new functions.https.HttpsError('failed-precondition', 'The function must be called by an authenticated super admin.');
     }
-    const { name, code, adminEmail, adminPassword, adminName } = request.data || {};
+    const { name, code, adminEmail, adminPassword, adminName, maxStudentQuota, maxTeacherQuota } = request.data || {};
     if (!name || !code || !adminEmail || !adminPassword || !adminName) {
         throw new functions.https.HttpsError('invalid-argument', 'The function must be called with all required school and admin details.');
     }
@@ -201,6 +201,8 @@ exports.createSchool = functions.https.onCall(async (request) => {
             code,
             disabled: false,
             adminEmail,
+            maxStudentQuota: typeof maxStudentQuota === 'number' ? maxStudentQuota : 500,
+            maxTeacherQuota: typeof maxTeacherQuota === 'number' ? maxTeacherQuota : 50,
             createdAt: firestore_1.FieldValue.serverTimestamp(),
             meta: {
                 teacherCount: 0,
@@ -274,7 +276,17 @@ exports.createTeacher = functions.https.onCall(async (request) => {
         }
         // 2. Transaction for NIP uniqueness check and document writes
         const result = await db.runTransaction(async (transaction) => {
-            const teachersRef = db.collection('schools').doc(schoolId).collection('teachers');
+            const schoolRef = db.collection('schools').doc(schoolId);
+            const schoolDoc = await transaction.get(schoolRef);
+            if (schoolDoc.exists) {
+                const sData = schoolDoc.data() || {};
+                const currentCount = sData.meta?.teacherCount || 0;
+                const maxQuota = sData.maxTeacherQuota;
+                if (typeof maxQuota === 'number' && maxQuota > 0 && currentCount >= maxQuota) {
+                    throw new functions.https.HttpsError('resource-exhausted', `Kuota guru telah mencapai batas maksimal (${currentCount}/${maxQuota}). Silakan hubungi Super Admin.`);
+                }
+            }
+            const teachersRef = schoolRef.collection('teachers');
             const q = teachersRef.where('nip', '==', nip).where('archived', '==', false);
             const querySnap = await transaction.get(q);
             if (!querySnap.empty) {
@@ -316,7 +328,6 @@ exports.createTeacher = functions.https.onCall(async (request) => {
                     createdAt: firestore_1.FieldValue.serverTimestamp()
                 });
             }
-            const schoolRef = db.collection('schools').doc(schoolId);
             transaction.update(schoolRef, {
                 'meta.teacherCount': firestore_1.FieldValue.increment(1)
             });
@@ -341,7 +352,7 @@ exports.createTeacher = functions.https.onCall(async (request) => {
  * Creates a new student.
  */
 exports.createStudent = functions.https.onCall(async (request) => {
-    const { schoolId, displayName, gender, nis, angkatan, email, createAuth } = request.data || {};
+    const { schoolId, displayName, gender, nis, angkatan, religion, agama, email, createAuth } = request.data || {};
     if (!schoolId || !displayName || !gender || !nis || !angkatan) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter yang diperlukan tidak lengkap.');
     }
@@ -361,8 +372,19 @@ exports.createStudent = functions.https.onCall(async (request) => {
             await admin.auth().setCustomUserClaims(userRecord.uid, { role: 'student', schoolId });
             uid = userRecord.uid;
         }
+        const studentRel = (religion || agama || 'Islam').toString().trim();
         const result = await db.runTransaction(async (transaction) => {
-            const studentsRef = db.collection('schools').doc(schoolId).collection('students');
+            const schoolRef = db.collection('schools').doc(schoolId);
+            const schoolDoc = await transaction.get(schoolRef);
+            if (schoolDoc.exists) {
+                const sData = schoolDoc.data() || {};
+                const currentCount = sData.meta?.studentCount || 0;
+                const maxQuota = sData.maxStudentQuota;
+                if (typeof maxQuota === 'number' && maxQuota > 0 && currentCount >= maxQuota) {
+                    throw new functions.https.HttpsError('resource-exhausted', `Kuota murid telah mencapai batas maksimal (${currentCount}/${maxQuota}). Silakan hubungi Super Admin.`);
+                }
+            }
+            const studentsRef = schoolRef.collection('students');
             const q = studentsRef.where('nis', '==', nis).where('archived', '==', false);
             const querySnap = await transaction.get(q);
             if (!querySnap.empty) {
@@ -384,6 +406,8 @@ exports.createStudent = functions.https.onCall(async (request) => {
                 nis,
                 gender,
                 angkatan,
+                religion: studentRel,
+                agama: studentRel,
                 email: loginEmail,
                 schoolId,
                 disabled: false,
@@ -404,7 +428,6 @@ exports.createStudent = functions.https.onCall(async (request) => {
                     createdAt: firestore_1.FieldValue.serverTimestamp()
                 });
             }
-            const schoolRef = db.collection('schools').doc(schoolId);
             transaction.update(schoolRef, {
                 'meta.studentCount': firestore_1.FieldValue.increment(1)
             });
@@ -479,12 +502,13 @@ exports.updateTeacher = functions.https.onCall(async (request) => {
  * Updates an existing student.
  */
 exports.updateStudent = functions.https.onCall(async (request) => {
-    const { schoolId, docId, displayName, gender, nis, angkatan, email } = request.data || {};
+    const { schoolId, docId, displayName, gender, nis, angkatan, religion, agama, email } = request.data || {};
     if (!schoolId || !docId || !displayName || !gender || !nis || !angkatan) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
+    const studentRel = (religion || agama || 'Islam').toString().trim();
     try {
         await db.runTransaction(async (transaction) => {
             const docRef = db.collection('schools').doc(schoolId).collection('students').doc(docId);
@@ -506,6 +530,8 @@ exports.updateStudent = functions.https.onCall(async (request) => {
                 gender,
                 nis,
                 angkatan,
+                religion: studentRel,
+                agama: studentRel,
                 email: email || null,
                 updatedAt: firestore_1.FieldValue.serverTimestamp()
             });
@@ -815,6 +841,15 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
     }
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
+    const schoolDoc = await db.collection('schools').doc(schoolId).get();
+    if (schoolDoc.exists) {
+        const sData = schoolDoc.data() || {};
+        const currentCount = sData.meta?.studentCount || 0;
+        const maxQuota = sData.maxStudentQuota;
+        if (typeof maxQuota === 'number' && maxQuota > 0 && (currentCount + rows.length) > maxQuota) {
+            throw new functions.https.HttpsError('resource-exhausted', `Import dibatalkan: Jumlah murid melebihi kuota (${currentCount} + ${rows.length} / ${maxQuota}). Silakan hubungi Super Admin.`);
+        }
+    }
     const results = [];
     try {
         // Read existing students to detect duplicates
@@ -824,12 +859,13 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
         const processedNis = new Set();
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            const { name, gender, nis, angkatan, email } = row;
+            const { name, gender, nis, angkatan, religion, agama, email } = row;
             const errors = [];
             const cleanName = name?.toString().trim();
             const cleanGender = gender?.toString().trim().toUpperCase();
             const cleanNis = nis?.toString().trim();
             const cleanAngkatan = angkatan?.toString().trim();
+            const cleanReligion = (religion || agama || 'Islam').toString().trim();
             const cleanEmail = email?.toString().trim();
             if (!cleanName)
                 errors.push('Nama wajib diisi.');
@@ -882,6 +918,8 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
                     nis: cleanNis,
                     gender: cleanGender,
                     angkatan: cleanAngkatan,
+                    religion: cleanReligion,
+                    agama: cleanReligion,
                     email: loginEmail,
                     schoolId,
                     disabled: false,
@@ -975,6 +1013,15 @@ exports.importTeachersBulk = functions.https.onCall(async (request) => {
     }
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
+    const schoolDoc = await db.collection('schools').doc(schoolId).get();
+    if (schoolDoc.exists) {
+        const sData = schoolDoc.data() || {};
+        const currentCount = sData.meta?.teacherCount || 0;
+        const maxQuota = sData.maxTeacherQuota;
+        if (typeof maxQuota === 'number' && maxQuota > 0 && (currentCount + rows.length) > maxQuota) {
+            throw new functions.https.HttpsError('resource-exhausted', `Import dibatalkan: Jumlah guru melebihi kuota (${currentCount} + ${rows.length} / ${maxQuota}). Silakan hubungi Super Admin.`);
+        }
+    }
     const results = [];
     try {
         const teachersRef = db.collection('schools').doc(schoolId).collection('teachers');
@@ -1723,5 +1770,69 @@ exports.changeOwnPassword = functions.https.onCall(async (request) => {
     catch (err) {
         throw new functions.https.HttpsError('internal', err.message || 'Gagal mengubah kata sandi.');
     }
+});
+/**
+ * Updates Super Admin login username.
+ * Must be called by a authenticated Super Admin.
+ */
+exports.updateSuperAdminUsername = functions.https.onCall(async (request) => {
+    if (!request.auth || request.auth.token.role !== 'super_admin') {
+        throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin yang dapat mengubah username login.');
+    }
+    const { newUsername } = request.data || {};
+    if (!newUsername || typeof newUsername !== 'string' || newUsername.trim().length < 3) {
+        throw new functions.https.HttpsError('invalid-argument', 'Username baru minimal 3 karakter.');
+    }
+    const sanitized = newUsername.trim().toLowerCase();
+    const db = admin.firestore();
+    await db.collection('system_settings').doc('super_admin').set({
+        username: sanitized,
+        updatedAt: firestore_1.FieldValue.serverTimestamp(),
+        updatedBy: request.auth.uid,
+    }, { merge: true });
+    return { success: true, message: `Username Super Admin berhasil diperbarui menjadi ${sanitized}` };
+});
+/**
+ * Resolves Super Admin login username.
+ * Returns true if username matches current super admin username or default 'sadmin'.
+ */
+exports.resolveSuperAdminUsername = functions.https.onCall(async (request) => {
+    const { username } = request.data || {};
+    if (!username || typeof username !== 'string')
+        return { isSuperAdmin: false };
+    const input = username.trim().toLowerCase();
+    const db = admin.firestore();
+    let customUsername = 'sadmin';
+    try {
+        const docSnap = await db.collection('system_settings').doc('super_admin').get();
+        if (docSnap.exists) {
+            customUsername = (docSnap.data()?.username || 'sadmin').toLowerCase();
+        }
+    }
+    catch (_) { }
+    if (input === 'sadmin' || input === customUsername) {
+        return { isSuperAdmin: true, email: 'sadmin@sesicermat.com' };
+    }
+    return { isSuperAdmin: false };
+});
+/**
+ * Updates maximum quota for students and teachers for a school.
+ */
+exports.updateSchoolQuota = functions.https.onCall(async (request) => {
+    if (!request.auth || request.auth.token.role !== 'super_admin') {
+        throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin yang dapat mengubah kuota sekolah.');
+    }
+    const { schoolId, maxStudentQuota, maxTeacherQuota } = request.data || {};
+    if (!schoolId) {
+        throw new functions.https.HttpsError('invalid-argument', 'ID sekolah wajib diisi.');
+    }
+    const db = admin.firestore();
+    const updateData = {};
+    if (typeof maxStudentQuota === 'number')
+        updateData.maxStudentQuota = maxStudentQuota;
+    if (typeof maxTeacherQuota === 'number')
+        updateData.maxTeacherQuota = maxTeacherQuota;
+    await db.collection('schools').doc(schoolId).update(updateData);
+    return { success: true, message: 'Kuota sekolah berhasil diperbarui.' };
 });
 //# sourceMappingURL=index.js.map

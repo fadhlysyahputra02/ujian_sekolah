@@ -267,23 +267,9 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildLogoIcon() {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-        ),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF4F46E5).withValues(alpha: 0.4),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: const Icon(Icons.school_rounded, color: Colors.white, size: 22),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.asset('assets/images/Logo_SesiCermat.png', width: 40, height: 40, fit: BoxFit.cover),
     );
   }
 
@@ -1137,81 +1123,595 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildSettingsContent(AuthService authService) {
-    final passwordController = TextEditingController();
-    final confirmController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    bool obscurePassword = true;
-    bool obscureConfirm = true;
-    bool isSaving = false;
+    return _SuperAdminSettingsWidget(authService: authService);
+  }
+}
 
-    final userEmail = authService.user?.email ?? '';
+class _SuperAdminSettingsWidget extends StatefulWidget {
+  final AuthService authService;
+  const _SuperAdminSettingsWidget({required this.authService});
+
+  @override
+  State<_SuperAdminSettingsWidget> createState() => _SuperAdminSettingsWidgetState();
+}
+
+class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
+  final _passwordController = TextEditingController();
+  final _confirmController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final _usernameFormKey = GlobalKey<FormState>();
+  final SchoolService _schoolService = SchoolService();
+
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
+  bool _isSavingPassword = false;
+  bool _isSavingUsername = false;
+  String? _currentUsername;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUsername();
+  }
+
+  Future<void> _loadCurrentUsername() async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('system_settings').doc('super_admin').get();
+      if (doc.exists && mounted) {
+        setState(() {
+          _currentUsername = doc.data()?['username'] as String?;
+          if (_currentUsername != null && _currentUsername!.isNotEmpty) {
+            _usernameController.text = _currentUsername!;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _confirmController.dispose();
+    _usernameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userEmail = widget.authService.user?.email ?? '';
     final initialLetter = userEmail.isNotEmpty ? userEmail[0].toUpperCase() : 'S';
 
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    final profileCard = Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              // Header Section
-              Text(
-                'Pengaturan Akun',
-                style: GoogleFonts.inter(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF0F172A),
-                  letterSpacing: -0.5,
+              Container(
+                width: 60,
+                height: 60,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Kelola detail profil dan keamanan kata sandi akun Anda.',
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  color: const Color(0xFF64748B),
-                ),
-              ),
-              const SizedBox(height: 28),
-
-              // Responsive Layout Grid
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth > 850;
-                  
-                  final profileCard = Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
+                child: Center(
+                  child: Text(
+                    initialLetter,
+                    style: GoogleFonts.inter(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 60,
-                              height: 60,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      userEmail,
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF0F172A),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2FF),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFFE0E7FF)),
+                      ),
+                      child: Text(
+                        'Super Admin',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF4F46E5),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Divider(color: Color(0xFFF1F5F9)),
+          const SizedBox(height: 16),
+          _buildInfoRow(
+            Icons.alternate_email_rounded,
+            'Username Default',
+            'sadmin',
+            const Color(0xFF4F46E5),
+          ),
+          const SizedBox(height: 14),
+          _buildInfoRow(
+            Icons.account_circle_rounded,
+            'Username Aktif',
+            _currentUsername ?? 'sadmin',
+            const Color(0xFF059669),
+          ),
+          const SizedBox(height: 14),
+          _buildInfoRow(
+            Icons.verified_user_rounded,
+            'Status Akun',
+            'Aktif',
+            const Color(0xFF10B981),
+          ),
+        ],
+      ),
+    );
+
+    final changeUsernameCard = Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Form(
+        key: _usernameFormKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.badge_rounded,
+                    color: Color(0xFF059669),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Ubah Username Super Admin',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Ganti username login SuperAdmin. Username baru ini dan username default (sadmin) akan dapat digunakan untuk login.',
+              style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: _usernameController,
+              style: GoogleFonts.inter(fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Username Baru',
+                labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                hintText: 'Minimal 3 karakter, alfanumerik',
+                hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF059669), width: 1.5),
+                ),
+                prefixIcon: const Icon(Icons.person_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+              ),
+              validator: (val) {
+                if (val == null || val.trim().isEmpty) return 'Username tidak boleh kosong';
+                if (val.trim().length < 3) return 'Username minimal 3 karakter';
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSavingUsername
+                    ? null
+                    : () async {
+                        if (_usernameFormKey.currentState!.validate()) {
+                          setState(() => _isSavingUsername = true);
+                          try {
+                            await _schoolService.updateSuperAdminUsername(_usernameController.text.trim());
+                            setState(() => _currentUsername = _usernameController.text.trim());
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Row(
+                                    children: [
+                                      const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Username SuperAdmin berhasil diperbarui!',
+                                        style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                  backgroundColor: const Color(0xFF10B981),
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  initialLetter,
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Gagal memperbarui username: $e'),
+                                  backgroundColor: const Color(0xFFEF4444),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) setState(() => _isSavingUsername = false);
+                          }
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF059669),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+                child: _isSavingUsername
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : Text(
+                        'Simpan Username Baru',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final changePasswordCard = Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F3FF),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.lock_rounded,
+                    color: Color(0xFF7C3AED),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Ubah Kata Sandi',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              style: GoogleFonts.inter(fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Kata Sandi Baru',
+                labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                hintText: 'Minimal 6 karakter',
+                hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                ),
+                prefixIcon: const Icon(Icons.vpn_key_outlined, size: 20, color: Color(0xFF94A3B8)),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                    size: 20,
+                    color: const Color(0xFF64748B),
+                  ),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) return 'Kata sandi baru tidak boleh kosong';
+                if (value.trim().length < 6) return 'Kata sandi minimal 6 karakter';
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+            TextFormField(
+              controller: _confirmController,
+              obscureText: _obscureConfirm,
+              style: GoogleFonts.inter(fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Konfirmasi Kata Sandi Baru',
+                labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                hintText: 'Ulangi kata sandi baru',
+                hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                ),
+                prefixIcon: const Icon(Icons.check_circle_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                    size: 20,
+                    color: const Color(0xFF64748B),
+                  ),
+                  onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) return 'Konfirmasi kata sandi tidak boleh kosong';
+                if (value != _passwordController.text) return 'Konfirmasi kata sandi tidak cocok';
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSavingPassword
+                    ? null
+                    : () async {
+                        if (_formKey.currentState!.validate()) {
+                          setState(() => _isSavingPassword = true);
+                          try {
+                            await widget.authService.changeOwnPassword(_passwordController.text.trim());
+                            _passwordController.clear();
+                            _confirmController.clear();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Row(
+                                    children: [
+                                      const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Kata sandi berhasil diperbarui.',
+                                        style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                  backgroundColor: const Color(0xFF10B981),
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Gagal mengubah kata sandi: $e'),
+                                  backgroundColor: const Color(0xFFEF4444),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) setState(() => _isSavingPassword = false);
+                          }
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4F46E5),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+                child: _isSavingPassword
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : Text(
+                        'Simpan Kata Sandi',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Pengaturan Akun',
+            style: GoogleFonts.inter(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF0F172A),
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Kelola detail profil, username login, dan kata sandi akun Anda.',
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+          const SizedBox(height: 28),
+
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 850;
+
+              if (isWide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 5, child: profileCard),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      flex: 6,
+                      child: Column(
+                        children: [
+                          changeUsernameCard,
+                          const SizedBox(height: 24),
+                          changePasswordCard,
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              return Column(
+                children: [
+                  profileCard,
+                  const SizedBox(height: 24),
+                  changeUsernameCard,
+                  const SizedBox(height: 24),
+                  changePasswordCard,
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 10),
+        Text(
+          '$label: ',
+          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+        ),
+      ],
+    );
+  }
+}
+
                                   style: GoogleFonts.inter(
                                     color: Colors.white,
                                     fontSize: 24,

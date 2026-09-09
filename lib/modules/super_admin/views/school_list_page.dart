@@ -465,169 +465,217 @@ class _SchoolListPageState extends State<SchoolListPage> {
         clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
-            // Table header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF8FAFC),
-                border: Border(
-                  bottom: BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-              ),
-              child: Row(
-                children: [
-                  _buildTableHeader('Sekolah', flex: 3),
-                  _buildTableHeader('Kode', flex: 1),
-                  _buildTableHeader('Admin Email', flex: 3),
-                  _buildTableHeader('Pengguna', flex: 2),
-                  _buildTableHeader('Status', flex: 2),
-                  _buildTableHeader('Kontrol', flex: 2),
-                ],
-              ),
-            ),
-            // Rows
-            ...schools.asMap().entries.map((entry) {
-              final idx = entry.key;
-              final doc = entry.value;
-              final data = doc.data();
-              final meta = data['meta'] as Map<String, dynamic>? ?? {};
-              final teacherCount = meta['teacherCount'] ?? 0;
-              final studentCount = meta['studentCount'] ?? 0;
-              final disabled = data['disabled'] == true;
-              final name = data['name'] ?? '-';
-              final avatarColor = _getSchoolAvatarColor(name);
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: MediaQuery.of(context).size.width > 1100 ? MediaQuery.of(context).size.width - 280 : 1000,
+                  ),
+                  child: Column(
+                    children: [
+                      // Table header
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF8FAFC),
+                          border: Border(
+                            bottom: BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            _buildTableHeader('Sekolah', flex: 3),
+                            _buildTableHeader('Kode', flex: 2),
+                            _buildTableHeader('Admin Email', flex: 3),
+                            _buildTableHeader('Pengguna', flex: 2),
+                            _buildTableHeader('Batas Kuota', flex: 2),
+                            _buildTableHeader('Status', flex: 2),
+                            _buildTableHeader('Kontrol', flex: 3),
+                          ],
+                        ),
+                      ),
+                      // Rows
+                      ...schools.asMap().entries.map((entry) {
+                        final idx = entry.key;
+                        final doc = entry.value;
+                        final data = doc.data();
+                        final meta = data['meta'] as Map<String, dynamic>? ?? {};
+                        final teacherCount = meta['teacherCount'] ?? 0;
+                        final studentCount = meta['studentCount'] ?? 0;
+                        final maxTeacherQuota = data['maxTeacherQuota'] ?? 50;
+                        final maxStudentQuota = data['maxStudentQuota'] ?? 500;
+                        final disabled = data['disabled'] == true;
+                        final name = data['name'] ?? '-';
+                        final avatarColor = _getSchoolAvatarColor(name);
 
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                decoration: BoxDecoration(
-                  color: idx % 2 == 0 ? Colors.white : const Color(0xFFFAFAFC),
-                  border: const Border(
-                    bottom: BorderSide(color: Color(0xFFF1F5F9)),
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: idx % 2 == 0 ? Colors.white : const Color(0xFFFAFAFC),
+                            border: const Border(
+                              bottom: BorderSide(color: Color(0xFFF1F5F9)),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              // School name with avatar
+                              Expanded(
+                                flex: 3,
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 38,
+                                      height: 38,
+                                      decoration: BoxDecoration(
+                                        color: avatarColor.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: avatarColor.withValues(alpha: 0.25),
+                                        ),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        _getInitials(name),
+                                        style: GoogleFonts.inter(
+                                          color: avatarColor,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        name,
+                                        style: GoogleFonts.inter(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                          color: const Color(0xFF0F172A),
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Code badge (widened flex: 2)
+                              Expanded(
+                                flex: 2,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Text(
+                                    data['code'] ?? '-',
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                      color: const Color(0xFF334155),
+                                      letterSpacing: 0.5,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  data['adminEmail'] ?? '-',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: const Color(0xFF64748B),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Expanded(
+                                flex: 2,
+                                child: Row(
+                                  children: [
+                                    _buildMiniStat(
+                                      Icons.person_rounded,
+                                      '$teacherCount',
+                                      const Color(0xFF4F46E5),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildMiniStat(
+                                      Icons.school_rounded,
+                                      '$studentCount',
+                                      const Color(0xFF06B6D4),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Quota info column
+                              Expanded(
+                                flex: 2,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Guru: $teacherCount / $maxTeacherQuota',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: teacherCount >= maxTeacherQuota ? const Color(0xFFDC2626) : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Murid: $studentCount / $maxStudentQuota',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: studentCount >= maxStudentQuota ? const Color(0xFFDC2626) : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                flex: 2,
+                                child: _buildStatusBadge(disabled),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  children: [
+                                    Switch.adaptive(
+                                      value: !disabled,
+                                      activeTrackColor: const Color(0xFF10B981),
+                                      onChanged: (_) => _toggleSchoolStatus(doc.id, disabled),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.tune_rounded, color: Color(0xFF4F46E5), size: 20),
+                                      tooltip: 'Atur Kuota Sekolah',
+                                      onPressed: () => _showEditQuotaDialog(doc.id, name, maxStudentQuota, maxTeacherQuota),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 20),
+                                      tooltip: 'Reset Password Admin',
+                                      onPressed: () => _showResetPasswordDialog(doc.id, name),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                                      tooltip: 'Hapus Sekolah',
+                                      onPressed: () => _deleteSchool(doc.id, name),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
                   ),
                 ),
-                child: Row(
-                  children: [
-                    // School name with avatar
-                    Expanded(
-                      flex: 3,
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: avatarColor.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: avatarColor.withValues(alpha: 0.25),
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              _getInitials(name),
-                              style: GoogleFonts.inter(
-                                color: avatarColor,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                                color: const Color(0xFF0F172A),
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Code badge
-                    Expanded(
-                      flex: 1,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          data['code'] ?? '-',
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                            color: const Color(0xFF475569),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Text(
-                        data['adminEmail'] ?? '-',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          color: const Color(0xFF64748B),
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Row(
-                        children: [
-                          _buildMiniStat(
-                            Icons.person_rounded,
-                            '$teacherCount',
-                            const Color(0xFF4F46E5),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildMiniStat(
-                            Icons.school_rounded,
-                            '$studentCount',
-                            const Color(0xFF06B6D4),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: _buildStatusBadge(disabled),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        children: [
-                          Switch.adaptive(
-                            value: !disabled,
-                            activeTrackColor: const Color(0xFF10B981),
-                            onChanged: (_) => _toggleSchoolStatus(doc.id, disabled),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 20),
-                            tooltip: 'Reset Password Admin',
-                            onPressed: () => _showResetPasswordDialog(doc.id, name),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
-                            tooltip: 'Hapus Sekolah',
-                            onPressed: () => _deleteSchool(doc.id, name),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               );
-            }),
           ],
         ),
       ),
@@ -987,6 +1035,117 @@ class _SchoolListPageState extends State<SchoolListPage> {
   Widget _buildLoadingState() {
     return const Center(
       child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
+    );
+  }
+
+  void _showEditQuotaDialog(String schoolId, String schoolName, int currentMaxStudent, int currentMaxTeacher) {
+    final studentCtrl = TextEditingController(text: '$currentMaxStudent');
+    final teacherCtrl = TextEditingController(text: '$currentMaxTeacher');
+    final formKey = GlobalKey<FormState>();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.tune_rounded, color: Color(0xFF4F46E5)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Atur Kuota - $schoolName',
+                  style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: teacherCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Batas Kuota Maksimal Guru',
+                    prefixIcon: const Icon(Icons.group_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Wajib diisi';
+                    if (int.tryParse(v.trim()) == null) return 'Angka saja';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: studentCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Batas Kuota Maksimal Murid',
+                    prefixIcon: const Icon(Icons.school_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Wajib diisi';
+                    if (int.tryParse(v.trim()) == null) return 'Angka saja';
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (formKey.currentState!.validate()) {
+                        setDialogState(() => isSaving = true);
+                        try {
+                          await _schoolService.updateSchoolQuota(
+                            schoolId: schoolId,
+                            maxStudentQuota: int.parse(studentCtrl.text.trim()),
+                            maxTeacherQuota: int.parse(teacherCtrl.text.trim()),
+                          );
+                          if (mounted) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Kuota sekolah berhasil diperbarui!'),
+                                backgroundColor: Color(0xFF10B981),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Gagal memperbarui kuota: $e'), backgroundColor: Colors.red),
+                            );
+                          }
+                        } finally {
+                          setDialogState(() => isSaving = false);
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4F46E5),
+                foregroundColor: Colors.white,
+              ),
+              child: isSaving
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('Simpan'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

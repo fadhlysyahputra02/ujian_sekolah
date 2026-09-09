@@ -1366,61 +1366,67 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                 allowedSubjectIds: matchedSubjectIds,
                                                 sessionName: sessionLabel,
                                               ),
-                                              exitLogCount: realtimeDocs.where((doc) {
-                                                final d = doc.data() as Map<String, dynamic>;
-                                                final sId = (d['studentId'] ?? '').toString().trim();
-                                                final sNis = (d['nis'] ?? '').toString().trim();
-                                                final docId = doc.id.trim();
+                                              exitLogCount: () {
+                                                final exitedStudents = <String>{};
+                                                for (var doc in realtimeDocs) {
+                                                  final d = doc.data() as Map<String, dynamic>;
+                                                  final sId = (d['studentId'] ?? '').toString().trim();
+                                                  final sNis = (d['nis'] ?? '').toString().trim();
+                                                  final docId = doc.id.trim();
 
-                                                final isRoomStudent = roomStudentIds.contains(sId) ||
-                                                    (sNis.isNotEmpty && roomStudentNises.contains(sNis)) ||
-                                                    roomStudentIds.contains(docId) ||
-                                                    roomStudentIds.any((id) => id.isNotEmpty && docId.contains(id)) ||
-                                                    (sNis.isNotEmpty && roomStudentNises.any((nis) => nis.isNotEmpty && docId.contains(nis)));
+                                                  final isRoomStudent = roomStudentIds.contains(sId) ||
+                                                      (sNis.isNotEmpty && roomStudentNises.contains(sNis)) ||
+                                                      roomStudentIds.contains(docId) ||
+                                                      roomStudentIds.any((id) => id.isNotEmpty && docId.contains(id)) ||
+                                                      (sNis.isNotEmpty && roomStudentNises.any((nis) => nis.isNotEmpty && docId.contains(nis)));
 
-                                                if (!isRoomStudent && roomStudentIds.isNotEmpty) return false;
+                                                  if (!isRoomStudent && roomStudentIds.isNotEmpty) continue;
 
-                                                // Check subject / session match
-                                                final rtSubjId = (d['subjectId'] ?? '').toString().toLowerCase().trim();
-                                                final rtSubjName = (d['subjectName'] ?? '').toString().toLowerCase().trim();
-                                                if (cleanActiveSubjectNames.isNotEmpty) {
-                                                  bool subjMatches = cleanActiveSubjectNames.contains(rtSubjName) ||
-                                                      matchedSubjectIds.contains(rtSubjId) ||
-                                                      matchedSubjectIds.contains(rtSubjName);
+                                                  final rtSubjId = (d['subjectId'] ?? '').toString().toLowerCase().trim();
+                                                  final rtSubjName = (d['subjectName'] ?? '').toString().toLowerCase().trim();
+                                                  if (cleanActiveSubjectNames.isNotEmpty) {
+                                                    bool subjMatches = cleanActiveSubjectNames.contains(rtSubjName) ||
+                                                        matchedSubjectIds.contains(rtSubjId) ||
+                                                        matchedSubjectIds.contains(rtSubjName);
 
-                                                  if (!subjMatches && (docId.contains('_') || docId.contains('-'))) {
-                                                    for (final sub in cleanActiveSubjectNames) {
-                                                      if (sub.isNotEmpty && docId.toLowerCase().contains(sub)) {
-                                                        subjMatches = true;
-                                                        break;
+                                                    if (!subjMatches && (docId.contains('_') || docId.contains('-'))) {
+                                                      for (final sub in cleanActiveSubjectNames) {
+                                                        if (sub.isNotEmpty && docId.toLowerCase().contains(sub)) {
+                                                          subjMatches = true;
+                                                          break;
+                                                        }
                                                       }
                                                     }
+
+                                                    if (!subjMatches) continue;
                                                   }
 
-                                                  if (!subjMatches) return false;
-                                                }
-
-                                                final isLeftApp = d['isLeftApp'] == true || d['status'] == 'left_app';
-                                                final logs = d['logs'] as List? ?? [];
-                                                int actualLeft = 0;
-                                                for (var l in logs) {
-                                                  if (l is Map && (l['event'] == 'left_app' || l['status'] == 'left_app')) {
-                                                    final entrySubjId = (l['subjectId'] ?? '').toString().toLowerCase().trim();
-                                                    final entrySubjName = (l['subjectName'] ?? '').toString().toLowerCase().trim();
-                                                    if (cleanActiveSubjectNames.isNotEmpty) {
-                                                      if (entrySubjName.isNotEmpty || entrySubjId.isNotEmpty) {
-                                                        bool entryMatches = cleanActiveSubjectNames.contains(entrySubjName) ||
-                                                            matchedSubjectIds.contains(entrySubjId) ||
-                                                            matchedSubjectIds.contains(entrySubjName);
-                                                        if (!entryMatches) continue;
+                                                  final isLeftApp = d['isLeftApp'] == true || d['status'] == 'left_app';
+                                                  final logs = d['logs'] as List? ?? [];
+                                                  int actualLeft = 0;
+                                                  for (var l in logs) {
+                                                    if (l is Map && (l['event'] == 'left_app' || l['status'] == 'left_app')) {
+                                                      final entrySubjId = (l['subjectId'] ?? '').toString().toLowerCase().trim();
+                                                      final entrySubjName = (l['subjectName'] ?? '').toString().toLowerCase().trim();
+                                                      if (cleanActiveSubjectNames.isNotEmpty) {
+                                                        if (entrySubjName.isNotEmpty || entrySubjId.isNotEmpty) {
+                                                          bool entryMatches = cleanActiveSubjectNames.contains(entrySubjName) ||
+                                                              matchedSubjectIds.contains(entrySubjId) ||
+                                                              matchedSubjectIds.contains(entrySubjName);
+                                                          if (!entryMatches) continue;
+                                                        }
                                                       }
+                                                      actualLeft++;
                                                     }
-                                                    actualLeft++;
+                                                  }
+                                                  final count = actualLeft > 0 ? actualLeft : ((d['leftAppCount'] as num?)?.toInt() ?? 0);
+                                                  if (isLeftApp || count > 0) {
+                                                    final studentKey = sId.isNotEmpty ? sId : (sNis.isNotEmpty ? sNis : docId.split('_').first);
+                                                    if (studentKey.isNotEmpty) exitedStudents.add(studentKey);
                                                   }
                                                 }
-                                                final count = actualLeft > 0 ? actualLeft : ((d['leftAppCount'] as num?)?.toInt() ?? 0);
-                                                return isLeftApp || count > 0;
-                                              }).length,
+                                                return exitedStudents.length;
+                                              }(),
                                             ),
                                             const SizedBox(height: 20),
 
