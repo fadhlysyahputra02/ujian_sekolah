@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class SchoolService {
@@ -10,7 +11,6 @@ class SchoolService {
   Stream<QuerySnapshot<Map<String, dynamic>>> getSchoolsStream() {
     return _firestore
         .collection('schools')
-        .orderBy('createdAt', descending: true)
         .snapshots();
   }
 
@@ -62,12 +62,44 @@ class SchoolService {
 
   /// Updates Super Admin login username
   Future<void> updateSuperAdminUsername(String newUsername) async {
+    final sanitized = newUsername.trim().toLowerCase();
+    final user = FirebaseAuth.instance.currentUser;
+    debugPrint('[updateSuperAdminUsername] sanitized="$sanitized" uid=${user?.uid}');
+
+    // 1. Primary: Save to system_settings/super_admin (publicly readable on login)
+    try {
+      await _firestore.collection('system_settings').doc('super_admin').set({
+        'username': sanitized,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      debugPrint('[updateSuperAdminUsername] Step1: system_settings saved OK');
+    } catch (e) {
+      debugPrint('[updateSuperAdminUsername] Step1 ERROR: system_settings: $e');
+      // Rethrow so the UI shows an error instead of silently failing
+      rethrow;
+    }
+
+    // 2. Secondary: Save to users/{uid} as backup
+    if (user != null) {
+      try {
+        await _firestore.collection('users').doc(user.uid).set({
+          'customUsername': sanitized,
+          'email': 'sadmin@sesicermat.com',
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        debugPrint('[updateSuperAdminUsername] Step2: users doc saved OK');
+      } catch (e) {
+        debugPrint('[updateSuperAdminUsername] Step2 NOTICE: users doc error (non-fatal): $e');
+      }
+    }
+
+    // 3. Cloud Function sync (best-effort)
     try {
       final HttpsCallable callable = _functions.httpsCallable('updateSuperAdminUsername');
-      await callable.call({'newUsername': newUsername});
+      await callable.call({'newUsername': sanitized});
+      debugPrint('[updateSuperAdminUsername] Step3: CF sync OK');
     } catch (e) {
-      debugPrint("Error in updateSuperAdminUsername: $e");
-      rethrow;
+      debugPrint('[updateSuperAdminUsername] Step3 NOTICE: CF error (non-fatal): $e');
     }
   }
 

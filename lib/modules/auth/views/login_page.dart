@@ -148,16 +148,49 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     String emailOrUsername = '';
 
-    bool isSuperAdminLogin = typedText.toLowerCase() == 'sadmin';
+    final inputLower = typedText.toLowerCase();
+    bool isSuperAdminLogin = inputLower == 'sadmin';
+    debugPrint('[LOGIN] typedText="$typedText" initial isSuperAdminLogin=$isSuperAdminLogin');
+
     if (!isSuperAdminLogin && typedText.isNotEmpty) {
+      // 1. Direct Firestore check from system_settings/super_admin (publicly readable)
       try {
-        final HttpsCallable sadminCallable = FirebaseFunctions.instance.httpsCallable('resolveSuperAdminUsername');
-        final sadminRes = await sadminCallable.call({'username': typedText});
-        if (sadminRes.data != null && sadminRes.data['isSuperAdmin'] == true) {
-          isSuperAdminLogin = true;
+        debugPrint('[LOGIN] Step1: Reading system_settings/super_admin...');
+        final sysDoc = await FirebaseFirestore.instance
+            .collection('system_settings')
+            .doc('super_admin')
+            .get();
+        debugPrint('[LOGIN] Step1: doc.exists=${sysDoc.exists} data=${sysDoc.data()}');
+        if (sysDoc.exists) {
+          final storedUsername = (sysDoc.data()?['username'] as String?)?.toLowerCase();
+          debugPrint('[LOGIN] Step1: storedUsername="$storedUsername" inputLower="$inputLower"');
+          if (storedUsername != null && storedUsername == inputLower) {
+            isSuperAdminLogin = true;
+            debugPrint('[LOGIN] Step1: MATCH → SuperAdmin login confirmed');
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[LOGIN] Step1: ERROR reading system_settings: $e');
+      }
+
+      // 2. Fallback: Cloud Function resolution (server-side, reads admin SDK)
+      if (!isSuperAdminLogin) {
+        try {
+          debugPrint('[LOGIN] Step2: Calling resolveSuperAdminUsername Cloud Function...');
+          final HttpsCallable sadminCallable = FirebaseFunctions.instance
+              .httpsCallable('resolveSuperAdminUsername');
+          final sadminRes = await sadminCallable.call({'username': typedText});
+          debugPrint('[LOGIN] Step2: CF result=${sadminRes.data}');
+          if (sadminRes.data != null && sadminRes.data['isSuperAdmin'] == true) {
+            isSuperAdminLogin = true;
+            debugPrint('[LOGIN] Step2: MATCH → SuperAdmin login confirmed via CF');
+          }
+        } catch (e) {
+          debugPrint('[LOGIN] Step2: ERROR calling CF: $e');
+        }
+      }
     }
+    debugPrint('[LOGIN] Final isSuperAdminLogin=$isSuperAdminLogin');
 
     if (isSuperAdminLogin) {
       emailOrUsername = 'sadmin@sesicermat.com';

@@ -3410,7 +3410,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     if (teacher == null) {
       final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
       if (sDoc.exists) {
-        final sData = sDoc.data() || {};
+        final sData = sDoc.data() ?? {};
         final teacherCount = (sData['meta'] as Map?)?['teacherCount'] ?? 0;
         final maxQuota = sData['maxTeacherQuota'] ?? 50;
         if (teacherCount >= maxQuota) {
@@ -3432,7 +3432,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     if (student == null) {
       final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
       if (sDoc.exists) {
-        final sData = sDoc.data() || {};
+        final sData = sDoc.data() ?? {};
         final studentCount = (sData['meta'] as Map?)?['studentCount'] ?? 0;
         final maxQuota = sData['maxStudentQuota'] ?? 500;
         if (studentCount >= maxQuota) {
@@ -3461,7 +3461,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   Future<void> _showImportDialog(String schoolId) async {
     final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
     if (sDoc.exists) {
-      final sData = sDoc.data() || {};
+      final sData = sDoc.data() ?? {};
       final studentCount = (sData['meta'] as Map?)?['studentCount'] ?? 0;
       final maxQuota = sData['maxStudentQuota'] ?? 500;
       if (studentCount >= maxQuota) {
@@ -3481,7 +3481,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   Future<void> _showImportTeachersDialog(String schoolId) async {
     final sDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
     if (sDoc.exists) {
-      final sData = sDoc.data() || {};
+      final sData = sDoc.data() ?? {};
       final teacherCount = (sData['meta'] as Map?)?['teacherCount'] ?? 0;
       final maxQuota = sData['maxTeacherQuota'] ?? 50;
       if (teacherCount >= maxQuota) {

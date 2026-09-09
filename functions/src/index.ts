@@ -2117,7 +2117,18 @@ export const changeOwnPassword = functions.https.onCall(async (request) => {
  * Must be called by a authenticated Super Admin.
  */
 export const updateSuperAdminUsername = functions.https.onCall(async (request) => {
-  if (!request.auth || request.auth.token.role !== 'super_admin') {
+  if (!request.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'Anda harus login terlebih dahulu.'
+    );
+  }
+
+  const isSuperAdmin = 
+    request.auth.token.role === 'super_admin' || 
+    request.auth.token.email === 'sadmin@sesicermat.com';
+
+  if (!isSuperAdmin) {
     throw new functions.https.HttpsError(
       'permission-denied',
       'Hanya Super Admin yang dapat mengubah username login.'
@@ -2141,6 +2152,12 @@ export const updateSuperAdminUsername = functions.https.onCall(async (request) =
     updatedBy: request.auth.uid,
   }, { merge: true });
 
+  try {
+    await admin.auth().setCustomUserClaims(request.auth.uid, { role: 'super_admin' });
+  } catch (err) {
+    console.error('Failed to set super_admin custom claims:', err);
+  }
+
   return { success: true, message: `Username Super Admin berhasil diperbarui menjadi ${sanitized}` };
 });
 
@@ -2162,6 +2179,16 @@ export const resolveSuperAdminUsername = functions.https.onCall(async (request) 
       customUsername = (docSnap.data()?.username || 'sadmin').toLowerCase();
     }
   } catch (_) {}
+
+  if (input !== 'sadmin' && input !== customUsername) {
+    try {
+      const userSnap = await db.collection('users').where('email', '==', 'sadmin@sesicermat.com').limit(1).get();
+      if (!userSnap.empty) {
+        const uName = (userSnap.docs[0].data()?.customUsername || '').toLowerCase();
+        if (uName) customUsername = uName;
+      }
+    } catch (_) {}
+  }
 
   if (input === 'sadmin' || input === customUsername) {
     return { isSuperAdmin: true, email: 'sadmin@sesicermat.com' };

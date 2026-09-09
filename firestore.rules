@@ -156,6 +156,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /system_settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null && (
+        isSuperAdmin() || 
+        request.auth.token.email == 'sadmin@sesicermat.com'
+      );
+    }
+
     // Rules for archives collection
     match /archives/{schoolId} {
       allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);
@@ -166,18 +174,25 @@ service cloud.firestore {
 
     // Rules for users collection
     match /users/{userId} {
+      // Helper: is this the SuperAdmin account (by email token claim)
+      function isSuperAdminByEmail() {
+        return request.auth != null && request.auth.token.email == 'sadmin@sesicermat.com';
+      }
+
       allow read: if request.auth != null && (
-        isSuperAdmin() || 
+        isSuperAdmin() ||
+        isSuperAdminByEmail() ||
         (request.auth.uid == userId && isUserSchoolActive())
       );
-      allow create: if isSuperAdmin();
+      allow create: if isSuperAdmin() || isSuperAdminByEmail();
       allow update: if request.auth != null && (
-        isSuperAdmin() || 
-        (request.auth.uid == userId && isUserSchoolActive() && 
+        isSuperAdmin() ||
+        isSuperAdminByEmail() ||
+        (request.auth.uid == userId && isUserSchoolActive() &&
          // Prevent changing role and schoolId directly
          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'schoolId']))
       );
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || isSuperAdminByEmail();
     }
   }
 }

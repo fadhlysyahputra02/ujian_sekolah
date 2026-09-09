@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/school_service.dart';
+import 'package:sys_exam_school/core/services/school_service.dart';
 
 class AddSchoolDialog extends StatefulWidget {
   const AddSchoolDialog({super.key});

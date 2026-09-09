@@ -1,13 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/services/auth_service.dart';
-import '../../../core/services/school_service.dart';
-import '../../../core/constants/app_version.dart';
-import '../../../core/widgets/app_splash_loader.dart';
-import 'school_list_page.dart';
+import 'package:sys_exam_school/core/services/auth_service.dart';
+import 'package:sys_exam_school/core/services/school_service.dart';
+import 'package:sys_exam_school/core/constants/app_version.dart';
+import 'package:sys_exam_school/core/widgets/app_splash_loader.dart';
+import 'package:sys_exam_school/modules/super_admin/views/school_list_page.dart';
 
 class DashboardPage extends StatefulWidget {
   final String? tabName;
@@ -1157,6 +1158,21 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
 
   Future<void> _loadCurrentUsername() async {
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (userDoc.exists && mounted) {
+          final uName = userDoc.data()?['customUsername'] as String?;
+          if (uName != null && uName.isNotEmpty) {
+            setState(() {
+              _currentUsername = uName;
+              _usernameController.text = uName;
+            });
+            return;
+          }
+        }
+      }
+
       final doc = await FirebaseFirestore.instance.collection('system_settings').doc('super_admin').get();
       if (doc.exists && mounted) {
         setState(() {
@@ -1706,354 +1722,6 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
         Text(
           value,
           style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
-        ),
-      ],
-    );
-  }
-}
-
-                                  style: GoogleFonts.inter(
-                                    color: Colors.white,
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    userEmail,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: const Color(0xFF0F172A),
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEEF2FF),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(color: const Color(0xFFE0E7FF)),
-                                    ),
-                                    child: Text(
-                                      'Super Admin',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF4F46E5),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        const Divider(color: Color(0xFFF1F5F9)),
-                        const SizedBox(height: 16),
-                        _buildInfoRow(
-                          Icons.verified_user_rounded,
-                          'Status Akun',
-                          'Aktif',
-                          const Color(0xFF10B981),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildInfoRow(
-                          Icons.security_rounded,
-                          'Keamanan Sesi',
-                          'Tinggi',
-                          const Color(0xFF3B82F6),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildInfoRow(
-                          Icons.calendar_today_rounded,
-                          'Tanggal Akses',
-                          DateTime.now().toString().split(' ')[0],
-                          const Color(0xFF64748B),
-                        ),
-                      ],
-                    ),
-                  );
-
-                  final changePasswordCard = Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Form(
-                      key: formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF5F3FF),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.lock_rounded,
-                                  color: Color(0xFF7C3AED),
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                'Ubah Kata Sandi',
-                                style: GoogleFonts.inter(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF0F172A),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          TextFormField(
-                            controller: passwordController,
-                            obscureText: obscurePassword,
-                            style: GoogleFonts.inter(fontSize: 14),
-                            decoration: InputDecoration(
-                              labelText: 'Kata Sandi Baru',
-                              labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                              hintText: 'Minimal 6 karakter',
-                              hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
-                              ),
-                              prefixIcon: const Icon(Icons.vpn_key_outlined, size: 20, color: Color(0xFF94A3B8)),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                                  size: 20,
-                                  color: const Color(0xFF64748B),
-                                ),
-                                onPressed: () => setState(() => obscurePassword = !obscurePassword),
-                              ),
-                              filled: true,
-                              fillColor: const Color(0xFFF8FAFC),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Kata sandi baru tidak boleh kosong';
-                              }
-                              if (value.trim().length < 6) {
-                                return 'Kata sandi minimal 6 karakter';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 18),
-                          TextFormField(
-                            controller: confirmController,
-                            obscureText: obscureConfirm,
-                            style: GoogleFonts.inter(fontSize: 14),
-                            decoration: InputDecoration(
-                              labelText: 'Konfirmasi Kata Sandi Baru',
-                              labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                              hintText: 'Ulangi kata sandi baru',
-                              hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
-                              ),
-                              prefixIcon: const Icon(Icons.check_circle_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                                  size: 20,
-                                  color: const Color(0xFF64748B),
-                                ),
-                                onPressed: () => setState(() => obscureConfirm = !obscureConfirm),
-                              ),
-                              filled: true,
-                              fillColor: const Color(0xFFF8FAFC),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Konfirmasi kata sandi tidak boleh kosong';
-                              }
-                              if (value != passwordController.text) {
-                                return 'Konfirmasi kata sandi tidak cocok';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 24),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: isSaving
-                                  ? null
-                                  : () async {
-                                      if (formKey.currentState!.validate()) {
-                                        setState(() => isSaving = true);
-                                        try {
-                                          await authService.changeOwnPassword(
-                                            passwordController.text.trim(),
-                                          );
-                                          passwordController.clear();
-                                          confirmController.clear();
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Row(
-                                                  children: [
-                                                    const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
-                                                    const SizedBox(width: 8),
-                                                    Text(
-                                                      'Kata sandi berhasil diperbarui.',
-                                                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                                                    ),
-                                                  ],
-                                                ),
-                                                backgroundColor: const Color(0xFF10B981),
-                                                behavior: SnackBarBehavior.floating,
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                              ),
-                                            );
-                                          }
-                                        } catch (e) {
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Row(
-                                                  children: [
-                                                    const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
-                                                    const SizedBox(width: 8),
-                                                    Text(
-                                                      'Gagal mengubah kata sandi: $e',
-                                                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                                                    ),
-                                                  ],
-                                                ),
-                                                backgroundColor: const Color(0xFFEF4444),
-                                                behavior: SnackBarBehavior.floating,
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                              ),
-                                            );
-                                          }
-                                        } finally {
-                                          setState(() => isSaving = false);
-                                        }
-                                      }
-                                    },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4F46E5),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                elevation: 0,
-                              ),
-                              child: isSaving
-                                  ? const SizedBox(
-                                      height: 18,
-                                      width: 18,
-                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                    )
-                                  : Text(
-                                      'Simpan Perubahan',
-                                      style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-
-                  if (isWide) {
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(flex: 3, child: profileCard),
-                        const SizedBox(width: 24),
-                        Expanded(flex: 4, child: changePasswordCard),
-                      ],
-                    );
-                  } else {
-                    return Column(
-                      children: [
-                        profileCard,
-                        const SizedBox(height: 24),
-                        changePasswordCard,
-                      ],
-                    );
-                  }
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String label, String value, Color badgeColor) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: const Color(0xFF94A3B8)),
-        const SizedBox(width: 10),
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: const Color(0xFF64748B),
-          ),
-        ),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: badgeColor.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            value,
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: badgeColor,
-            ),
-          ),
         ),
       ],
     );
