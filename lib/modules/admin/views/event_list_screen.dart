@@ -6,7 +6,6 @@ import '../../../core/services/event_exam_service.dart';
 import '../../../core/widgets/app_splash_loader.dart';
 import 'package:go_router/go_router.dart';
 import 'event_editor_wizard.dart';
-import 'admin_full_schedule_page.dart';
 import '../widgets/makeup_exam_dialog.dart';
 
 class EventListScreen extends StatefulWidget {
@@ -790,6 +789,20 @@ class _EventListScreenState extends State<EventListScreen> {
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                       ),
                                     ),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.assessment_rounded, size: 16),
+                                      label: const Text('Rekap Nilai'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF0F172A),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    ),
                                     if (status == 'draft')
                                       OutlinedButton.icon(
                                         onPressed: () {
@@ -873,6 +886,21 @@ class _EventListScreenState extends State<EventListScreen> {
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: const Color(0xFF4F46E5),
                                         side: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.assessment_rounded, size: 16),
+                                      label: Text('Rekap Nilai', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF0F172A),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                       ),

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/utils/web_reload.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -122,13 +123,20 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           }).toList();
           _isLoadingSchools = false;
         });
+        removeSessionItem('fs_reloaded');
+        debugPrint('[LOGIN] Berhasil mengambil ${_schools.length} sekolah');
       }
     } catch (e) {
-      debugPrint("Gagal mengambil daftar sekolah: $e");
+      debugPrint('[LOGIN] Fetch gagal: $e');
       if (mounted) {
         setState(() {
           _isLoadingSchools = false;
         });
+      }
+      if (kIsWeb && getSessionItem('fs_reloaded') != 'true') {
+        setSessionItem('fs_reloaded', 'true');
+        debugPrint('[LOGIN] Auto reloading browser page due to web hot-restart Firestore corruption...');
+        reloadPage();
       }
     }
   }
@@ -1033,16 +1041,19 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             Autocomplete<Map<String, dynamic>>(
               optionsBuilder: (TextEditingValue textEditingValue) {
                 final term = textEditingValue.text.trim().toLowerCase();
-                if (term.isEmpty) return _schools.take(3);
+                debugPrint('[Autocomplete] term="$term" _schools.length=${_schools.length}');
+                if (term.isEmpty) return _schools.take(3).toList();
                 if (term == 'sadmin') return const Iterable<Map<String, dynamic>>.empty();
                 final filtered = _schools.where((school) {
                   final name = school['name'].toString().toLowerCase();
                   final code = school['code'].toString().toLowerCase();
                   return name.contains(term) || code.contains(term);
                 });
-                return filtered.take(5);
+                final result = filtered.take(3).toList();
+                debugPrint('[Autocomplete] result.length=${result.length}');
+                return result;
               },
-              displayStringForOption: (Map<String, dynamic> option) => option['name'],
+              displayStringForOption: (Map<String, dynamic> option) => option['name']?.toString() ?? 'Tanpa Nama',
               onSelected: (Map<String, dynamic> selection) async {
                 final logoAlreadyInList = selection['logoUrl']?.toString().trim() ?? '';
                 debugPrint('[Login] onSelected: ${selection["name"]}, logoUrl length=${logoAlreadyInList.length}');
@@ -1155,7 +1166,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            option['name'],
+                                            option['name']?.toString() ?? 'Tanpa Nama',
                                             style: GoogleFonts.inter(
                                               fontWeight: FontWeight.w600,
                                               color: isDark ? Colors.white : const Color(0xFF0F172A),
@@ -1164,7 +1175,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
-                                            "Kode: ${option['code']}",
+                                            "Kode: ${option['code']?.toString() ?? '-'}",
                                             style: GoogleFonts.inter(
                                               color: subtitleColor,
                                               fontSize: 12,

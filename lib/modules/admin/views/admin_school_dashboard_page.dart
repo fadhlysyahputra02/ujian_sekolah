@@ -21,9 +21,7 @@ import '../widgets/import_students_dialog.dart';
 import '../widgets/import_teachers_dialog.dart';
 import '../widgets/generate_password_dialog.dart';
 import '../widgets/class_form_dialog.dart';
-import 'class_detail_screen.dart';
 import 'event_list_screen.dart';
-import 'rekap_nilai_view.dart';
 
 class AdminSchoolDashboardPage extends StatefulWidget {
   final String? tabName;
@@ -59,8 +57,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         case 'mapel': _currentTab = 3; break;
         case 'kelas': _currentTab = 4; break;
         case 'eventujian': _currentTab = 5; break;
-        case 'rekapnilai': _currentTab = 6; break;
-        case 'pengaturan': _currentTab = 7; break;
+        case 'pengaturan': _currentTab = 6; break;
         default: _currentTab = 0;
       }
     });
@@ -75,8 +72,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       case 3: path = 'mapel'; break;
       case 4: path = 'kelas'; break;
       case 5: path = 'eventujian'; break;
-      case 6: path = 'rekapnilai'; break;
-      case 7: path = 'pengaturan'; break;
+      case 6: path = 'pengaturan'; break;
       default: path = 'ringkasan';
     }
     context.go('/admin/$path');
@@ -1140,7 +1136,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       const BottomNavigationBarItem(icon: Icon(Icons.book_outlined), activeIcon: Icon(Icons.book_rounded), label: 'Mapel'),
       const BottomNavigationBarItem(icon: Icon(Icons.class_outlined), activeIcon: Icon(Icons.class_rounded), label: 'Kelas'),
       const BottomNavigationBarItem(icon: Icon(Icons.event_note_outlined), activeIcon: Icon(Icons.event_note_rounded), label: 'Ujian'),
-      const BottomNavigationBarItem(icon: Icon(Icons.assessment_outlined), activeIcon: Icon(Icons.assessment_rounded), label: 'Rekap Nilai'),
       const BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings_rounded), label: 'Pengaturan'),
     ];
 
@@ -1222,9 +1217,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             const SizedBox(height: 8),
                             _buildSidebarItem(5, Icons.event_note_outlined, Icons.event_note_rounded, 'Event Ujian', size.width > 1150),
                             const SizedBox(height: 8),
-                            _buildSidebarItem(6, Icons.assessment_outlined, Icons.assessment_rounded, 'Rekap Nilai', size.width > 1150),
-                            const SizedBox(height: 8),
-                            _buildSidebarItem(7, Icons.settings_outlined, Icons.settings_rounded, 'Pengaturan', size.width > 1150),
+                            _buildSidebarItem(6, Icons.settings_outlined, Icons.settings_rounded, 'Pengaturan', size.width > 1150),
                           ],
                         ),
                       ),
@@ -1460,8 +1453,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       case 5:
         return EventListScreen(schoolId: schoolId);
       case 6:
-        return RekapNilaiView(schoolId: schoolId, isTeacher: false);
-      case 7:
         return _buildSettingsTab(authService, schoolId);
       default:
         return const Center(child: Text('Konten Tidak Ditemukan'));

@@ -14,6 +14,9 @@ import '../constants/app_version.dart';
 import '../widgets/app_splash_loader.dart';
 import '../../modules/admin/views/admin_full_schedule_page.dart';
 import '../../modules/admin/views/class_detail_screen.dart';
+import '../../modules/admin/views/rekap_mapel_list_view.dart';
+import '../../modules/admin/views/rekap_class_list_view.dart';
+import '../../modules/admin/views/rekap_student_grades_view.dart';
 
 class AppRouter {
   static GoRouter createRouter(AuthService authService) {
@@ -110,6 +113,57 @@ class AppRouter {
               schoolId: schoolId,
               eventId: eventId,
               eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/rekap',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['eventName'] ?? 'Event Ujian';
+            final schoolId = authService.schoolId ?? '';
+            return RekapMapelListView(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/rekap/:subjectId',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final subjectId = state.pathParameters['subjectId']!;
+            final eventName = state.uri.queryParameters['eventName'] ?? 'Event Ujian';
+            final subjectName = state.uri.queryParameters['subjectName'] ?? 'Mata Pelajaran';
+            final schoolId = authService.schoolId ?? '';
+            return RekapClassListView(
+              schoolId: schoolId,
+              eventId: eventId,
+              subjectId: subjectId,
+              eventName: eventName,
+              subjectName: subjectName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/rekap/:subjectId/class/:classId',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final subjectId = state.pathParameters['subjectId']!;
+            final classId = state.pathParameters['classId']!;
+            final eventName = state.uri.queryParameters['eventName'] ?? 'Event Ujian';
+            final subjectName = state.uri.queryParameters['subjectName'] ?? 'Mata Pelajaran';
+            final className = state.uri.queryParameters['className'] ?? 'Kelas';
+            final schoolId = authService.schoolId ?? '';
+            return RekapStudentGradesView(
+              schoolId: schoolId,
+              eventId: eventId,
+              subjectId: subjectId,
+              classId: classId,
+              eventName: eventName,
+              subjectName: subjectName,
+              className: className,
             );
           },
         ),

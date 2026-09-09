@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/network_service.dart';
 import 'core/widgets/global_network_status_overlay.dart';
@@ -31,6 +33,13 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    if (kIsWeb) {
+      // Disable offline persistence on Web to avoid IndexedDB cache corruption.
+      // Terminating here would cause 'client already terminated' on first use.
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: false,
+      );
+    }
   } catch (e) {
     debugPrint("Firebase initialization failed: $e");
   }
