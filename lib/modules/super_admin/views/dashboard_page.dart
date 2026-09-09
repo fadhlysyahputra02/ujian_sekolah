@@ -23,12 +23,17 @@ class _DashboardPageState extends State<DashboardPage>
   int _selectedIndex = 0;
   final SchoolService _schoolService = SchoolService();
 
+  // SchoolListPage is kept alive as a late final field so it is never rebuilt
+  // when the dashboard re-renders. This preserves the Firestore stream.
+  late final Widget _schoolListPage;
+
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnim;
 
   @override
   void initState() {
     super.initState();
+    _schoolListPage = const SchoolListPage();
     _updateTabFromWidget();
     _fadeController = AnimationController(
       vsync: this,
@@ -110,11 +115,10 @@ class _DashboardPageState extends State<DashboardPage>
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 800;
 
-    final pages = [
-      _buildOverviewContent(),
-      const SchoolListPage(),
-      _buildSettingsContent(authService),
-    ];
+    // Overview and Settings are lightweight and can rebuild each time.
+    // SchoolListPage is kept alive via _schoolListPage (late final field in initState).
+    final settingsWidget = _buildSettingsContent(authService);
+    final overviewWidget = _buildOverviewContent();
 
     final backgroundGradient = const BoxDecoration(
       gradient: LinearGradient(
@@ -128,6 +132,16 @@ class _DashboardPageState extends State<DashboardPage>
       ),
     );
 
+    // Use IndexedStack to keep all pages alive (preserves Firestore streams)
+    final pageStack = IndexedStack(
+      index: _selectedIndex,
+      children: [
+        overviewWidget,
+        _schoolListPage,
+        settingsWidget,
+      ],
+    );
+
     if (isDesktop) {
       return Scaffold(
         body: Row(
@@ -136,10 +150,7 @@ class _DashboardPageState extends State<DashboardPage>
             Expanded(
               child: Container(
                 decoration: backgroundGradient,
-                child: FadeTransition(
-                  opacity: _fadeAnim,
-                  child: pages[_selectedIndex],
-                ),
+                child: pageStack,
               ),
             ),
           ],
@@ -153,10 +164,7 @@ class _DashboardPageState extends State<DashboardPage>
       drawer: _buildDrawer(authService),
       body: Container(
         decoration: backgroundGradient,
-        child: FadeTransition(
-          opacity: _fadeAnim,
-          child: pages[_selectedIndex],
-        ),
+        child: pageStack,
       ),
       bottomNavigationBar: _buildBottomNav(),
     );

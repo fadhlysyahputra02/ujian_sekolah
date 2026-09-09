@@ -12,8 +12,19 @@ class SchoolListPage extends StatefulWidget {
 }
 
 class _SchoolListPageState extends State<SchoolListPage> {
-  final SchoolService _schoolService = SchoolService();
+  final _firestore = FirebaseFirestore.instance;
+  final _schoolService = SchoolService();
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _schoolsStream;
   String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Cache stream so it is NOT recreated on every build() call.
+    // Creating a new stream in build() causes it to reset on every rebuild,
+    // which is why data never appears in debug mode.
+    _schoolsStream = _firestore.collection('schools').snapshots();
+  }
 
   Future<void> _toggleSchoolStatus(String schoolId, bool currentDisabled) async {
     try {
@@ -301,11 +312,14 @@ class _SchoolListPageState extends State<SchoolListPage> {
   }
 
   String _getInitials(String name) {
-    final parts = name.trim().split(' ');
-    if (parts.length >= 2) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
-    return name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
+    if (parts.isNotEmpty && parts[0].isNotEmpty) {
+      return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
+    }
+    return 'S';
   }
 
   @override
@@ -402,19 +416,24 @@ class _SchoolListPageState extends State<SchoolListPage> {
           // Body
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _schoolService.getSchoolsStream(),
+              stream: _schoolsStream,
               builder: (context, snapshot) {
+                // Show any error prominently
                 if (snapshot.hasError) {
-                  return _buildErrorState(snapshot.error.toString());
+                  return _buildErrorState('Error: ${snapshot.error}\n\nStack: ${snapshot.stackTrace}');
                 }
-                if (snapshot.connectionState == ConnectionState.waiting) {
+
+                // Still connecting
+                if (snapshot.connectionState == ConnectionState.waiting ||
+                    snapshot.connectionState == ConnectionState.none) {
                   return _buildLoadingState();
                 }
 
-                var schools = snapshot.data?.docs ?? [];
+                // Got data (even if empty)
+                final allDocs = snapshot.data?.docs ?? [];
 
-                // Apply search and deleted filters
-                schools = schools.where((s) {
+                // Filter out deleted, apply search
+                var schools = allDocs.where((s) {
                   final data = s.data();
                   if (data['deleted'] == true) return false;
                   if (_searchQuery.isNotEmpty) {
@@ -425,27 +444,23 @@ class _SchoolListPageState extends State<SchoolListPage> {
                   return true;
                 }).toList();
 
-                int getMillis(dynamic ts) {
-                  if (ts == null) return 0;
-                  if (ts is Timestamp) return ts.millisecondsSinceEpoch;
-                  if (ts is DateTime) return ts.millisecondsSinceEpoch;
-                  if (ts is int) return ts;
-                  if (ts is String) return DateTime.tryParse(ts)?.millisecondsSinceEpoch ?? 0;
-                  try {
-                    return (ts.millisecondsSinceEpoch as int?) ?? 0;
-                  } catch (_) {
+                // Sort newest first
+                schools.sort((a, b) {
+                  final aTs = a.data()['createdAt'];
+                  final bTs = b.data()['createdAt'];
+                  int toMs(dynamic ts) {
+                    if (ts is Timestamp) return ts.millisecondsSinceEpoch;
                     return 0;
                   }
-                }
-
-                // Sort client-side: newest first
-                schools.sort((a, b) {
-                  final aMillis = getMillis(a.data()['createdAt']);
-                  final bMillis = getMillis(b.data()['createdAt']);
-                  return bMillis.compareTo(aMillis);
+                  return toMs(bTs).compareTo(toMs(aTs));
                 });
 
                 if (schools.isEmpty && _searchQuery.isEmpty) {
+                  // Show raw count info to help diagnose
+                  if (allDocs.isEmpty) {
+                    return _buildEmptyState();
+                  }
+                  // All docs filtered out (all deleted)
                   return _buildEmptyState();
                 }
                 if (schools.isEmpty) {
@@ -457,6 +472,7 @@ class _SchoolListPageState extends State<SchoolListPage> {
                     : _buildMobileView(schools);
               },
             ),
+
           ),
         ],
       ),
@@ -469,27 +485,36 @@ class _SchoolListPageState extends State<SchoolListPage> {
   Widget _buildDesktopView(List<QueryDocumentSnapshot<Map<String, dynamic>>> schools) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Give the table a concrete bounded width so that Expanded
+          // children inside Row headers/rows work correctly.
+          // Without this, ConstrainedBox(minWidth) inside a horizontal
+          // SingleChildScrollView gives the Column an *unbounded* max
+          // width, causing all Expanded columns to collapse.
+          final tableWidth = constraints.maxWidth.isFinite
+              ? constraints.maxWidth
+              : (MediaQuery.of(context).size.width > 1100
+                  ? MediaQuery.of(context).size.width - 280
+                  : 1000.0);
+
+          return Container(
+            width: tableWidth,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: MediaQuery.of(context).size.width > 1100 ? MediaQuery.of(context).size.width - 280 : 1000,
-            ),
+            clipBehavior: Clip.antiAlias,
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Table header
                 Container(
@@ -576,25 +601,27 @@ class _SchoolListPageState extends State<SchoolListPage> {
                             ],
                           ),
                         ),
-                        // Code badge (widened flex: 2)
+                        // Code badge
                         Expanded(
                           flex: 2,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Text(
-                              data['code'] ?? '-',
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12,
-                                color: const Color(0xFF334155),
-                                letterSpacing: 0.5,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
                               ),
-                              overflow: TextOverflow.ellipsis,
+                              child: Text(
+                                data['code'] ?? '-',
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                  color: const Color(0xFF334155),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -639,7 +666,9 @@ class _SchoolListPageState extends State<SchoolListPage> {
                                 style: GoogleFonts.inter(
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w600,
-                                  color: teacherCount >= maxTeacherQuota ? const Color(0xFFDC2626) : const Color(0xFF475569),
+                                  color: teacherCount >= maxTeacherQuota
+                                      ? const Color(0xFFDC2626)
+                                      : const Color(0xFF475569),
                                 ),
                               ),
                               const SizedBox(height: 2),
@@ -648,7 +677,9 @@ class _SchoolListPageState extends State<SchoolListPage> {
                                 style: GoogleFonts.inter(
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w600,
-                                  color: studentCount >= maxStudentQuota ? const Color(0xFFDC2626) : const Color(0xFF475569),
+                                  color: studentCount >= maxStudentQuota
+                                      ? const Color(0xFFDC2626)
+                                      : const Color(0xFF475569),
                                 ),
                               ),
                             ],
@@ -669,17 +700,21 @@ class _SchoolListPageState extends State<SchoolListPage> {
                                 onChanged: (_) => _toggleSchoolStatus(doc.id, disabled),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.tune_rounded, color: Color(0xFF4F46E5), size: 20),
+                                icon: const Icon(Icons.tune_rounded,
+                                    color: Color(0xFF4F46E5), size: 20),
                                 tooltip: 'Atur Kuota Sekolah',
-                                onPressed: () => _showEditQuotaDialog(doc.id, name, maxStudentQuota, maxTeacherQuota),
+                                onPressed: () => _showEditQuotaDialog(
+                                    doc.id, name, maxStudentQuota, maxTeacherQuota),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 20),
+                                icon: const Icon(Icons.key_rounded,
+                                    color: Color(0xFFD97706), size: 20),
                                 tooltip: 'Reset Password Admin',
                                 onPressed: () => _showResetPasswordDialog(doc.id, name),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                                icon: const Icon(Icons.delete_outline_rounded,
+                                    color: Color(0xFFDC2626), size: 20),
                                 tooltip: 'Hapus Sekolah',
                                 onPressed: () => _deleteSchool(doc.id, name),
                               ),
@@ -692,8 +727,8 @@ class _SchoolListPageState extends State<SchoolListPage> {
                 }),
               ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
