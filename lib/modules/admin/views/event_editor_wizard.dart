@@ -218,12 +218,17 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
   }
 
   /// Assigns a target count of students from a class to a room, updating studentIds automatically
-  void _assignClassStudentsToRoom({
+  Future<void> _assignClassStudentsToRoom({
+    required Map<String, dynamic> cls,
     required String roomId,
-    required String classId,
-    required String className,
     required int targetCount,
-  }) {
+  }) async {
+    final classId = (cls['id'] ?? '').toString();
+    final className = (cls['name'] ?? cls['className'] ?? '').toString().trim();
+
+    // Ensure students are loaded into memory cache for this class
+    await _loadStudentsForClass(cls);
+
     _roomAssignments.putIfAbsent(roomId, () => []);
     final list = _roomAssignments[roomId]!;
     final idx = list.indexWhere((a) => a['classId'] == classId || a['className'] == className);
@@ -366,18 +371,23 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             final int currentSelectedCount = selectedStudentIds.length;
             final int remainingRoomCapacity = (roomCapacity - totalOtherClassesInRoom - currentSelectedCount).clamp(0, roomCapacity);
 
+            final double screenWidth = MediaQuery.of(context).size.width;
+            final double screenHeight = MediaQuery.of(context).size.height;
+            final bool isMobile = screenWidth < 600;
+
             return Dialog(
+              insetPadding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24, vertical: isMobile ? 16 : 24),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               clipBehavior: Clip.antiAlias,
               child: Container(
-                width: 580,
-                constraints: const BoxConstraints(maxHeight: 700),
+                width: isMobile ? double.infinity : 580,
+                constraints: BoxConstraints(maxHeight: screenHeight * 0.85),
                 color: Colors.white,
                 child: Column(
                   children: [
                     // Header
                     Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: EdgeInsets.all(isMobile ? 14 : 20),
                       decoration: const BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF4F46E5), Color(0xFF3730A3)],
@@ -398,7 +408,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                       style: GoogleFonts.plusJakartaSans(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 18,
+                                        fontSize: isMobile ? 16 : 18,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
@@ -406,7 +416,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                       'Alokasi ke Ruangan: "$roomName"',
                                       style: GoogleFonts.inter(
                                         color: const Color(0xFFC7D2FE),
-                                        fontSize: 13,
+                                        fontSize: isMobile ? 12 : 13,
                                       ),
                                     ),
                                   ],
@@ -418,8 +428,10 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 14),
-                          Row(
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
                             children: [
                               _buildWizardBadge(
                                 icon: Icons.people_rounded,
@@ -427,10 +439,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                 color: const Color(0xFFEEF2FF),
                                 textColor: const Color(0xFF3730A3),
                               ),
-                              const SizedBox(width: 8),
                               _buildWizardBadge(
                                 icon: Icons.event_seat_rounded,
-                                label: 'Sisa Kursi Ruang: $remainingRoomCapacity',
+                                label: 'Sisa Kursi: $remainingRoomCapacity',
                                 color: remainingRoomCapacity > 0 ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
                                 textColor: remainingRoomCapacity > 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
                               ),
@@ -442,7 +453,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
                     // Search & Controls Row
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      padding: EdgeInsets.fromLTRB(isMobile ? 12 : 16, 12, isMobile ? 12 : 16, 6),
                       child: Column(
                         children: [
                           TextField(
@@ -464,8 +475,10 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          Row(
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
                             children: [
                               OutlinedButton.icon(
                                 onPressed: () {
@@ -473,30 +486,34 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                     int availableSlots = roomAvailableSeatsForThisClass;
                                     selectedStudentIds.clear();
                                     for (var s in allClassStudents) {
-                                      if (selectedStudentIds.length < availableSlots) {
-                                        selectedStudentIds.add(s['studentId'].toString());
+                                      final sId = s['studentId'].toString();
+                                      final assignedRoomId = studentRoomIdMap[sId];
+                                      final isOther = assignedRoomId != null && assignedRoomId != selectedRoomId;
+                                      if (!isOther && selectedStudentIds.length < availableSlots) {
+                                        selectedStudentIds.add(sId);
                                       }
                                     }
                                   });
                                 },
-                                icon: const Icon(Icons.select_all_rounded, size: 16),
-                                label: const Text('Pilih Semua Sisa'),
+                                icon: const Icon(Icons.select_all_rounded, size: 15),
+                                label: const Text('Pilih Semua Sisa', style: TextStyle(fontSize: 12)),
                                 style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   visualDensity: VisualDensity.compact,
                                   foregroundColor: const Color(0xFF4F46E5),
                                   side: const BorderSide(color: Color(0xFFC7D2FE)),
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               OutlinedButton.icon(
                                 onPressed: () {
                                   setDialogState(() {
                                     selectedStudentIds.clear();
                                   });
                                 },
-                                icon: const Icon(Icons.deselect_rounded, size: 16),
-                                label: const Text('Kosongkan'),
+                                icon: const Icon(Icons.deselect_rounded, size: 15),
+                                label: const Text('Kosongkan', style: TextStyle(fontSize: 12)),
                                 style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   visualDensity: VisualDensity.compact,
                                   foregroundColor: const Color(0xFFEF4444),
                                   side: const BorderSide(color: Color(0xFFFCA5A5)),
@@ -528,10 +545,23 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                 final sNis = s['nis'].toString();
                                 final sGender = s['gender'].toString();
                                 final isSelected = selectedStudentIds.contains(sId);
-                                final otherAssignedRoom = studentRoomMap[sId];
+                                final assignedRoomId = studentRoomIdMap[sId];
+                                final otherAssignedRoom = (assignedRoomId != null && assignedRoomId != selectedRoomId) ? studentRoomMap[sId] : null;
+                                final bool isAssignedOther = otherAssignedRoom != null && otherAssignedRoom.isNotEmpty;
 
                                 return InkWell(
                                   onTap: () {
+                                    if (isAssignedOther) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Murid "$sName" sudah dialokasikan di "$otherAssignedRoom". Harap lepas dari "$otherAssignedRoom" terlebih dahulu.'),
+                                          backgroundColor: Colors.orange.shade800,
+                                          duration: const Duration(seconds: 3),
+                                        ),
+                                      );
+                                      return;
+                                    }
+
                                     setDialogState(() {
                                       if (isSelected) {
                                         selectedStudentIds.remove(sId);
@@ -554,10 +584,10 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                     decoration: BoxDecoration(
-                                      color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+                                      color: isAssignedOther ? const Color(0xFFFFFBEB) : (isSelected ? const Color(0xFFEEF2FF) : Colors.white),
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
-                                        color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0),
+                                        color: isAssignedOther ? const Color(0xFFFDE68A) : (isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0)),
                                         width: isSelected ? 1.5 : 1,
                                       ),
                                     ),
@@ -567,25 +597,27 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                           value: isSelected,
                                           activeColor: const Color(0xFF4F46E5),
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                                          onChanged: (val) {
-                                            setDialogState(() {
-                                              if (val == true) {
-                                                if (selectedStudentIds.length >= roomAvailableSeatsForThisClass) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text('Kapasitas ruangan "$roomName" sudah penuh ($roomCapacity kursi)!'),
-                                                      backgroundColor: Colors.red,
-                                                      duration: const Duration(seconds: 2),
-                                                    ),
-                                                  );
-                                                  return;
-                                                }
-                                                selectedStudentIds.add(sId);
-                                              } else {
-                                                selectedStudentIds.remove(sId);
-                                              }
-                                            });
-                                          },
+                                          onChanged: isAssignedOther
+                                              ? null
+                                              : (val) {
+                                                  setDialogState(() {
+                                                    if (val == true) {
+                                                      if (selectedStudentIds.length >= roomAvailableSeatsForThisClass) {
+                                                        ScaffoldMessenger.of(context).showSnackBar(
+                                                          SnackBar(
+                                                            content: Text('Kapasitas ruangan "$roomName" sudah penuh ($roomCapacity kursi)!'),
+                                                            backgroundColor: Colors.red,
+                                                            duration: const Duration(seconds: 2),
+                                                          ),
+                                                        );
+                                                        return;
+                                                      }
+                                                      selectedStudentIds.add(sId);
+                                                    } else {
+                                                      selectedStudentIds.remove(sId);
+                                                    }
+                                                  });
+                                                },
                                         ),
                                         const SizedBox(width: 6),
                                         CircleAvatar(
@@ -600,7 +632,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                             ),
                                           ),
                                         ),
-                                        const SizedBox(width: 12),
+                                        const SizedBox(width: 8),
                                         Expanded(
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -609,24 +641,29 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                                 sName,
                                                 style: GoogleFonts.inter(
                                                   fontWeight: FontWeight.bold,
-                                                  fontSize: 13.5,
+                                                  fontSize: isMobile ? 12.5 : 13.5,
                                                   color: const Color(0xFF0F172A),
                                                 ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
-                                                'NIS: ${sNis.isNotEmpty ? sNis : "-"}   •   Gender: $sGender',
+                                                'NIS: ${sNis.isNotEmpty ? sNis : "-"}   •   $sGender',
                                                 style: GoogleFonts.inter(
-                                                  fontSize: 11,
+                                                  fontSize: 10.5,
                                                   color: const Color(0xFF64748B),
                                                 ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ],
                                           ),
                                         ),
+                                        const SizedBox(width: 6),
                                         if (isSelected)
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                             decoration: BoxDecoration(
                                               color: const Color(0xFFD1FAE5),
                                               borderRadius: BorderRadius.circular(6),
@@ -634,7 +671,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                             child: Text(
                                               'Di $roomName',
                                               style: GoogleFonts.inter(
-                                                fontSize: 10,
+                                                fontSize: 9.5,
                                                 fontWeight: FontWeight.bold,
                                                 color: const Color(0xFF047857),
                                               ),
@@ -642,7 +679,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                           )
                                         else if (otherAssignedRoom != null && otherAssignedRoom.isNotEmpty)
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                             decoration: BoxDecoration(
                                               color: const Color(0xFFFEF3C7),
                                               borderRadius: BorderRadius.circular(6),
@@ -650,7 +687,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                             child: Text(
                                               'Di $otherAssignedRoom',
                                               style: GoogleFonts.inter(
-                                                fontSize: 10,
+                                                fontSize: 9.5,
                                                 fontWeight: FontWeight.bold,
                                                 color: const Color(0xFFD97706),
                                               ),
@@ -658,7 +695,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                           )
                                         else
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                             decoration: BoxDecoration(
                                               color: const Color(0xFFF1F5F9),
                                               borderRadius: BorderRadius.circular(6),
@@ -666,7 +703,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                                             child: Text(
                                               'Belum Dialokasikan',
                                               style: GoogleFonts.inter(
-                                                fontSize: 10,
+                                                fontSize: 9.5,
                                                 color: const Color(0xFF94A3B8),
                                               ),
                                             ),
@@ -681,7 +718,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
                     // Footer Buttons
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: 12),
                       decoration: const BoxDecoration(
                         color: Color(0xFFF8FAFC),
                         border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
@@ -693,10 +730,11 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                             onPressed: () => Navigator.of(dialogCtx).pop(),
                             child: const Text('Batal'),
                           ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              updateState(() {
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                setState(() {
                                 _roomAssignments.putIfAbsent(selectedRoomId, () => []);
                                 final list = _roomAssignments[selectedRoomId]!;
                                 final idx = list.indexWhere((a) => a['classId'] == cid);
@@ -746,27 +784,32 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
                               _autoSaveDraft();
                               Navigator.of(dialogCtx).pop();
                             },
-                            icon: const Icon(Icons.check_rounded, size: 18),
-                            label: Text('Simpan Alokasi (${selectedStudentIds.length} Murid)'),
+                            icon: const Icon(Icons.check_rounded, size: 16),
+                            label: Text(
+                              isMobile ? 'Simpan (${selectedStudentIds.length})' : 'Simpan Alokasi (${selectedStudentIds.length} Murid)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF4F46E5),
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 18, vertical: 10),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+          );
+        },
+      );
+    },
+  );
+}
 
   Widget _buildWizardBadge({
     required IconData icon,

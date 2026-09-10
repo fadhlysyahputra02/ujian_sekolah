@@ -2023,10 +2023,20 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
               final existing = existingIdx >= 0 ? self._roomAssignments[self._selectedRoomId]![existingIdx] : null;
 
               int allocElsewhere = 0;
+              String? otherRoomName;
               self._roomAssignments.forEach((roomId, list) {
                 if (roomId != self._selectedRoomId) {
                   final found = list.firstWhere((a) => a['classId'] == cid, orElse: () => {});
-                  if (found.isNotEmpty) allocElsewhere += (found['count'] as num).toInt();
+                  if (found.isNotEmpty) {
+                    final cnt = (found['count'] as num).toInt();
+                    allocElsewhere += cnt;
+                    if (cnt > 0 && otherRoomName == null) {
+                      final rm = self._rooms.firstWhere((r) => r['id'] == roomId, orElse: () => {});
+                      if (rm.isNotEmpty) {
+                        otherRoomName = rm['name'] as String?;
+                      }
+                    }
+                  }
                 }
               });
 
@@ -2036,17 +2046,42 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
               final bool isExhaustedElsewhere = maxAvailable == 0 && currentAssigned == 0;
 
               return Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isExhaustedElsewhere ? const Color(0xFFF1F5F9) : (remaining == 0 && maxAvailable > 0 ? const Color(0xFFF0FDF4) : Colors.white),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: isExhaustedElsewhere ? const Color(0xFFE2E8F0) : (remaining == 0 && maxAvailable > 0 ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0))),
+                  color: isExhaustedElsewhere ? const Color(0xFFF8FAFC) : (remaining == 0 && maxAvailable > 0 ? const Color(0xFFF0FDF4) : Colors.white),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: currentAssigned > 0 ? const Color(0xFF818CF8) : (isExhaustedElsewhere ? const Color(0xFFE2E8F0) : const Color(0xFFCBD5E1)),
+                    width: currentAssigned > 0 ? 1.5 : 1.0,
+                  ),
+                  boxShadow: [
+                    if (currentAssigned > 0)
+                      BoxShadow(
+                        color: const Color(0xFF818CF8).withValues(alpha: 0.08),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     InkWell(
-                      onTap: () => self._showClassStudentSelectionDialog(context, cls, selectedRoom),
+                      onTap: () {
+                        if (isExhaustedElsewhere) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Seluruh murid $cname sudah dialokasikan di ${otherRoomName != null ? '"$otherRoomName"' : 'ruangan lain'}. Harap lepas murid dari ${otherRoomName != null ? '"$otherRoomName"' : 'ruangan tersebut'} terlebih dahulu.',
+                              ),
+                              backgroundColor: Colors.orange.shade800,
+                              duration: const Duration(seconds: 4),
+                            ),
+                          );
+                          return;
+                        }
+                        self._showClassStudentSelectionDialog(context, cls, selectedRoom);
+                      },
                       borderRadius: BorderRadius.circular(6),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 2.0),
@@ -2056,194 +2091,282 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(cname, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF1E293B))),
-                                const SizedBox(width: 4),
-                                const Icon(Icons.touch_app_rounded, size: 13, color: Color(0xFF4F46E5)),
+                                Text(
+                                  cname,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                if (currentAssigned > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF4F46E5).withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '$currentAssigned Dialokasikan',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF4F46E5),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
-                            Text('Sisa: $remaining / $totalStudents', style: TextStyle(fontSize: 10, color: isExhaustedElsewhere ? const Color(0xFF94A3B8) : const Color(0xFF64748B))),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              icon: Icon(Icons.remove_circle_outline, color: currentAssigned > 0 ? const Color(0xFFEF4444) : const Color(0xFFCBD5E1), size: 24),
-                              onPressed: currentAssigned > 0
-                                  ? () {
-                                      self.updateState(() {
-                                        self._assignClassStudentsToRoom(
-                                          roomId: self._selectedRoomId!,
-                                          classId: cid,
-                                          className: cname,
-                                          targetCount: currentAssigned - 1,
-                                        );
-                                      });
-                                      self._autoSaveDraft();
-                                    }
-                                  : null,
-                            ),
-                            const SizedBox(width: 6),
-                            InkWell(
-                              onTap: () => self._showClassStudentSelectionDialog(context, cls, selectedRoom),
-                              borderRadius: BorderRadius.circular(6),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            if (isExhaustedElsewhere)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: currentAssigned > 0 ? const Color(0xFFEEF2FF) : const Color(0xFFF8FAFC),
+                                  color: const Color(0xFFFEF3C7),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(
-                                    color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFFCBD5E1),
-                                  ),
+                                  border: Border.all(color: const Color(0xFFFDE68A)),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    const Icon(Icons.lock_outline_rounded, size: 11, color: Color(0xFFD97706)),
+                                    const SizedBox(width: 3),
                                     Text(
-                                      '$currentAssigned Murid',
-                                      style: TextStyle(
-                                        fontSize: 11.5,
+                                      otherRoomName != null ? 'Penuh di "$otherRoomName"' : 'Penuh di Ruangan Lain',
+                                      style: const TextStyle(
+                                        fontSize: 10.5,
                                         fontWeight: FontWeight.bold,
-                                        color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                                        color: Color(0xFFD97706),
                                       ),
                                     ),
-                                    const SizedBox(width: 4),
-                                    const Icon(Icons.list_alt_rounded, size: 13, color: Color(0xFF4F46E5)),
                                   ],
                                 ),
+                              )
+                            else
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  'Sisa: $remaining / $totalStudents',
+                                  style: const TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 6),
-                            IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              icon: Icon(Icons.add_circle_outline, color: remaining > 0 ? const Color(0xFF10B981) : const Color(0xFFCBD5E1), size: 24),
-                              onPressed: remaining > 0
-                                  ? () {
-                                      if (roomAvailableSeats <= 0) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Ruangan "${selectedRoom['name']}" sudah penuh ($currentTotalInRoom/$roomCapacity kursi terisi)!'),
-                                            backgroundColor: Colors.red,
-                                            duration: const Duration(seconds: 2),
-                                          ),
-                                        );
-                                        return;
-                                      }
-                                      self.updateState(() {
-                                        self._assignClassStudentsToRoom(
-                                          roomId: self._selectedRoomId!,
-                                          classId: cid,
-                                          className: cname,
-                                          targetCount: currentAssigned + 1,
-                                        );
-                                      });
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                    const SizedBox(height: 10),
+                    // Stepper Bar: [-] X Murid Terpilih [+] (Full card width)
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Material(
+                            color: Colors.transparent,
+                            child: IconButton(
+                              padding: const EdgeInsets.all(6),
+                              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                              icon: Icon(
+                                Icons.remove_circle,
+                                color: currentAssigned > 0 ? const Color(0xFFEF4444) : const Color(0xFFCBD5E1),
+                                size: 24,
+                              ),
+                              onPressed: currentAssigned > 0
+                                  ? () async {
+                                      await self._assignClassStudentsToRoom(
+                                        cls: cls,
+                                        roomId: self._selectedRoomId!,
+                                        targetCount: currentAssigned - 1,
+                                      );
+                                      self.updateState(() {});
                                       self._autoSaveDraft();
                                     }
                                   : null,
                             ),
-                          ],
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () => self._showClassStudentSelectionDialog(context, cls, selectedRoom),
-                              icon: const Icon(Icons.people_alt_rounded, size: 13, color: Color(0xFF4F46E5)),
-                              label: const Text('Pilih Murid', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5))),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                visualDensity: VisualDensity.compact,
-                                side: const BorderSide(color: Color(0xFFC7D2FE)),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () {
+                                if (isExhaustedElsewhere) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Seluruh murid $cname sudah dialokasikan di ${otherRoomName != null ? '"$otherRoomName"' : 'ruangan lain'}. Harap lepas murid dari ${otherRoomName != null ? '"$otherRoomName"' : 'ruangan tersebut'} terlebih dahulu.',
+                                      ),
+                                      backgroundColor: Colors.orange.shade800,
+                                      duration: const Duration(seconds: 4),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                self._showClassStudentSelectionDialog(context, cls, selectedRoom);
+                              },
+                              borderRadius: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      '$currentAssigned Murid Terpilih',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: currentAssigned > 0 ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.touch_app_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                  ],
+                                ),
                               ),
                             ),
-                            if (currentAssigned > 0) ...[
-                              const SizedBox(width: 6),
-                              ElevatedButton.icon(
-                                icon: const Icon(Icons.remove_done_rounded, size: 13),
-                                label: const Text('Lepas Semua', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFEF2F2),
-                                  foregroundColor: const Color(0xFFDC2626),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                  minimumSize: const Size(0, 0),
-                                  side: const BorderSide(color: Color(0xFFFCA5A5)),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                ),
-                                onPressed: () {
-                                  self.updateState(() {
-                                    self._assignClassStudentsToRoom(
-                                      roomId: self._selectedRoomId!,
-                                      classId: cid,
-                                      className: cname,
-                                      targetCount: 0,
-                                    );
-                                  });
-                                  self._autoSaveDraft();
-                                },
+                          ),
+                          Material(
+                            color: Colors.transparent,
+                            child: IconButton(
+                              padding: const EdgeInsets.all(6),
+                              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                              icon: Icon(
+                                Icons.add_circle,
+                                color: (remaining > 0 && roomAvailableSeats > 0) ? const Color(0xFF10B981) : const Color(0xFFCBD5E1),
+                                size: 24,
                               ),
-                            ],
-                            if (remaining > 0) ...[
-                              if (currentAssigned > 0) const SizedBox(width: 6),
-                              ElevatedButton.icon(
-                                icon: const Icon(Icons.done_all_rounded, size: 13),
-                                label: const Text('Pilih Semua', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF4F46E5),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                  minimumSize: const Size(0, 0),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                ),
-                                onPressed: () {
-                                  if (roomAvailableSeats <= 0) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Ruangan "${selectedRoom['name']}" sudah penuh ($currentTotalInRoom/$roomCapacity kursi terisi)!'),
-                                        backgroundColor: Colors.red,
-                                        duration: const Duration(seconds: 2),
-                                      ),
-                                    );
-                                    return;
-                                  }
+                              onPressed: (remaining > 0 && roomAvailableSeats > 0)
+                                  ? () async {
+                                      await self._assignClassStudentsToRoom(
+                                        cls: cls,
+                                        roomId: self._selectedRoomId!,
+                                        targetCount: currentAssigned + 1,
+                                      );
+                                      self.updateState(() {});
+                                      self._autoSaveDraft();
+                                    }
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
 
-                                  final int addCount = remaining <= roomAvailableSeats ? remaining : roomAvailableSeats;
-                                  if (remaining > roomAvailableSeats) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Hanya $addCount murid dapat dimasukkan ke "${selectedRoom['name']}" karena sisa $roomAvailableSeats kursi.'),
-                                        backgroundColor: Colors.orange,
-                                        duration: const Duration(seconds: 3),
-                                      ),
-                                    );
-                                  }
-
-                                  self.updateState(() {
-                                    self._assignClassStudentsToRoom(
-                                      roomId: self._selectedRoomId!,
-                                      classId: cid,
-                                      className: cname,
-                                      targetCount: currentAssigned + addCount,
-                                    );
-                                  });
-                                  self._autoSaveDraft();
-                                },
-                              ),
-                            ],
-                          ],
+                    // Action Buttons Row: [Pilih Murid] [Pilih Semua] [Lepas Semua]
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              if (isExhaustedElsewhere) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Seluruh murid $cname sudah dialokasikan di ${otherRoomName != null ? '"$otherRoomName"' : 'ruangan lain'}. Harap lepas murid dari ${otherRoomName != null ? '"$otherRoomName"' : 'ruangan tersebut'} terlebih dahulu.',
+                                    ),
+                                    backgroundColor: Colors.orange.shade800,
+                                    duration: const Duration(seconds: 4),
+                                  ),
+                                );
+                                return;
+                              }
+                              self._showClassStudentSelectionDialog(context, cls, selectedRoom);
+                            },
+                            icon: const Icon(Icons.people_alt_rounded, size: 13, color: Color(0xFF4F46E5)),
+                            label: const Text('Pilih Murid', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                              visualDensity: VisualDensity.compact,
+                              side: const BorderSide(color: Color(0xFFC7D2FE)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
                         ),
+                        if (remaining > 0) ...[
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.done_all_rounded, size: 13),
+                              label: const Text('Pilih Semua', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF4F46E5),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () async {
+                                if (roomAvailableSeats <= 0) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Ruangan "${selectedRoom['name']}" sudah penuh ($currentTotalInRoom/$roomCapacity kursi terisi)!'),
+                                      backgroundColor: Colors.red,
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                final int addCount = remaining <= roomAvailableSeats ? remaining : roomAvailableSeats;
+                                if (remaining > roomAvailableSeats) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Hanya $addCount murid dapat dimasukkan ke "${selectedRoom['name']}" karena sisa $roomAvailableSeats kursi.'),
+                                      backgroundColor: Colors.orange,
+                                      duration: const Duration(seconds: 3),
+                                    ),
+                                  );
+                                }
+
+                                await self._assignClassStudentsToRoom(
+                                  cls: cls,
+                                  roomId: self._selectedRoomId!,
+                                  targetCount: currentAssigned + addCount,
+                                );
+                                self.updateState(() {});
+                                self._autoSaveDraft();
+                              },
+                            ),
+                          ),
+                        ],
+                        if (currentAssigned > 0) ...[
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.remove_done_rounded, size: 13),
+                              label: const Text('Lepas Semua', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFEF2F2),
+                                foregroundColor: const Color(0xFFDC2626),
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                                elevation: 0,
+                                side: const BorderSide(color: Color(0xFFFCA5A5)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () async {
+                                await self._assignClassStudentsToRoom(
+                                  cls: cls,
+                                  roomId: self._selectedRoomId!,
+                                  targetCount: 0,
+                                );
+                                self.updateState(() {});
+                                self._autoSaveDraft();
+                              },
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -2594,6 +2717,10 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
       builder: (context, teachersSnap) {
         final teachers = {for (var t in (teachersSnap.data ?? <Teacher>[])) t.id: t}.values.toList();
 
+        final totalSlots = days.length * self._sessions.length * self._rooms.length;
+        final assignedSlots = self._proctorGrid.values.where((v) => v.isNotEmpty).length;
+        final unassignedSlots = (totalSlots - assignedSlots).clamp(0, totalSlots);
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2602,7 +2729,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
               title: 'Penugasan Pengawas',
               subtitle: 'Atur guru pengawas untuk setiap ruangan di setiap sesi.',
               icon: Icons.supervisor_account_rounded,
-              iconColor: const Color(0xFF8B5CF6),
+              iconColor: const Color(0xFF6366F1),
               action: ElevatedButton(
                 onPressed: teachers.isEmpty || self._rooms.isEmpty || days.isEmpty
                     ? null
@@ -2616,7 +2743,7 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                             actions: [
                               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal', style: TextStyle(fontSize: 12))),
                               ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B5CF6), foregroundColor: Colors.white),
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1), foregroundColor: Colors.white),
                                 onPressed: () {
                                   Navigator.pop(ctx);
                                   self._autoGenerateProctors(teachers);
@@ -2628,24 +2755,52 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                         );
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8B5CF6),
+                  backgroundColor: const Color(0xFF6366F1),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   minimumSize: const Size(0, 36),
                   elevation: 2,
-                  shadowColor: const Color(0xFF8B5CF6).withValues(alpha: 0.4),
+                  shadowColor: const Color(0xFF6366F1).withValues(alpha: 0.4),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.shuffle_rounded, size: 15),
+                    const Icon(Icons.auto_awesome_rounded, size: 15),
                     const SizedBox(width: 6),
                     const Text('Generate Otomatis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.2)),
                   ],
                 ),
               ),
             ),
+
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE2E8F0))),
+              child: Row(
+                children: [
+                  Icon(
+                    unassignedSlots == 0 && totalSlots > 0 ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                    color: unassignedSlots == 0 && totalSlots > 0 ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      unassignedSlots == 0 && totalSlots > 0
+                          ? 'Semua ruangan sudah ditugaskan pengawas!'
+                          : 'Terpenuhi: $assignedSlots/$totalSlots ($unassignedSlots sisa).',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: unassignedSlots == 0 && totalSlots > 0 ? const Color(0xFF047857) : const Color(0xFF475569),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
 
             Expanded(
               child: days.isEmpty

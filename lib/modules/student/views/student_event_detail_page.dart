@@ -2587,60 +2587,49 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   }
 
   /// Determines if a timetable subject matches the student's religion
-  bool _isReligionSubjectMatching({
-    required String subjectName,
-    required String subjectReligion,
-    required String studentReligion,
-  }) {
-    final sNameLower = subjectName.toLowerCase();
-    final stReligionLower = studentReligion.toLowerCase();
+ static const Map<String, List<String>> _religionKeywords = {
+  'islam': ['islam', 'muslim', 'pai', 'paibp'],
+  'kristen': ['kristen', 'kristiani', 'protestan', 'protestant', 'christian', 'pakbp'],
+  'katolik': ['katolik', 'katholik', 'catholic', 'pkkp'],
+  'hindu': ['hindu', 'parisada'],
+  'buddha': ['buddha', 'budha', 'pabud'],
+  'konghucu': ['konghucu', 'khonghucu', 'pakhong'],
+};
 
-    // If explicit religion field is specified on subject/timetable doc
-    if (subjectReligion.isNotEmpty) {
-      return subjectReligion.toLowerCase() == stReligionLower;
-    }
+String _norm(String s) => s.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
-    // Check if subject title specifies a specific religion or contains religion terms
-    final religionKeywords = [
-      'agama', 'religion', 'religius', 'relig',
-      'islam', 'kristen', 'protestan', 'katolik', 'hindu', 'buddha', 'budha', 'konghucu', 'khonghucu',
-      'paibp', 'pakk', 'pabp', 'pake', 'pai'
-    ];
-    final isAgamaSubject = religionKeywords.any((kw) => sNameLower.contains(kw));
-    if (!isAgamaSubject) return true;
-
-    final religionsMap = {
-      'islam': ['islam', 'pai'],
-      'kristen': ['kristen', 'protestan'],
-      'katolik': ['katolik'],
-      'hindu': ['hindu'],
-      'buddha': ['buddha', 'budha'],
-      'konghucu': ['konghucu', 'khonghucu'],
-    };
-
-    // Find if subject name specifies any known religion
-    String? specifiedReligionInSubject;
-    for (var entry in religionsMap.entries) {
-      for (var keyword in entry.value) {
-        if (sNameLower.contains(keyword)) {
-          specifiedReligionInSubject = entry.key;
-          break;
-        }
-      }
-      if (specifiedReligionInSubject != null) break;
-    }
-
-    // If subject name specifies a specific religion, only match if student religion matches!
-    if (specifiedReligionInSubject != null) {
-      final studentRelKey = religionsMap.keys.firstWhere(
-        (k) => stReligionLower.contains(k) || religionsMap[k]!.contains(stReligionLower),
-        orElse: () => stReligionLower,
-      );
-      return specifiedReligionInSubject == studentRelKey;
-    }
-
-    // Generic "Pendidikan Agama" subject without specified religion -> show to all
-    return true;
+String? _resolveReligion(String raw) {
+  for (final e in _religionKeywords.entries) {
+    if (e.value.any((kw) => raw.contains(kw)) || e.value.contains(raw)) return e.key;
   }
+  return null;
+}
+
+bool _isReligionSubjectMatching({
+  required String subjectName,
+  required String subjectReligion,
+  required String studentReligion,
+}) {
+  final sName = _norm(subjectName);
+  final sr = _norm(subjectReligion);
+  final stRel = _norm(studentReligion);
+
+  // Field eksplisit di dokumen mapel/jadwal
+  if (sr.isNotEmpty) {
+    final srKey = _resolveReligion(sr);
+    final stKey = _resolveReligion(stRel);
+    if (srKey != null && stKey != null) return srKey == stKey;
+    return sr == stRel; // fallback exact match
+  }
+
+  // Deteksi dari nama mapel
+  final allKeywords = _religionKeywords.values.expand((l) => l).toList();
+  if (!allKeywords.any(sName.contains)) return true; // bukan mapel agama
+
+  final specified = _resolveReligion(sName);
+  if (specified != null) return specified == (_resolveReligion(stRel) ?? stRel);
+
+  return true; // "Pendidikan Agama" generik tanpa agama spesifik -> semua siswa
+}
 }
 

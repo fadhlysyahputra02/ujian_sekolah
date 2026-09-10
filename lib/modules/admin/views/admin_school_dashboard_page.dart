@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1136,7 +1137,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       const BottomNavigationBarItem(icon: Icon(Icons.book_outlined), activeIcon: Icon(Icons.book_rounded), label: 'Mapel'),
       const BottomNavigationBarItem(icon: Icon(Icons.class_outlined), activeIcon: Icon(Icons.class_rounded), label: 'Kelas'),
       const BottomNavigationBarItem(icon: Icon(Icons.event_note_outlined), activeIcon: Icon(Icons.event_note_rounded), label: 'Ujian'),
-      const BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings_rounded), label: 'Pengaturan'),
+      const BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings_rounded), label: 'Setelan'),
     ];
 
     final backgroundGradient = const BoxDecoration(
@@ -1154,9 +1155,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
       builder: (context, schoolSnapshot) {
-        final schoolData = schoolSnapshot.data?.data() as Map<String, dynamic>? ?? {};
-        final schoolName = schoolData['name'] as String? ?? 'SesiCermat';
-
         if (isDesktop) {
           // Desktop Layout
           return Scaffold(
@@ -1285,36 +1283,26 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             appBar: AppBar(
               backgroundColor: const Color(0xFF0F172A), // Slate 900 (Biru Gelap)
               elevation: 0,
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              title: Row(
                 children: [
-                  Text(
-                    schoolName,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.asset(
+                      'assets/images/Logo_SesiCermat.png',
+                      width: 24,
+                      height: 24,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(Icons.school_rounded, color: Color(0xFF818CF8), size: 20),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _currentTab == 0
-                        ? 'Ringkasan'
-                        : _currentTab == 1
-                            ? 'Manajemen Guru'
-                            : _currentTab == 2
-                                ? 'Manajemen Murid'
-                                : _currentTab == 3
-                                    ? 'Mata Pelajaran'
-                                    : _currentTab == 4
-                                        ? 'Kelas'
-                                        : _currentTab == 5
-                                            ? 'Event Ujian'
-                                            : 'Pengaturan Akun',
+                  const SizedBox(width: 8),
+                  const Text(
+                    'SesiCermat',
                     style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.indigo[200],
-                      fontWeight: FontWeight.w500,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 0.3,
                     ),
                   ),
                 ],
@@ -1379,8 +1367,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             backgroundColor: const Color(0xFF0F172A), // Slate 900 (Biru Gelap)
             selectedItemColor: const Color(0xFF818CF8),
             unselectedItemColor: const Color(0xFF94A3B8),
-            selectedFontSize: 12,
-            unselectedFontSize: 12,
+            selectedFontSize: 10,
+            unselectedFontSize: 10,
+            iconSize: 20,
+            selectedLabelStyle: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700),
+            unselectedLabelStyle: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w500),
             type: BottomNavigationBarType.fixed,
             elevation: 0,
             items: bottomNavItems,
@@ -1937,8 +1928,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
         final schoolData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
         final schoolName = schoolData['name'] ?? 'Sekolah';
-        final schoolCode = schoolData['code'] ?? '';
-        final adminEmail = schoolData['adminEmail'] ?? '';
+        final logoUrl = schoolData['logoUrl'] as String?;
         final meta = schoolData['meta'] as Map<String, dynamic>? ?? {};
         final teacherCount = meta['teacherCount'] ?? 0;
         final studentCount = meta['studentCount'] ?? 0;
@@ -1961,110 +1951,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildQuotaWarningBanner(schoolId),
-                    // 1. HERO HEADER BANNER
-                    Container(
-                      width: double.infinity,
-                      padding: EdgeInsets.all(isDesktop ? 28 : 20),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF312E81)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF1E1B4B).withValues(alpha: 0.25),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF818CF8).withValues(alpha: 0.18),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: const Icon(
-                                      Icons.school_rounded,
-                                      color: Color(0xFF818CF8),
-                                      size: 18,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'PORTAL MANAJEMEN SEKOLAH',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w800,
-                                      color: const Color(0xFF818CF8),
-                                      letterSpacing: 1.2,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 6,
-                                      height: 6,
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFF10B981),
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Sistem Aktif',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFF34D399),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            schoolName,
-                            style: GoogleFonts.inter(
-                              fontSize: isDesktop ? 26 : 20,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              _buildHeaderChip(Icons.key_rounded, 'Kode: $schoolCode'),
-                              _buildHeaderChip(Icons.admin_panel_settings_rounded, 'Admin: $adminEmail'),
-                              _buildHeaderChip(Icons.verified_user_rounded, 'Engine CBT Exambro v2.4'),
-                            ],
-                          ),
-                        ],
-                      ),
+                    // 1. HERO HEADER BANNER (DYNAMIC ANIMATED FEATURE HIGHLIGHTS)
+                    _HeroAnimatedFeatureBanner(
+                      schoolName: schoolName,
+                      logoUrl: logoUrl,
+                      isDesktop: isDesktop,
                     ),
                     const SizedBox(height: 28),
 
@@ -2084,15 +1975,16 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             return LayoutBuilder(
                               builder: (context, gridConstraints) {
                                 final gridWidth = gridConstraints.maxWidth;
-                                final crossCount = gridWidth > 1100 ? 4 : (gridWidth > 600 ? 2 : 1);
+                                final crossCount = gridWidth > 1100 ? 4 : (gridWidth > 600 ? 2 : 2);
+                                final isMobileGrid = gridWidth <= 600;
 
                                 return GridView.count(
                                   crossAxisCount: crossCount,
-                                  crossAxisSpacing: 16,
-                                  mainAxisSpacing: 16,
+                                  crossAxisSpacing: isMobileGrid ? 10 : 16,
+                                  mainAxisSpacing: isMobileGrid ? 10 : 16,
                                   shrinkWrap: true,
                                   physics: const NeverScrollableScrollPhysics(),
-                                  childAspectRatio: gridWidth > 1100 ? 1.3 : (gridWidth > 600 ? 1.45 : 2.5),
+                                  childAspectRatio: gridWidth > 1100 ? 1.3 : (gridWidth > 600 ? 1.45 : 1.28),
                                   children: [
                                     _buildEleganceKpiCard(
                                       title: 'Total Guru',
@@ -2146,15 +2038,16 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                     LayoutBuilder(
                       builder: (context, actConstraints) {
                         final actWidth = actConstraints.maxWidth;
-                        final actCrossCount = actWidth > 900 ? 4 : (actWidth > 550 ? 2 : 1);
+                        final actCrossCount = actWidth > 900 ? 4 : (actWidth > 550 ? 2 : 2);
+                        final isMobileAct = actWidth <= 550;
 
                         return GridView.count(
                           crossAxisCount: actCrossCount,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
+                          crossAxisSpacing: isMobileAct ? 10 : 14,
+                          mainAxisSpacing: isMobileAct ? 10 : 14,
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          childAspectRatio: actWidth > 900 ? 1.55 : 2.5,
+                          childAspectRatio: actWidth > 900 ? 1.55 : (actWidth > 550 ? 1.5 : 1.42),
                           children: [
                             _buildEleganceActionCard(
                               title: 'Tambah Guru Baru',
@@ -2324,31 +2217,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
-  Widget _buildHeaderChip(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: const Color(0xFF94A3B8)),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFFE2E8F0),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildSectionHeader(String title, String subtitle) {
     return Column(
@@ -4539,6 +4407,9 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -4549,10 +4420,10 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           transform: Matrix4.translationValues(0.0, _isHovered ? -4.0 : 0.0, 0.0),
-          padding: const EdgeInsets.all(18),
+          padding: EdgeInsets.all(isMobile ? 12 : 18),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(isMobile ? 16 : 22),
             border: Border.all(
               color: _isHovered ? widget.color.withValues(alpha: 0.4) : widget.color.withValues(alpha: 0.12),
               width: _isHovered ? 1.5 : 1.0,
@@ -4573,27 +4444,27 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: EdgeInsets.all(isMobile ? 8 : 12),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: widget.gradientColors,
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(isMobile ? 10 : 14),
                       boxShadow: [
                         BoxShadow(
                           color: widget.color.withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
                         ),
                       ],
                     ),
-                    child: Icon(widget.icon, color: Colors.white, size: 22),
+                    child: Icon(widget.icon, color: Colors.white, size: isMobile ? 18 : 22),
                   ),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(8),
+                    padding: EdgeInsets.all(isMobile ? 6 : 8),
                     decoration: BoxDecoration(
                       color: _isHovered ? widget.color : widget.color.withValues(alpha: 0.08),
                       shape: BoxShape.circle,
@@ -4601,41 +4472,46 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
                     child: Icon(
                       Icons.arrow_forward_rounded,
                       color: _isHovered ? Colors.white : widget.color,
-                      size: 14,
+                      size: isMobile ? 12 : 14,
                     ),
                   ),
                 ],
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   AnimatedDefaultTextStyle(
                     duration: const Duration(milliseconds: 200),
                     style: GoogleFonts.plusJakartaSans(
-                      fontSize: 30,
+                      fontSize: isMobile ? 22 : 30,
                       fontWeight: FontWeight.w900,
                       color: _isHovered ? widget.color : const Color(0xFF0F172A),
                       letterSpacing: -0.8,
                     ),
                     child: Text(widget.count),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
                     widget.title,
                     style: GoogleFonts.inter(
-                      fontSize: 14,
+                      fontSize: isMobile ? 12 : 14,
                       fontWeight: FontWeight.w700,
                       color: const Color(0xFF334155),
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
                     widget.subtitle,
                     style: GoogleFonts.inter(
-                      fontSize: 11,
+                      fontSize: isMobile ? 10 : 11,
                       fontWeight: FontWeight.w500,
                       color: const Color(0xFF94A3B8),
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -4673,6 +4549,9 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -4683,10 +4562,13 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           transform: Matrix4.translationValues(0.0, _isHovered ? -3.0 : 0.0, 0.0),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          padding: EdgeInsets.symmetric(
+            horizontal: isMobile ? 10 : 18,
+            vertical: isMobile ? 10 : 16,
+          ),
           decoration: BoxDecoration(
             color: _isHovered ? widget.color.withValues(alpha: 0.03) : Colors.white,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(isMobile ? 14 : 18),
             border: Border.all(
               color: _isHovered ? widget.color.withValues(alpha: 0.35) : const Color(0xFFE2E8F0),
               width: _isHovered ? 1.5 : 1.0,
@@ -4702,14 +4584,14 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(isMobile ? 8 : 12),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: widget.gradientColors,
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(isMobile ? 10 : 14),
                   boxShadow: [
                     BoxShadow(
                       color: widget.color.withValues(alpha: 0.25),
@@ -4718,9 +4600,9 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
                     ),
                   ],
                 ),
-                child: Icon(widget.icon, color: Colors.white, size: 20),
+                child: Icon(widget.icon, color: Colors.white, size: isMobile ? 16 : 20),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: isMobile ? 8 : 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -4729,7 +4611,7 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
                     Text(
                       widget.title,
                       style: GoogleFonts.inter(
-                        fontSize: 14,
+                        fontSize: isMobile ? 12 : 14,
                         fontWeight: FontWeight.bold,
                         color: _isHovered ? widget.color : const Color(0xFF0F172A),
                       ),
@@ -4740,7 +4622,7 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
                     Text(
                       widget.desc,
                       style: GoogleFonts.inter(
-                        fontSize: 11,
+                        fontSize: isMobile ? 10 : 11,
                         color: const Color(0xFF64748B),
                         fontWeight: FontWeight.w500,
                       ),
@@ -4750,18 +4632,411 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
                   ],
                 ),
               ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                transform: Matrix4.translationValues(_isHovered ? 3.0 : 0.0, 0.0, 0.0),
-                child: Icon(
-                  Icons.chevron_right_rounded,
-                  color: _isHovered ? widget.color : const Color(0xFFCBD5E1),
-                  size: 20,
+              if (!isMobile) ...[
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  transform: Matrix4.translationValues(_isHovered ? 3.0 : 0.0, 0.0, 0.0),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: _isHovered ? widget.color : const Color(0xFFCBD5E1),
+                    size: 20,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LivePulseDot extends StatefulWidget {
+  const _LivePulseDot();
+
+  @override
+  State<_LivePulseDot> createState() => _LivePulseDotState();
+}
+
+class _LivePulseDotState extends State<_LivePulseDot> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.35, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF10B981).withValues(alpha: _animation.value),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF10B981).withValues(alpha: _animation.value * 0.6),
+                blurRadius: 6,
+                spreadRadius: 2 * _animation.value,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _HeroFeatureHighlight {
+  final String title;
+  final String desc;
+  final IconData icon;
+  final Color accentColor;
+  final List<Color> gradientColors;
+
+  const _HeroFeatureHighlight({
+    required this.title,
+    required this.desc,
+    required this.icon,
+    required this.accentColor,
+    required this.gradientColors,
+  });
+}
+
+class _HeroAnimatedFeatureBanner extends StatefulWidget {
+  final String schoolName;
+  final String? logoUrl;
+  final bool isDesktop;
+
+  const _HeroAnimatedFeatureBanner({
+    required this.schoolName,
+    this.logoUrl,
+    required this.isDesktop,
+  });
+
+  @override
+  State<_HeroAnimatedFeatureBanner> createState() => _HeroAnimatedFeatureBannerState();
+}
+
+class _HeroAnimatedFeatureBannerState extends State<_HeroAnimatedFeatureBanner> {
+  int _currentIndex = 0;
+  Timer? _timer;
+
+  static const List<_HeroFeatureHighlight> _features = [
+    _HeroFeatureHighlight(
+      title: 'Exambro Anti-Curang CBT',
+      desc: 'Proteksi Kunci Layar, AI Deteksi Multitasking & Keamanan Berkas Ujian Real-Time.',
+      icon: Icons.shield_rounded,
+      accentColor: Color(0xFF818CF8),
+      gradientColors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+    ),
+    _HeroFeatureHighlight(
+      title: 'Koreksi & Rekap Nilai Otomatis',
+      desc: 'Penilaian Kuantum instan, analisis ketuntasan siswa, & ekspor rekap ke Excel.',
+      icon: Icons.bolt_rounded,
+      accentColor: Color(0xFFF59E0B),
+      gradientColors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+    ),
+    _HeroFeatureHighlight(
+      title: 'Denah Tempat Duduk & Wizard 7-Langkah',
+      desc: 'Otomatisasi penyusunan denah ujian, alokasi ruang murid & pengawas ruangan.',
+      icon: Icons.grid_view_rounded,
+      accentColor: Color(0xFF10B981),
+      gradientColors: [Color(0xFF10B981), Color(0xFF059669)],
+    ),
+    _HeroFeatureHighlight(
+      title: 'Bank Soal Cloud & Impor Massal',
+      desc: 'Pengolahan ribuan variasi soal acak, kunci jawaban terenkripsi & impor Excel.',
+      icon: Icons.cloud_done_rounded,
+      accentColor: Color(0xFF06B6D4),
+      gradientColors: [Color(0xFF06B6D4), Color(0xFF0EA5E9)],
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 3800), (timer) {
+      if (mounted) {
+        setState(() {
+          _currentIndex = (_currentIndex + 1) % _features.length;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Widget _buildSchoolLogoWidget() {
+    final logoUrl = widget.logoUrl;
+    if (logoUrl != null && logoUrl.isNotEmpty) {
+      return Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(7),
+          child: _buildBannerLogoImage(logoUrl),
+        ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF818CF8).withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: const Icon(
+        Icons.school_rounded,
+        color: Color(0xFF818CF8),
+        size: 16,
+      ),
+    );
+  }
+
+  Widget _buildBannerLogoImage(String logoUrl) {
+    if (logoUrl.startsWith('data:image/')) {
+      try {
+        final base64Data = logoUrl.split(',').last;
+        final bytes = base64Decode(base64Data);
+        return Image.memory(bytes, fit: BoxFit.cover);
+      } catch (_) {}
+    }
+    return Image.network(
+      logoUrl,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => const Icon(Icons.school_rounded, color: Color(0xFF818CF8), size: 16),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentFeature = _features[_currentIndex];
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(widget.isDesktop ? 24 : 18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF312E81)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E1B4B).withValues(alpha: 0.35),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Top Header Row with Uploaded School Logo & School Name & Live Active Badge
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    _buildSchoolLogoWidget(),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        widget.schoolName,
+                        style: GoogleFonts.inter(
+                          fontSize: widget.isDesktop ? 22 : 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.3,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _LivePulseDot(),
+                    SizedBox(width: 6),
+                    Text(
+                      'Sistem Aktif',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF34D399),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 14),
+          Divider(color: Colors.white.withValues(alpha: 0.12), height: 1),
+          const SizedBox(height: 14),
+
+          // Animated Switcher Feature Card with Slide & Fade Transition
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              final slideAnimation = Tween<Offset>(
+                begin: const Offset(0.04, 0.0),
+                end: Offset.zero,
+              ).animate(animation);
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: slideAnimation,
+                  child: child,
+                ),
+              );
+            },
+            child: Container(
+              key: ValueKey<int>(_currentIndex),
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: currentFeature.accentColor.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: currentFeature.gradientColors,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: currentFeature.accentColor.withValues(alpha: 0.4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Icon(currentFeature.icon, color: Colors.white, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          currentFeature.title,
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          currentFeature.desc,
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: const Color(0xFFCBD5E1),
+                            height: 1.3,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Indicators
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: List.generate(_features.length, (index) {
+                  final isActive = index == _currentIndex;
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() => _currentIndex = index);
+                      _startTimer();
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      margin: const EdgeInsets.only(right: 6),
+                      width: isActive ? 22 : 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: isActive ? _features[_currentIndex].accentColor : Colors.white.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              Text(
+                'Keunggulan SesiCermat',
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF94A3B8),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
