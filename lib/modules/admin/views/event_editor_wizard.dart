@@ -127,7 +127,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
       for (var doc in snap.docs) {
         final data = doc.data();
-        if (data['archived'] == true || data['disabled'] == true) continue;
+        if (data['archived'] == true || data['disabled'] == true || data['status'] == 'inactive') continue;
 
         final sClass = (data['className'] ?? data['classId'] ?? '').toString().trim();
         final cleanSClass = sClass.toLowerCase().replaceAll(' ', '');
@@ -906,7 +906,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
       final Map<String, List<Map<String, dynamic>>> map = {};
       for (var doc in snap.docs) {
         final data = doc.data();
-        if (data['archived'] == true || data['disabled'] == true) continue;
+        if (data['archived'] == true || data['disabled'] == true || data['status'] == 'inactive') continue;
 
         final sName = (data['displayName'] ?? data['name'] ?? data['fullName'] ?? '').toString().trim();
         final sNis = (data['nis'] ?? '').toString().trim();
@@ -2382,7 +2382,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
       final Map<String, List<Map<String, dynamic>>> classRealStudents = {};
       for (var doc in studentDocs) {
         final data = doc.data() as Map<String, dynamic>;
-        if (data['archived'] == true) continue;
+        if (data['archived'] == true || data['disabled'] == true || data['status'] == 'inactive') continue;
         if (data['disabled'] == true) continue;
         final sName = (data['displayName'] ?? data['name'] ?? '').toString().trim();
         final sNis = (data['nis'] ?? '').toString().trim();

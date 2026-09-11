@@ -656,8 +656,11 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
-                                          const SizedBox(height: 4),
-                                          Row(
+                                          const SizedBox(height: 6),
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 4,
+                                            crossAxisAlignment: WrapCrossAlignment.center,
                                             children: [
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -670,18 +673,21 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                                                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _slate),
                                                 ),
                                               ),
-                                              const SizedBox(width: 8),
-                                              Icon(
-                                                isMale ? Icons.male_rounded : Icons.female_rounded,
-                                                size: 14,
-                                                color: _slate,
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    isMale ? Icons.male_rounded : Icons.female_rounded,
+                                                    size: 14,
+                                                    color: _slate,
+                                                  ),
+                                                  const SizedBox(width: 2),
+                                                  Text(
+                                                    isMale ? 'Laki-laki' : 'Perempuan',
+                                                    style: const TextStyle(fontSize: 11, color: _slate),
+                                                  ),
+                                                ],
                                               ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                isMale ? 'Laki-laki' : 'Perempuan',
-                                                style: const TextStyle(fontSize: 12, color: _slate),
-                                              ),
-                                              const SizedBox(width: 8),
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                 decoration: BoxDecoration(
@@ -693,12 +699,65 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                                                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF4F46E5)),
                                                 ),
                                               ),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: s.isInactive ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  s.isInactive ? 'Non-Aktif' : 'Aktif',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: s.isInactive ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                                                  ),
+                                                ),
+                                              ),
                                             ],
                                           ),
                                         ],
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: Icon(
+                                        s.isInactive ? Icons.toggle_off_outlined : Icons.toggle_on_rounded,
+                                        color: s.isInactive ? Colors.grey : const Color(0xFF10B981),
+                                        size: 26,
+                                      ),
+                                      tooltip: s.isInactive ? 'Aktifkan Siswa' : 'Non-aktifkan Siswa',
+                                      onPressed: () async {
+                                        final newStatus = s.isInactive ? 'active' : 'inactive';
+                                        try {
+                                          await _service.toggleStudentStatus(
+                                            schoolId: widget.schoolId,
+                                            studentId: s.id,
+                                            newStatus: newStatus,
+                                          );
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Status murid ${s.displayName} diubah menjadi ${newStatus == 'active' ? 'Aktif' : 'Non-Aktif'}'),
+                                                backgroundColor: const Color(0xFF10B981),
+                                                behavior: SnackBarBehavior.floating,
+                                              ),
+                                            );
+                                          }
+                                        } catch (err) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text(err.toString().replaceAll('Exception: ', '')),
+                                                backgroundColor: const Color(0xFFEF4444),
+                                                behavior: SnackBarBehavior.floating,
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      },
+                                    ),
+                                    const SizedBox(width: 4),
                                     Material(
                                       color: Colors.transparent,
                                       child: InkWell(

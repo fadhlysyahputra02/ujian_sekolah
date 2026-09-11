@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -22,13 +23,13 @@ class _DashboardPageState extends State<DashboardPage>
     with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   final SchoolService _schoolService = SchoolService();
+  DateTime? _lastBackPressTime;
 
   // SchoolListPage is kept alive as a late final field so it is never rebuilt
   // when the dashboard re-renders. This preserves the Firestore stream.
   late final Widget _schoolListPage;
 
   late final AnimationController _fadeController;
-  late final Animation<double> _fadeAnim;
 
   @override
   void initState() {
@@ -39,7 +40,6 @@ class _DashboardPageState extends State<DashboardPage>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     )..forward();
-    _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
   }
 
   @override
@@ -142,31 +142,65 @@ class _DashboardPageState extends State<DashboardPage>
       ],
     );
 
-    if (isDesktop) {
-      return Scaffold(
-        body: Row(
-          children: [
-            _buildSidebar(authService, size),
-            Expanded(
-              child: Container(
-                decoration: backgroundGradient,
-                child: pageStack,
-              ),
+    final mainScaffold = isDesktop
+        ? Scaffold(
+            body: Row(
+              children: [
+                _buildSidebar(authService, size),
+                Expanded(
+                  child: Container(
+                    decoration: backgroundGradient,
+                    child: pageStack,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      );
-    }
+          )
+        : Scaffold(
+            appBar: _buildMobileAppBar(authService),
+            body: Container(
+              decoration: backgroundGradient,
+              child: pageStack,
+            ),
+            bottomNavigationBar: _buildBottomNav(),
+          );
 
-    // Mobile layout
-    return Scaffold(
-      appBar: _buildMobileAppBar(authService),
-      drawer: _buildDrawer(authService),
-      body: Container(
-        decoration: backgroundGradient,
-        child: pageStack,
-      ),
-      bottomNavigationBar: _buildBottomNav(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.exit_to_app_rounded, color: Colors.white, size: 18),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Tekan kembali satu kali lagi untuk keluar aplikasi',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF0F172A),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              duration: const Duration(seconds: 2),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: mainScaffold,
     );
   }
 
@@ -349,7 +383,7 @@ class _DashboardPageState extends State<DashboardPage>
       mainAxisSize: MainAxisSize.min,
       children: [
         InkWell(
-          onTap: () => authService.signOut(),
+          onTap: () => authService.confirmAndSignOut(context),
           borderRadius: BorderRadius.circular(12),
           child: Container(
             padding: EdgeInsets.symmetric(
@@ -402,16 +436,49 @@ class _DashboardPageState extends State<DashboardPage>
   // ─────────────────────────────────────────────────────────────────────────
   AppBar _buildMobileAppBar(AuthService authService) {
     return AppBar(
-      leading: Builder(
-        builder: (context) => IconButton(
-          icon: const Icon(Icons.menu_rounded),
-          onPressed: () => Scaffold.of(context).openDrawer(),
+      leading: Padding(
+        padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+        child: _buildLogoIcon(),
+      ),
+      leadingWidth: 48,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'SesiCermat',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A)),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFC7D2FE)),
+                ),
+                child: Text(
+                  'SuperAdmin',
+                  style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5)),
+                ),
+              ),
+            ],
+          ),
+          Text(
+            _selectedIndex == 0 ? 'Ringkasan Sistem' : (_selectedIndex == 1 ? 'Manajemen Sekolah' : 'Pengaturan Panel'),
+            style: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 11, color: const Color(0xFF64748B)),
+          ),
+        ],
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 20),
+          tooltip: 'Keluar',
+          onPressed: () => authService.confirmAndSignOut(context),
         ),
-      ),
-      title: Text(
-        _selectedIndex == 0 ? 'Ringkasan Sistem' : 'Manajemen Sekolah',
-        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 17),
-      ),
+        const SizedBox(width: 4),
+      ],
       backgroundColor: Colors.white,
       foregroundColor: const Color(0xFF0F172A),
       elevation: 0,
@@ -423,80 +490,13 @@ class _DashboardPageState extends State<DashboardPage>
     );
   }
 
-  Widget _buildDrawer(AuthService authService) {
-    return Drawer(
-      backgroundColor: const Color(0xFF0F172A),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(20, 56, 20, 24),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF0F172A), Color(0xFF1E1B4B)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Row(
-              children: [
-                _buildLogoIcon(),
-                const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'SesiCermat',
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text(
-                      authService.user?.email ?? 'sadmin@sesicermat.com',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFF818CF8),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Container(
-              color: const Color(0xFF0F172A),
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: _navItems.asMap().entries.map((entry) {
-                  final idx = entry.key;
-                  final item = entry.value;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: _buildSidebarItem(item, idx, true),
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-          Container(
-            color: const Color(0xFF0F172A),
-            padding: const EdgeInsets.all(12),
-            child: _buildLogoutTile(authService, extended: true),
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBottomNav() {
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
         boxShadow: [
-          BoxShadow(color: Color(0x0F000000), blurRadius: 10, offset: Offset(0, -2)),
+          BoxShadow(color: Color(0x0C000000), blurRadius: 10, offset: Offset(0, -3)),
         ],
       ),
       child: BottomNavigationBar(
@@ -506,17 +506,22 @@ class _DashboardPageState extends State<DashboardPage>
         unselectedItemColor: const Color(0xFF94A3B8),
         backgroundColor: Colors.white,
         elevation: 0,
-        selectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 11),
+        type: BottomNavigationBarType.fixed,
+        selectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 11),
         unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 11),
         items: _navItems.map((item) {
           return BottomNavigationBarItem(
             icon: Container(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: Icon(item.icon),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              child: Icon(item.icon, size: 20),
             ),
             activeIcon: Container(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: Icon(item.activeIcon),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEF2FF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(item.activeIcon, size: 20, color: const Color(0xFF4F46E5)),
             ),
             label: item.label,
           );
@@ -581,15 +586,16 @@ class _DashboardPageState extends State<DashboardPage>
                     LayoutBuilder(
                       builder: (context, gridConstraints) {
                         final gridWidth = gridConstraints.maxWidth;
-                        final crossCount = gridWidth > 1100 ? 5 : (gridWidth > 700 ? 3 : (gridWidth > 480 ? 2 : 1));
+                        final isMobile = gridWidth < 600;
+                        final crossCount = gridWidth > 1100 ? 5 : (gridWidth > 700 ? 3 : 2);
 
                         return GridView.count(
                           crossAxisCount: crossCount,
-                          crossAxisSpacing: 16,
-                          mainAxisSpacing: 16,
+                          crossAxisSpacing: isMobile ? 10 : 16,
+                          mainAxisSpacing: isMobile ? 10 : 16,
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          childAspectRatio: gridWidth > 1100 ? 1.25 : (gridWidth > 700 ? 1.35 : 1.5),
+                          childAspectRatio: gridWidth > 1100 ? 1.25 : (gridWidth > 700 ? 1.35 : 1.38),
                           children: [
                             _buildEleganceKpiCard(
                               title: 'Total Sekolah',
@@ -630,7 +636,7 @@ class _DashboardPageState extends State<DashboardPage>
                             _buildEleganceKpiCard(
                               title: 'Total Murid',
                               count: '$totalStudents',
-                              subtitle: 'Siswa Terdaftar CBT',
+                              subtitle: 'Siswa Aktif Terdaftar',
                               icon: Icons.school_rounded,
                               color: const Color(0xFF06B6D4),
                               gradientColors: const [Color(0xFF06B6D4), Color(0xFF0EA5E9)],
@@ -651,15 +657,16 @@ class _DashboardPageState extends State<DashboardPage>
                     LayoutBuilder(
                       builder: (context, actConstraints) {
                         final actWidth = actConstraints.maxWidth;
+                        final isMobile = actWidth < 600;
                         final actCrossCount = actWidth > 900 ? 3 : (actWidth > 550 ? 2 : 1);
 
                         return GridView.count(
                           crossAxisCount: actCrossCount,
-                          crossAxisSpacing: 16,
-                          mainAxisSpacing: 16,
+                          crossAxisSpacing: isMobile ? 10 : 16,
+                          mainAxisSpacing: isMobile ? 10 : 16,
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          childAspectRatio: actWidth > 900 ? 2.1 : 2.5,
+                          childAspectRatio: actWidth > 900 ? 2.1 : (actWidth < 600 ? 3.0 : 2.5),
                           children: [
                             _buildEleganceActionCard(
                               title: 'Daftarkan Sekolah Baru',
@@ -733,54 +740,61 @@ class _DashboardPageState extends State<DashboardPage>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF818CF8).withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(10),
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF818CF8).withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.admin_panel_settings_rounded,
+                        color: Color(0xFF818CF8),
+                        size: 15,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.admin_panel_settings_rounded,
-                      color: Color(0xFF818CF8),
-                      size: 18,
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'PORTAL SUPER ADMIN',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF818CF8),
+                          letterSpacing: 0.8,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'PORTAL UTAMA SUPER ADMIN',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF818CF8),
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 6),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: const Color(0xFF10B981).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
                 ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 6,
-                      height: 6,
+                      width: 5,
+                      height: 5,
                       decoration: const BoxDecoration(
                         color: Color(0xFF10B981),
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     Text(
                       'Sistem Online',
                       style: GoogleFonts.inter(
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: FontWeight.w700,
                         color: const Color(0xFF34D399),
                       ),
@@ -1206,16 +1220,109 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
     final userEmail = widget.authService.user?.email ?? '';
     final initialLetter = userEmail.isNotEmpty ? userEmail[0].toUpperCase() : 'S';
 
+    // Header Banner
+    final headerBanner = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF312E81)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E1B4B).withValues(alpha: 0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+            ),
+            child: const Icon(
+              Icons.tune_rounded,
+              color: Colors.white,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pengaturan Akun & Keamanan',
+                  style: GoogleFonts.inter(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Kelola profil super admin, kredensial login, dan parameter keamanan platform.',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF10B981),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Sistem Aktif',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF6EE7B7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Profile Card
     final profileCard = Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
             offset: const Offset(0, 4),
           ),
         ],
@@ -1225,27 +1332,51 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
         children: [
           Row(
             children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    initialLetter,
-                    style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+              Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0x334F46E5),
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        initialLetter,
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.verified_rounded,
+                      color: Color(0xFF10B981),
+                      size: 18,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -1256,7 +1387,7 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                       userEmail,
                       style: GoogleFonts.inter(
                         fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w800,
                         color: const Color(0xFF0F172A),
                       ),
                       maxLines: 1,
@@ -1268,13 +1399,13 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                       decoration: BoxDecoration(
                         color: const Color(0xFFEEF2FF),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFE0E7FF)),
+                        border: Border.all(color: const Color(0xFFC7D2FE)),
                       ),
                       child: Text(
-                        'Super Admin',
+                        'Role: Super Admin Platform',
                         style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
                           color: const Color(0xFF4F46E5),
                         ),
                       ),
@@ -1285,8 +1416,8 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
             ],
           ),
           const SizedBox(height: 24),
-          const Divider(color: Color(0xFFF1F5F9)),
-          const SizedBox(height: 16),
+          const Divider(color: Color(0xFFF1F5F9), height: 1),
+          const SizedBox(height: 20),
           _buildInfoRow(
             Icons.alternate_email_rounded,
             'Username Default',
@@ -1302,25 +1433,33 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
           ),
           const SizedBox(height: 14),
           _buildInfoRow(
-            Icons.verified_user_rounded,
+            Icons.security_rounded,
+            'Hak Akses Root',
+            'Full System Control',
+            const Color(0xFF7C3AED),
+          ),
+          const SizedBox(height: 14),
+          _buildInfoRow(
+            Icons.check_circle_rounded,
             'Status Akun',
-            'Aktif',
+            'Aktif & Terverifikasi',
             const Color(0xFF10B981),
           ),
         ],
       ),
     );
 
+    // Change Username Card
     final changeUsernameCard = Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
             offset: const Offset(0, 4),
           ),
         ],
@@ -1333,41 +1472,47 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: const Color(0xFFECFDF5),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.badge_rounded,
                     color: Color(0xFF059669),
-                    size: 20,
+                    size: 22,
                   ),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  'Ubah Username Super Admin',
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF0F172A),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Ubah Username Super Admin',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      Text(
+                        'Username baru dapat digunakan sebagai alternatif login.',
+                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Ganti username login SuperAdmin. Username baru ini dan username default (sadmin) akan dapat digunakan untuk login.',
-              style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B)),
-            ),
             const SizedBox(height: 20),
             TextFormField(
               controller: _usernameController,
-              style: GoogleFonts.inter(fontSize: 14),
+              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500),
               decoration: InputDecoration(
                 labelText: 'Username Baru',
                 labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                hintText: 'Minimal 3 karakter, alfanumerik',
+                hintText: 'Masukkan username alfanumerik (min. 3 karakter)',
                 hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1379,9 +1524,9 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF059669), width: 1.5),
+                  borderSide: const BorderSide(color: Color(0xFF059669), width: 1.8),
                 ),
-                prefixIcon: const Icon(Icons.person_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
+                prefixIcon: const Icon(Icons.person_outline_rounded, size: 20, color: Color(0xFF059669)),
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
               ),
@@ -1394,17 +1539,18 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 onPressed: _isSavingUsername
                     ? null
                     : () async {
                         if (_usernameFormKey.currentState!.validate()) {
                           setState(() => _isSavingUsername = true);
+                          final messenger = ScaffoldMessenger.of(context);
                           try {
                             await _schoolService.updateSuperAdminUsername(_usernameController.text.trim());
                             setState(() => _currentUsername = _usernameController.text.trim());
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 SnackBar(
                                   content: Row(
                                     children: [
@@ -1424,7 +1570,7 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                             }
                           } catch (e) {
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 SnackBar(
                                   content: Text('Gagal memperbarui username: $e'),
                                   backgroundColor: const Color(0xFFEF4444),
@@ -1436,6 +1582,17 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                           }
                         }
                       },
+                icon: _isSavingUsername
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_rounded, size: 18),
+                label: Text(
+                  _isSavingUsername ? 'Menyimpan...' : 'Simpan Username Baru',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF059669),
                   foregroundColor: Colors.white,
@@ -1443,16 +1600,6 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   elevation: 0,
                 ),
-                child: _isSavingUsername
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : Text(
-                        'Simpan Username Baru',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
-                      ),
               ),
             ),
           ],
@@ -1460,16 +1607,17 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
       ),
     );
 
+    // Change Password Card
     final changePasswordCard = Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
             offset: const Offset(0, 4),
           ),
         ],
@@ -1482,24 +1630,35 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF5F3FF),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.lock_rounded,
                     color: Color(0xFF7C3AED),
-                    size: 20,
+                    size: 22,
                   ),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  'Ubah Kata Sandi',
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF0F172A),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Ubah Kata Sandi',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      Text(
+                        'Perbarui kata sandi secara berkala untuk menjaga keamanan.',
+                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1508,7 +1667,7 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
             TextFormField(
               controller: _passwordController,
               obscureText: _obscurePassword,
-              style: GoogleFonts.inter(fontSize: 14),
+              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500),
               decoration: InputDecoration(
                 labelText: 'Kata Sandi Baru',
                 labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
@@ -1524,9 +1683,9 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                  borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.8),
                 ),
-                prefixIcon: const Icon(Icons.vpn_key_outlined, size: 20, color: Color(0xFF94A3B8)),
+                prefixIcon: const Icon(Icons.vpn_key_outlined, size: 20, color: Color(0xFF4F46E5)),
                 suffixIcon: IconButton(
                   icon: Icon(
                     _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
@@ -1544,11 +1703,11 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                 return null;
               },
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             TextFormField(
               controller: _confirmController,
               obscureText: _obscureConfirm,
-              style: GoogleFonts.inter(fontSize: 14),
+              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500),
               decoration: InputDecoration(
                 labelText: 'Konfirmasi Kata Sandi Baru',
                 labelStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
@@ -1564,9 +1723,9 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                  borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.8),
                 ),
-                prefixIcon: const Icon(Icons.check_circle_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
+                prefixIcon: const Icon(Icons.check_circle_outline_rounded, size: 20, color: Color(0xFF4F46E5)),
                 suffixIcon: IconButton(
                   icon: Icon(
                     _obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined,
@@ -1587,18 +1746,19 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 onPressed: _isSavingPassword
                     ? null
                     : () async {
                         if (_formKey.currentState!.validate()) {
                           setState(() => _isSavingPassword = true);
+                          final messenger = ScaffoldMessenger.of(context);
                           try {
                             await widget.authService.changeOwnPassword(_passwordController.text.trim());
                             _passwordController.clear();
                             _confirmController.clear();
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 SnackBar(
                                   content: Row(
                                     children: [
@@ -1618,7 +1778,7 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                             }
                           } catch (e) {
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 SnackBar(
                                   content: Text('Gagal mengubah kata sandi: $e'),
                                   backgroundColor: const Color(0xFFEF4444),
@@ -1630,6 +1790,17 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                           }
                         }
                       },
+                icon: _isSavingPassword
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : const Icon(Icons.key_rounded, size: 18),
+                label: Text(
+                  _isSavingPassword ? 'Memproses...' : 'Simpan Kata Sandi Baru',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF4F46E5),
                   foregroundColor: Colors.white,
@@ -1637,16 +1808,6 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   elevation: 0,
                 ),
-                child: _isSavingPassword
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : Text(
-                        'Simpan Kata Sandi',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
-                      ),
               ),
             ),
           ],
@@ -1654,30 +1815,39 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
       ),
     );
 
+    // System Info Card
+    final systemInfoCard = Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline_rounded, size: 20, color: Color(0xFF64748B)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'SesiCermat Exam System v${AppVersion.version} • Status Terhubung Firebase Cloud Database',
+              style: GoogleFonts.inter(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Pengaturan Akun',
-            style: GoogleFonts.inter(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0F172A),
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Kelola detail profil, username login, dan kata sandi akun Anda.',
-            style: GoogleFonts.inter(
-              fontSize: 14,
-              color: const Color(0xFF64748B),
-            ),
-          ),
-          const SizedBox(height: 28),
-
+          headerBanner,
+          const SizedBox(height: 24),
           LayoutBuilder(
             builder: (context, constraints) {
               final isWide = constraints.maxWidth > 850;
@@ -1713,6 +1883,8 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
               );
             },
           ),
+          const SizedBox(height: 24),
+          systemInfoCard,
         ],
       ),
     );
@@ -1764,6 +1936,9 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -1773,11 +1948,11 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
-          transform: Matrix4.translationValues(0.0, _isHovered ? -5.0 : 0.0, 0.0),
-          padding: const EdgeInsets.all(18),
+          transform: Matrix4.translationValues(0.0, _isHovered ? -4.0 : 0.0, 0.0),
+          padding: EdgeInsets.all(isMobile ? 10 : 18),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(isMobile ? 14 : 22),
             border: Border.all(
               color: _isHovered ? widget.color.withValues(alpha: 0.4) : widget.color.withValues(alpha: 0.12),
               width: _isHovered ? 1.5 : 1.0,
@@ -1785,8 +1960,8 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
             boxShadow: [
               BoxShadow(
                 color: _isHovered ? widget.color.withValues(alpha: 0.2) : widget.color.withValues(alpha: 0.05),
-                blurRadius: _isHovered ? 24 : 14,
-                offset: Offset(0, _isHovered ? 8 : 4),
+                blurRadius: _isHovered ? 20 : 12,
+                offset: Offset(0, _isHovered ? 6 : 3),
               ),
             ],
           ),
@@ -1798,27 +1973,27 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: EdgeInsets.all(isMobile ? 7 : 12),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: widget.gradientColors,
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(isMobile ? 9 : 14),
                       boxShadow: [
                         BoxShadow(
-                          color: widget.color.withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
+                          color: widget.color.withValues(alpha: 0.25),
+                          blurRadius: 5,
+                          offset: const Offset(0, 2),
                         ),
                       ],
                     ),
-                    child: Icon(widget.icon, color: Colors.white, size: 22),
+                    child: Icon(widget.icon, color: Colors.white, size: isMobile ? 15 : 22),
                   ),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(8),
+                    padding: EdgeInsets.all(isMobile ? 4 : 8),
                     decoration: BoxDecoration(
                       color: _isHovered ? widget.color : widget.color.withValues(alpha: 0.08),
                       shape: BoxShape.circle,
@@ -1826,43 +2001,54 @@ class _EleganceKpiCardWidgetState extends State<_EleganceKpiCardWidget> {
                     child: Icon(
                       Icons.arrow_forward_rounded,
                       color: _isHovered ? Colors.white : widget.color,
-                      size: 14,
+                      size: isMobile ? 11 : 14,
                     ),
                   ),
                 ],
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AnimatedDefaultTextStyle(
-                    duration: const Duration(milliseconds: 200),
-                    style: GoogleFonts.inter(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: _isHovered ? widget.color : const Color(0xFF0F172A),
-                      letterSpacing: -0.8,
+              const SizedBox(height: 2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: GoogleFonts.inter(
+                          fontSize: isMobile ? 20 : 28,
+                          fontWeight: FontWeight.w900,
+                          color: _isHovered ? widget.color : const Color(0xFF0F172A),
+                          letterSpacing: -0.6,
+                        ),
+                        child: Text(widget.count),
+                      ),
                     ),
-                    child: Text(widget.count),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    widget.title,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF334155),
+                    const SizedBox(height: 1),
+                    Text(
+                      widget.title,
+                      style: GoogleFonts.inter(
+                        fontSize: isMobile ? 11.5 : 14,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF334155),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    widget.subtitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF94A3B8),
+                    Text(
+                      widget.subtitle,
+                      style: GoogleFonts.inter(
+                        fontSize: isMobile ? 9.5 : 11,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF94A3B8),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -1898,6 +2084,9 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -1908,10 +2097,13 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           transform: Matrix4.translationValues(0.0, _isHovered ? -3.0 : 0.0, 0.0),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          padding: EdgeInsets.symmetric(
+            horizontal: isMobile ? 12 : 18,
+            vertical: isMobile ? 10 : 16,
+          ),
           decoration: BoxDecoration(
             color: _isHovered ? widget.color.withValues(alpha: 0.03) : Colors.white,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(isMobile ? 14 : 18),
             border: Border.all(
               color: _isHovered ? widget.color.withValues(alpha: 0.35) : const Color(0xFFE2E8F0),
               width: _isHovered ? 1.5 : 1.0,
@@ -1919,33 +2111,33 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
             boxShadow: [
               BoxShadow(
                 color: _isHovered ? widget.color.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.02),
-                blurRadius: _isHovered ? 18 : 8,
-                offset: Offset(0, _isHovered ? 6 : 2),
+                blurRadius: _isHovered ? 16 : 6,
+                offset: Offset(0, _isHovered ? 5 : 2),
               ),
             ],
           ),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(isMobile ? 9 : 12),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: widget.gradientColors,
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(isMobile ? 10 : 14),
                   boxShadow: [
                     BoxShadow(
                       color: widget.color.withValues(alpha: 0.25),
-                      blurRadius: 6,
+                      blurRadius: 5,
                       offset: const Offset(0, 2),
                     ),
                   ],
                 ),
-                child: Icon(widget.icon, color: Colors.white, size: 22),
+                child: Icon(widget.icon, color: Colors.white, size: isMobile ? 18 : 22),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: isMobile ? 10 : 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1954,19 +2146,21 @@ class _EleganceActionCardWidgetState extends State<_EleganceActionCardWidget> {
                     Text(
                       widget.title,
                       style: GoogleFonts.inter(
-                        fontSize: 14,
+                        fontSize: isMobile ? 13 : 14,
                         fontWeight: FontWeight.bold,
                         color: _isHovered ? widget.color : const Color(0xFF0F172A),
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       widget.desc,
                       style: GoogleFonts.inter(
-                        fontSize: 12,
+                        fontSize: isMobile ? 10.5 : 12,
                         color: const Color(0xFF64748B),
                       ),
-                      maxLines: 2,
+                      maxLines: isMobile ? 1 : 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],

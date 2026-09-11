@@ -10,12 +10,15 @@ class Student {
   final String angkatan;
   final String religion;
   final String schoolId;
+  final String status;
   final bool disabled;
   final bool archived;
   final String? tempPassword;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
+
+  bool get isInactive => status == 'inactive';
 
   Student({
     required this.id,
@@ -27,6 +30,7 @@ class Student {
     required this.angkatan,
     this.religion = 'Islam',
     required this.schoolId,
+    this.status = 'active',
     required this.disabled,
     required this.archived,
     this.tempPassword,
@@ -64,6 +68,7 @@ class Student {
       angkatan: (data['angkatan'] ?? '').toString(),
       religion: (rawReligion == null || rawReligion.toString().trim().isEmpty) ? 'Islam' : rawReligion.toString().trim(),
       schoolId: (data['schoolId'] ?? '').toString(),
+      status: (data['status'] ?? 'active').toString(),
       disabled: data['disabled'] == true,
       archived: data['archived'] == true,
       tempPassword: data['tempPassword']?.toString(),
@@ -84,6 +89,7 @@ class Student {
       'religion': religion,
       'agama': religion,
       'schoolId': schoolId,
+      'status': status,
       'disabled': disabled,
       'archived': archived,
       'tempPassword': tempPassword,

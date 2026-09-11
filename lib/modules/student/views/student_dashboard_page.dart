@@ -37,6 +37,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
   String? _myClassName;
   bool _isLoadingProfile = true;
 
+  // Cached Firestore streams — created once to avoid re-subscriptions on rebuild
+  Stream<DocumentSnapshot>? _schoolDocStream;
+  Stream<QuerySnapshot>? _eventsStream;
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +78,14 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
       if (mounted) setState(() => _isLoadingProfile = false);
       return;
     }
+
+    // Init cached streams once we have the school ID
+    _schoolDocStream ??= FirebaseFirestore.instance.collection('schools').doc(_schoolId).snapshots();
+    _eventsStream ??= FirebaseFirestore.instance
+        .collection('schools')
+        .doc(_schoolId)
+        .collection('events')
+        .snapshots();
 
     try {
       // 0. Load School Doc to get School Name
@@ -166,7 +178,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
         elevation: 0,
         centerTitle: false,
         title: StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
+          stream: _schoolDocStream ?? FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
           builder: (context, schoolSnap) {
             final sData = schoolSnap.data?.data() as Map<String, dynamic>?;
             final schoolName = sData?['name'] as String? ?? _schoolName ?? 'Nama Sekolah';
@@ -260,7 +272,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
                 Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: () => authService.signOut(),
+                    onTap: () => authService.confirmAndSignOut(context),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -637,7 +649,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
   /// List Card Event Ujian yang diadakan oleh Admin
   Widget _buildEventCardsList(String schoolId) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
+      stream: _eventsStream ?? FirebaseFirestore.instance
           .collection('schools')
           .doc(schoolId)
           .collection('events')

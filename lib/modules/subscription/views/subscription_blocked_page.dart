@@ -39,6 +39,26 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    final isStudentInactive = authService.isStudentInactive;
+
+    final String titleText = isStudentInactive ? 'Akun Siswa Non-Aktif' : 'Akses Ditangguhkan';
+    final String subtitleText = isStudentInactive
+        ? 'Akun siswa Anda saat ini dalam status Non-Aktif'
+        : 'Langganan sekolah Anda perlu diperpanjang';
+
+    final IconData headerIcon = isStudentInactive ? Icons.person_off_rounded : Icons.lock_clock_rounded;
+    final Color themeColor = isStudentInactive ? const Color(0xFFF59E0B) : const Color(0xFFEF4444);
+    final List<Color> gradientColors = isStudentInactive
+        ? [const Color(0xFFD97706), const Color(0xFFF59E0B)]
+        : [const Color(0xFFDC2626), const Color(0xFFEF4444)];
+
+    final String statusDetail = isStudentInactive
+        ? 'Non-Aktif (Dinonaktifkan oleh sekolah)'
+        : 'Dinonaktifkan oleh administrator sistem';
+
+    final String helpDetail = isStudentInactive
+        ? 'Silakan hubungi Admin Sekolah Anda untuk mengaktifkan kembali akun Anda.'
+        : 'Hubungi admin sekolah atau pusat SesiCermat untuk verifikasi status langganan Anda.';
 
     return Scaffold(
       body: Stack(
@@ -69,8 +89,8 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    const Color(0xFFEF4444).withValues(alpha: 0.15),
-                    const Color(0xFFEF4444).withValues(alpha: 0),
+                    themeColor.withValues(alpha: 0.15),
+                    themeColor.withValues(alpha: 0),
                   ],
                 ),
               ),
@@ -117,8 +137,7 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                                 height: 130,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: const Color(0xFFEF4444)
-                                      .withValues(alpha: 0.08 * _fadeAnim.value),
+                                  color: themeColor.withValues(alpha: 0.08 * _fadeAnim.value),
                                 ),
                               ),
                             ),
@@ -128,7 +147,7 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                               height: 100,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                                color: themeColor.withValues(alpha: 0.1),
                               ),
                             ),
                             // Icon container
@@ -136,22 +155,22 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                               width: 80,
                               height: 80,
                               decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [Color(0xFFDC2626), Color(0xFFEF4444)],
+                                gradient: LinearGradient(
+                                  colors: gradientColors,
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFFEF4444).withValues(alpha: 0.4),
+                                    color: themeColor.withValues(alpha: 0.4),
                                     blurRadius: 24,
                                     spreadRadius: 4,
                                   ),
                                 ],
                               ),
-                              child: const Icon(
-                                Icons.lock_clock_rounded,
+                              child: Icon(
+                                headerIcon,
                                 size: 38,
                                 color: Colors.white,
                               ),
@@ -164,7 +183,7 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
 
                     // Title
                     Text(
-                      'Akses Ditangguhkan',
+                      titleText,
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         fontSize: 28,
@@ -175,7 +194,7 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Langganan sekolah Anda perlu diperpanjang',
+                      subtitleText,
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         color: const Color(0xFF94A3B8),
@@ -201,7 +220,7 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                           _buildInfoRow(
                             Icons.info_outline_rounded,
                             'Status Akun',
-                            'Dinonaktifkan oleh administrator sistem',
+                            statusDetail,
                             const Color(0xFFFBBF24),
                           ),
                           const SizedBox(height: 16),
@@ -213,7 +232,7 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                           _buildInfoRow(
                             Icons.support_agent_rounded,
                             'Bantuan',
-                            'Hubungi admin sekolah atau pusat SesiCermat untuk verifikasi status langganan Anda.',
+                            helpDetail,
                             const Color(0xFF818CF8),
                           ),
                         ],
@@ -231,7 +250,7 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
                             height: 52,
                             child: ElevatedButton.icon(
                               onPressed: () async {
-                                await authService.signOut();
+                                await authService.confirmAndSignOut(context);
                               },
                               icon: const Icon(Icons.logout_rounded, size: 18),
                               label: Text(

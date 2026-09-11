@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -12,18 +13,21 @@ class AuthService extends ChangeNotifier {
   String? _role;
   String? _schoolId;
   bool _isSchoolDisabled = false;
+  bool _isStudentInactive = false;
   bool _isLoading = true;
 
   User? get user => _user;
   String? get role => _role;
   String? get schoolId => _schoolId;
   bool get isSchoolDisabled => _isSchoolDisabled;
+  bool get isStudentInactive => _isStudentInactive;
   bool get isLoading => _isLoading;
 
-  bool get isBlocked => _user != null && _role != 'super_admin' && _isSchoolDisabled;
+  bool get isBlocked => _user != null && _role != 'super_admin' && (_isSchoolDisabled || _isStudentInactive);
 
   StreamSubscription<User?>? _authSubscription;
   StreamSubscription<DocumentSnapshot>? _schoolSubscription;
+  StreamSubscription<QuerySnapshot>? _studentSubscription;
 
   AuthService() {
     _authSubscription = _auth.authStateChanges().listen(_onAuthStateChanged);
@@ -33,16 +37,16 @@ class AuthService extends ChangeNotifier {
   void dispose() {
     _authSubscription?.cancel();
     _schoolSubscription?.cancel();
+    _studentSubscription?.cancel();
     super.dispose();
   }
 
   Future<void> _onAuthStateChanged(User? user) async {
     _isLoading = true;
-    notifyListeners();
-
     _user = user;
+    _isStudentInactive = false;
     _schoolSubscription?.cancel();
-    _schoolSubscription = null;
+    _studentSubscription?.cancel();
 
     if (user == null) {
       _role = null;
@@ -66,6 +70,7 @@ class AuthService extends ChangeNotifier {
 
       if (_role == 'super_admin') {
         _isSchoolDisabled = false;
+        _isStudentInactive = false;
         _isLoading = false;
         notifyListeners();
         return;
@@ -104,30 +109,63 @@ class AuthService extends ChangeNotifier {
         }
       }
 
-      // 2. If it's a school-related user, check and listen to school status in real-time
+      // 2. Listen to student status in real-time if role is student
+      if (_role == 'student' && user.email != null) {
+        _studentSubscription = _firestore
+            .collectionGroup('students')
+            .where('email', isEqualTo: user.email)
+            .limit(1)
+            .snapshots()
+            .listen((snapshot) {
+          bool newInactive = false;
+          if (snapshot.docs.isNotEmpty) {
+            final data = snapshot.docs.first.data() as Map<String, dynamic>?;
+            newInactive = data?['status'] == 'inactive';
+          }
+          final bool wasLoading = _isLoading;
+          if (wasLoading || newInactive != _isStudentInactive) {
+            _isStudentInactive = newInactive;
+            _isLoading = false;
+            notifyListeners();
+          }
+        }, onError: (e) {
+          _isLoading = false;
+          notifyListeners();
+        });
+      }
+
+      // 3. If it's a school-related user, check and listen to school status in real-time
       if (_schoolId != null) {
         _schoolSubscription = _firestore
             .collection('schools')
             .doc(_schoolId)
             .snapshots()
             .listen((snapshot) {
+          bool newDisabled;
           if (snapshot.exists) {
             final data = snapshot.data();
-            _isSchoolDisabled = data?['disabled'] == true;
+            newDisabled = data?['disabled'] == true;
           } else {
-            _isSchoolDisabled = true; // school doesn't exist anymore, treat as blocked
+            newDisabled = true; // school doesn't exist anymore, treat as blocked
           }
-          _isLoading = false;
-          notifyListeners();
+          final bool wasLoading = _isLoading;
+          if (wasLoading || newDisabled != _isSchoolDisabled) {
+            _isSchoolDisabled = newDisabled;
+            _isLoading = false;
+            notifyListeners();
+          }
         }, onError: (e) {
           // If security rules block read, we treat as disabled/blocked
           _isSchoolDisabled = true;
           _isLoading = false;
           notifyListeners();
         });
-      } else {
-        // Logged in user with no school ID
+      }
+
+      // If no subscription was registered, complete loading state
+      if (_studentSubscription == null && _schoolSubscription == null) {
         _isSchoolDisabled = false;
+        _isStudentInactive = false;
         _isLoading = false;
         notifyListeners();
       }
@@ -136,6 +174,7 @@ class AuthService extends ChangeNotifier {
       _role = null;
       _schoolId = null;
       _isSchoolDisabled = false;
+      _isStudentInactive = false;
       _isLoading = false;
       notifyListeners();
     }
@@ -158,6 +197,104 @@ class AuthService extends ChangeNotifier {
     await _auth.signOut();
   }
 
+  /// Menampilkan modal konfirmasi sebelum keluar (sign out)
+  Future<bool> confirmAndSignOut(BuildContext context) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.logout_rounded,
+                  color: Color(0xFFEF4444),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  'Konfirmasi Keluar',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Apakah Anda yakin ingin keluar dari akun Anda?',
+            style: GoogleFonts.plusJakartaSans(
+              color: const Color(0xFF475569),
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                side: BorderSide(color: Colors.grey.shade300),
+              ),
+              child: Text(
+                'Batal',
+                style: GoogleFonts.plusJakartaSans(
+                  color: const Color(0xFF475569),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEF4444),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: Text(
+                'Ya, Keluar',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true) {
+      await signOut();
+      return true;
+    }
+    return false;
+  }
+
   /// Mengubah password pengguna saat ini via Cloud Function
   Future<void> changeOwnPassword(String newPassword) async {
     try {
@@ -171,3 +308,4 @@ class AuthService extends ChangeNotifier {
     }
   }
 }
+

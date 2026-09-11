@@ -16,6 +16,8 @@ class _SchoolListPageState extends State<SchoolListPage> {
   final _schoolService = SchoolService();
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _schoolsStream;
   String _searchQuery = '';
+  int _rowsPerPage = 10;
+  int _currentPage = 0;
 
   @override
   void initState() {
@@ -311,17 +313,6 @@ class _SchoolListPageState extends State<SchoolListPage> {
     return colors[index];
   }
 
-  String _getInitials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    if (parts.isNotEmpty && parts[0].isNotEmpty) {
-      return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
-    }
-    return 'S';
-  }
-
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -334,7 +325,7 @@ class _SchoolListPageState extends State<SchoolListPage> {
           // Top Bar
           Container(
             color: Colors.white.withValues(alpha: 0.6),
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            padding: EdgeInsets.fromLTRB(isDesktop ? 24 : 14, isDesktop ? 20 : 12, isDesktop ? 24 : 14, isDesktop ? 10 : 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -347,7 +338,7 @@ class _SchoolListPageState extends State<SchoolListPage> {
                           Text(
                             'Manajemen Sekolah',
                             style: GoogleFonts.inter(
-                              fontSize: 22,
+                              fontSize: isDesktop ? 22 : 17,
                               fontWeight: FontWeight.w800,
                               color: const Color(0xFF0F172A),
                               letterSpacing: -0.3,
@@ -355,9 +346,9 @@ class _SchoolListPageState extends State<SchoolListPage> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Kelola semua sekolah yang terdaftar di SesiCermat',
+                            'Kelola sekolah terdaftar di platform',
                             style: GoogleFonts.inter(
-                              fontSize: 13,
+                              fontSize: isDesktop ? 13 : 11.5,
                               color: const Color(0xFF64748B),
                             ),
                           ),
@@ -366,45 +357,48 @@ class _SchoolListPageState extends State<SchoolListPage> {
                     ),
                     ElevatedButton.icon(
                       onPressed: _openAddSchoolDialog,
-                      icon: const Icon(Icons.add_rounded, size: 18),
+                      icon: const Icon(Icons.add_rounded, size: 16),
                       label: Text(
-                        'Daftar Sekolah',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
+                        isDesktop ? 'Daftar Sekolah' : 'Tambah',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4F46E5),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        padding: EdgeInsets.symmetric(horizontal: isDesktop ? 20 : 12, vertical: isDesktop ? 14 : 10),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         elevation: 0,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
                 // Search bar
                 Container(
-                  height: 44,
+                  height: isDesktop ? 44 : 38,
                   decoration: BoxDecoration(
                     color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: TextField(
-                    onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
-                    style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF0F172A)),
+                    onChanged: (v) => setState(() {
+                      _searchQuery = v.toLowerCase();
+                      _currentPage = 0;
+                    }),
+                    style: GoogleFonts.inter(fontSize: isDesktop ? 14 : 13, color: const Color(0xFF0F172A)),
                     decoration: InputDecoration(
                       hintText: 'Cari nama sekolah atau kode...',
                       hintStyle: GoogleFonts.inter(
                         color: const Color(0xFF94A3B8),
-                        fontSize: 14,
+                        fontSize: isDesktop ? 14 : 12.5,
                       ),
                       prefixIcon: const Icon(Icons.search_rounded,
-                          color: Color(0xFF94A3B8), size: 20),
+                          color: Color(0xFF94A3B8), size: 18),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      contentPadding: EdgeInsets.symmetric(vertical: isDesktop ? 12 : 9),
                     ),
                   ),
                 ),
@@ -456,20 +450,31 @@ class _SchoolListPageState extends State<SchoolListPage> {
                 });
 
                 if (schools.isEmpty && _searchQuery.isEmpty) {
-                  // Show raw count info to help diagnose
-                  if (allDocs.isEmpty) {
-                    return _buildEmptyState();
-                  }
-                  // All docs filtered out (all deleted)
                   return _buildEmptyState();
                 }
                 if (schools.isEmpty) {
                   return _buildNoResultState();
                 }
+                // Calculate pagination
+                final totalSchools = schools.length;
+                final totalPages = (totalSchools / _rowsPerPage).ceil();
+
+                if (_currentPage >= totalPages && totalPages > 0) {
+                  _currentPage = totalPages - 1;
+                }
+
+                final startIndex = _currentPage * _rowsPerPage;
+                final endIndex = (startIndex + _rowsPerPage > totalSchools)
+                    ? totalSchools
+                    : startIndex + _rowsPerPage;
+
+                final pagedSchools = totalSchools > 0
+                    ? schools.sublist(startIndex, endIndex)
+                    : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
                 return isDesktop
-                    ? _buildDesktopView(schools)
-                    : _buildMobileView(schools);
+                    ? _buildDesktopView(pagedSchools, totalSchools, totalPages, startIndex, endIndex)
+                    : _buildMobileView(pagedSchools, totalSchools, totalPages, startIndex, endIndex);
               },
             ),
 
@@ -480,9 +485,245 @@ class _SchoolListPageState extends State<SchoolListPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // PAGINATION BAR WIDGET
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildPaginationBar({
+    required int totalSchools,
+    required int totalPages,
+    required int startIndex,
+    required int endIndex,
+    required bool isDesktop,
+  }) {
+    final displayStart = totalSchools > 0 ? startIndex + 1 : 0;
+    final displayEnd = endIndex;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 20 : 12,
+        vertical: isDesktop ? 12 : 10,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: isDesktop
+            ? const Border(top: BorderSide(color: Color(0xFFE2E8F0)))
+            : Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: isDesktop
+            ? const BorderRadius.vertical(bottom: Radius.circular(18))
+            : BorderRadius.circular(14),
+      ),
+      child: isDesktop
+          ? Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Left: Dropdown per page
+                Row(
+                  children: [
+                    Text(
+                      'Tampilkan:',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _rowsPerPage,
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Color(0xFF64748B)),
+                          isDense: true,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF0F172A),
+                          ),
+                          items: const [10, 20, 50, 100].map((int value) {
+                            return DropdownMenuItem<int>(
+                              value: value,
+                              child: Text('$value per halaman'),
+                            );
+                          }).toList(),
+                          onChanged: (int? newValue) {
+                            if (newValue != null) {
+                              setState(() {
+                                _rowsPerPage = newValue;
+                                _currentPage = 0;
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Text(
+                      'Menampilkan $displayStart–$displayEnd dari $totalSchools sekolah',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: const Color(0xFF64748B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                // Right: Page navigation
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left_rounded),
+                      iconSize: 22,
+                      color: const Color(0xFF475569),
+                      onPressed: _currentPage > 0
+                          ? () => setState(() => _currentPage--)
+                          : null,
+                      tooltip: 'Halaman Sebelumnya',
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Halaman ${_currentPage + 1} dari ${totalPages == 0 ? 1 : totalPages}',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      iconSize: 22,
+                      color: const Color(0xFF475569),
+                      onPressed: _currentPage < totalPages - 1
+                          ? () => setState(() => _currentPage++)
+                          : null,
+                      tooltip: 'Halaman Selanjutnya',
+                    ),
+                  ],
+                ),
+              ],
+            )
+          : Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '$displayStart–$displayEnd dari $totalSchools sekolah',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: const Color(0xFF64748B),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Text(
+                          'Tampil: ',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              value: _rowsPerPage,
+                              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF64748B)),
+                              isDense: true,
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF0F172A),
+                              ),
+                              items: const [10, 20, 50, 100].map((int value) {
+                                return DropdownMenuItem<int>(
+                                  value: value,
+                                  child: Text('$value'),
+                                );
+                              }).toList(),
+                              onChanged: (int? newValue) {
+                                if (newValue != null) {
+                                  setState(() {
+                                    _rowsPerPage = newValue;
+                                    _currentPage = 0;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _currentPage > 0
+                          ? () => setState(() => _currentPage--)
+                          : null,
+                      icon: const Icon(Icons.chevron_left_rounded, size: 16),
+                      label: Text('Sebelumnya', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '${_currentPage + 1} / ${totalPages == 0 ? 1 : totalPages}',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: _currentPage < totalPages - 1
+                          ? () => setState(() => _currentPage++)
+                          : null,
+                      icon: const Icon(Icons.chevron_right_rounded, size: 16),
+                      label: Text('Selanjutnya', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // DESKTOP TABLE VIEW
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildDesktopView(List<QueryDocumentSnapshot<Map<String, dynamic>>> schools) {
+  Widget _buildDesktopView(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> schools,
+    int totalSchools,
+    int totalPages,
+    int startIndex,
+    int endIndex,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: LayoutBuilder(
@@ -527,11 +768,10 @@ class _SchoolListPageState extends State<SchoolListPage> {
                   ),
                   child: Row(
                     children: [
-                      _buildTableHeader('Sekolah', flex: 3),
+                      _buildTableHeader('Sekolah', flex: 4),
                       _buildTableHeader('Kode', flex: 2),
                       _buildTableHeader('Admin Email', flex: 3),
-                      _buildTableHeader('Pengguna', flex: 2),
-                      _buildTableHeader('Batas Kuota', flex: 2),
+                      _buildTableHeader('Batas Kuota', flex: 3),
                       _buildTableHeader('Status', flex: 2),
                       _buildTableHeader('Kontrol', flex: 3),
                     ],
@@ -549,7 +789,6 @@ class _SchoolListPageState extends State<SchoolListPage> {
                   final maxStudentQuota = data['maxStudentQuota'] ?? 500;
                   final disabled = data['disabled'] == true;
                   final name = data['name'] ?? '-';
-                  final avatarColor = _getSchoolAvatarColor(name);
 
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -561,44 +800,17 @@ class _SchoolListPageState extends State<SchoolListPage> {
                     ),
                     child: Row(
                       children: [
-                        // School name with avatar
+                        // School name
                         Expanded(
-                          flex: 3,
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 38,
-                                height: 38,
-                                decoration: BoxDecoration(
-                                  color: avatarColor.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: avatarColor.withValues(alpha: 0.25),
-                                  ),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  _getInitials(name),
-                                  style: GoogleFonts.inter(
-                                    color: avatarColor,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  style: GoogleFonts.inter(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                    color: const Color(0xFF0F172A),
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                          flex: 4,
+                          child: Text(
+                            name,
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                              color: const Color(0xFF0F172A),
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         // Code badge
@@ -636,27 +848,9 @@ class _SchoolListPageState extends State<SchoolListPage> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        Expanded(
-                          flex: 2,
-                          child: Row(
-                            children: [
-                              _buildMiniStat(
-                                Icons.person_rounded,
-                                '$teacherCount',
-                                const Color(0xFF4F46E5),
-                              ),
-                              const SizedBox(width: 8),
-                              _buildMiniStat(
-                                Icons.school_rounded,
-                                '$studentCount',
-                                const Color(0xFF06B6D4),
-                              ),
-                            ],
-                          ),
-                        ),
                         // Quota info column
                         Expanded(
-                          flex: 2,
+                          flex: 3,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -725,6 +919,14 @@ class _SchoolListPageState extends State<SchoolListPage> {
                     ),
                   );
                 }),
+                // Bottom Pagination Bar
+                _buildPaginationBar(
+                  totalSchools: totalSchools,
+                  totalPages: totalPages,
+                  startIndex: startIndex,
+                  endIndex: endIndex,
+                  isDesktop: true,
+                ),
               ],
             ),
           );
@@ -748,133 +950,151 @@ class _SchoolListPageState extends State<SchoolListPage> {
     );
   }
 
-  Widget _buildMiniStat(IconData icon, String value, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 13, color: color),
-        const SizedBox(width: 3),
-        Text(
-          value,
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF475569),
-          ),
-        ),
-      ],
-    );
-  }
-
   // ─────────────────────────────────────────────────────────────────────────
   // MOBILE CARD VIEW
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildMobileView(List<QueryDocumentSnapshot<Map<String, dynamic>>> schools) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: schools.length,
-      itemBuilder: (context, index) {
-        final doc = schools[index];
-        final data = doc.data();
-        final meta = data['meta'] as Map<String, dynamic>? ?? {};
-        final teacherCount = meta['teacherCount'] ?? 0;
-        final studentCount = meta['studentCount'] ?? 0;
-        final disabled = data['disabled'] == true;
-        final name = data['name'] ?? '-';
-        final avatarColor = _getSchoolAvatarColor(name);
+  Widget _buildMobileView(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> schools,
+    int totalSchools,
+    int totalPages,
+    int startIndex,
+    int endIndex,
+  ) {
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: schools.length,
+            itemBuilder: (context, index) {
+              final doc = schools[index];
+              final data = doc.data();
+              final meta = data['meta'] as Map<String, dynamic>? ?? {};
+              final teacherCount = meta['teacherCount'] ?? 0;
+              final studentCount = meta['studentCount'] ?? 0;
+              final maxTeacherQuota = data['maxTeacherQuota'] ?? 50;
+              final maxStudentQuota = data['maxStudentQuota'] ?? 500;
+              final disabled = data['disabled'] == true;
+              final name = data['name'] ?? '-';
+              final avatarColor = _getSchoolAvatarColor(name);
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: avatarColor.withValues(alpha: 0.15)),
-            boxShadow: [
-              BoxShadow(
-                color: avatarColor.withValues(alpha: 0.06),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              // Card header with avatar
-              Container(
-                padding: const EdgeInsets.all(16),
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: avatarColor.withValues(alpha: 0.05),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                  border: Border(
-                    bottom: BorderSide(
-                      color: avatarColor.withValues(alpha: 0.12),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: avatarColor.withValues(alpha: 0.18)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: avatarColor.withValues(alpha: 0.06),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
-                  ),
+                  ],
                 ),
-                child: Row(
+                child: Column(
                   children: [
+                    // Card header with avatar, school name & code
                     Container(
-                      width: 46,
-                      height: 46,
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            avatarColor,
-                            avatarColor.withValues(alpha: 0.75),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: avatarColor.withValues(alpha: 0.35),
-                            blurRadius: 8,
-                            offset: const Offset(0, 3),
+                        color: avatarColor.withValues(alpha: 0.05),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: avatarColor.withValues(alpha: 0.12),
                           ),
-                        ],
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        _getInitials(name),
-                        style: GoogleFonts.inter(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          Text(
-                            name,
-                            style: GoogleFonts.inter(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF0F172A),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: Text(
+                                    data['code'] ?? '-',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF475569),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 3),
+                          _buildStatusBadge(disabled),
+                        ],
+                      ),
+                    ),
+
+                    // Card body info
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
                           Row(
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
+                              const Icon(Icons.email_outlined,
+                                  size: 15, color: Color(0xFF94A3B8)),
+                              const SizedBox(width: 8),
+                              Expanded(
                                 child: Text(
-                                  data['code'] ?? '-',
+                                  data['adminEmail'] ?? '-',
                                   style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF475569),
-                                    letterSpacing: 0.5,
+                                    fontSize: 12.5,
+                                    color: const Color(0xFF64748B),
                                   ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          // Quota pills
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildStatPill(
+                                  Icons.group_rounded,
+                                  'Guru: $teacherCount/$maxTeacherQuota',
+                                  teacherCount >= maxTeacherQuota
+                                      ? const Color(0xFFDC2626)
+                                      : const Color(0xFF4F46E5),
+                                  teacherCount >= maxTeacherQuota
+                                      ? const Color(0xFFFEF2F2)
+                                      : const Color(0xFFF5F3FF),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _buildStatPill(
+                                  Icons.school_rounded,
+                                  'Murid: $studentCount/$maxStudentQuota',
+                                  studentCount >= maxStudentQuota
+                                      ? const Color(0xFFDC2626)
+                                      : const Color(0xFF0284C7),
+                                  studentCount >= maxStudentQuota
+                                      ? const Color(0xFFFEF2F2)
+                                      : const Color(0xFFEFF6FF),
                                 ),
                               ),
                             ],
@@ -882,126 +1102,122 @@ class _SchoolListPageState extends State<SchoolListPage> {
                         ],
                       ),
                     ),
-                    _buildStatusBadge(disabled),
-                  ],
-                ),
-              ),
 
-              // Card body
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.email_outlined,
-                            size: 15, color: Color(0xFF94A3B8)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            data['adminEmail'] ?? '-',
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              color: const Color(0xFF64748B),
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                    // Card footer action bar (ALL features accessible)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFAFAFC),
+                        borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                        border: Border(
+                          top: BorderSide(color: Color(0xFFF1F5F9)),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatPill(
-                            Icons.person_rounded,
-                            '$teacherCount Guru',
-                            const Color(0xFF4F46E5),
-                            const Color(0xFFF5F3FF),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _buildStatPill(
-                            Icons.school_rounded,
-                            '$studentCount Murid',
-                            const Color(0xFF0284C7),
-                            const Color(0xFFEFF6FF),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: disabled
-                                ? const Color(0xFFFEF2F2)
-                                : const Color(0xFFF0FDF4),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: disabled
-                                  ? const Color(0xFFFECACA)
-                                  : const Color(0xFFBBF7D0),
-                            ),
-                          ),
-                          child: Row(
+                      ),
+                      child: Row(
+                        children: [
+                          // Status toggle switch
+                          Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8, top: 6, bottom: 6),
-                                child: Text(
-                                  disabled ? 'Nonaktif' : 'Aktif',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: disabled
-                                        ? const Color(0xFFDC2626)
-                                        : const Color(0xFF059669),
-                                  ),
-                                ),
-                              ),
                               Switch.adaptive(
                                 value: !disabled,
                                 activeTrackColor: const Color(0xFF10B981),
                                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 onChanged: (_) => _toggleSchoolStatus(doc.id, disabled),
                               ),
+                              Text(
+                                disabled ? 'Nonaktif' : 'Aktif',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: disabled
+                                      ? const Color(0xFFDC2626)
+                                      : const Color(0xFF059669),
+                                ),
+                              ),
                             ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 20),
-                          onPressed: () => _showResetPasswordDialog(doc.id, name),
-                          style: IconButton.styleFrom(
-                            padding: const EdgeInsets.all(8),
-                            backgroundColor: const Color(0xFFFFFBEB),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: const BorderSide(color: Color(0xFFFDE68A)),
-                            ),
+                          const Spacer(),
+                          // Action buttons
+                          Row(
+                            children: [
+                              // Atur Kuota
+                              IconButton(
+                                icon: const Icon(Icons.tune_rounded, size: 18),
+                                color: const Color(0xFF4F46E5),
+                                tooltip: 'Atur Kuota',
+                                onPressed: () => _showEditQuotaDialog(
+                                    doc.id, name, maxStudentQuota, maxTeacherQuota),
+                                style: IconButton.styleFrom(
+                                  padding: const EdgeInsets.all(7),
+                                  backgroundColor: const Color(0xFFEEF2FF),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Reset Password Admin
+                              IconButton(
+                                icon: const Icon(Icons.key_rounded, size: 18),
+                                color: const Color(0xFFD97706),
+                                tooltip: 'Reset Password Admin',
+                                onPressed: () => _showResetPasswordDialog(doc.id, name),
+                                style: IconButton.styleFrom(
+                                  padding: const EdgeInsets.all(7),
+                                  backgroundColor: const Color(0xFFFFFBEB),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: const BorderSide(color: Color(0xFFFDE68A)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Hapus Sekolah
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                                color: const Color(0xFFDC2626),
+                                tooltip: 'Hapus Sekolah',
+                                onPressed: () => _deleteSchool(doc.id, name),
+                                style: IconButton.styleFrom(
+                                  padding: const EdgeInsets.all(7),
+                                  backgroundColor: const Color(0xFFFEF2F2),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: const BorderSide(color: Color(0xFFFECACA)),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
-                          onPressed: () => _deleteSchool(doc.id, name),
-                          style: IconButton.styleFrom(
-                            padding: const EdgeInsets.all(8),
-                            backgroundColor: const Color(0xFFFEF2F2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: const BorderSide(color: Color(0xFFFECACA)),
-                            ),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              );
+            },
           ),
-        );
-      },
+        ),
+        // Pagination bar at bottom of mobile view
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: _buildPaginationBar(
+            totalSchools: totalSchools,
+            totalPages: totalPages,
+            startIndex: startIndex,
+            endIndex: endIndex,
+            isDesktop: false,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1160,6 +1376,8 @@ class _SchoolListPageState extends State<SchoolListPage> {
                   : () async {
                       if (formKey.currentState!.validate()) {
                         setDialogState(() => isSaving = true);
+                        final messenger = ScaffoldMessenger.of(context);
+                        final nav = Navigator.of(ctx);
                         try {
                           await _schoolService.updateSchoolQuota(
                             schoolId: schoolId,
@@ -1167,8 +1385,8 @@ class _SchoolListPageState extends State<SchoolListPage> {
                             maxTeacherQuota: int.parse(teacherCtrl.text.trim()),
                           );
                           if (mounted) {
-                            Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            nav.pop();
+                            messenger.showSnackBar(
                               const SnackBar(
                                 content: Text('Kuota sekolah berhasil diperbarui!'),
                                 backgroundColor: Color(0xFF10B981),
@@ -1177,7 +1395,7 @@ class _SchoolListPageState extends State<SchoolListPage> {
                           }
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            messenger.showSnackBar(
                               SnackBar(content: Text('Gagal memperbarui kuota: $e'), backgroundColor: Colors.red),
                             );
                           }

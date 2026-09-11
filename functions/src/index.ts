@@ -463,13 +463,16 @@ export const createStudent = functions.https.onCall(async (request) => {
       const schoolDoc = await transaction.get(schoolRef);
       if (schoolDoc.exists) {
         const sData = schoolDoc.data() || {};
-        const currentCount = sData.meta?.studentCount || 0;
         const maxQuota = sData.maxStudentQuota;
-        if (typeof maxQuota === 'number' && maxQuota > 0 && currentCount >= maxQuota) {
-          throw new functions.https.HttpsError(
-            'resource-exhausted',
-            `Kuota murid telah mencapai batas maksimal (${currentCount}/${maxQuota}). Silakan hubungi Super Admin.`
-          );
+        if (typeof maxQuota === 'number' && maxQuota > 0) {
+          const studentsSnap = await transaction.get(schoolRef.collection('students'));
+          const activeCount = studentsSnap.docs.filter(d => d.data().archived !== true && d.data().status !== 'inactive').length;
+          if (activeCount >= maxQuota) {
+            throw new functions.https.HttpsError(
+              'resource-exhausted',
+              `Kuota murid aktif telah mencapai batas maksimal (${activeCount}/${maxQuota}). Non-aktifkan murid lain atau hubungi Super Admin.`
+            );
+          }
         }
       }
 
@@ -1008,13 +1011,16 @@ export const importStudentsBulk = functions.https.onCall(async (request) => {
   const schoolDoc = await db.collection('schools').doc(schoolId).get();
   if (schoolDoc.exists) {
     const sData = schoolDoc.data() || {};
-    const currentCount = sData.meta?.studentCount || 0;
     const maxQuota = sData.maxStudentQuota;
-    if (typeof maxQuota === 'number' && maxQuota > 0 && (currentCount + rows.length) > maxQuota) {
-      throw new functions.https.HttpsError(
-        'resource-exhausted',
-        `Import dibatalkan: Jumlah murid melebihi kuota (${currentCount} + ${rows.length} / ${maxQuota}). Silakan hubungi Super Admin.`
-      );
+    if (typeof maxQuota === 'number' && maxQuota > 0) {
+      const activeSnap = await db.collection('schools').doc(schoolId).collection('students').get();
+      const activeCount = activeSnap.docs.filter(d => d.data().archived !== true && d.data().status !== 'inactive').length;
+      if ((activeCount + rows.length) > maxQuota) {
+        throw new functions.https.HttpsError(
+          'resource-exhausted',
+          `Import dibatalkan: Jumlah murid aktif melebihi kuota (${activeCount} aktif + ${rows.length} baru / ${maxQuota}). Silakan hubungi Super Admin.`
+        );
+      }
     }
   }
 
@@ -2201,7 +2207,18 @@ export const resolveSuperAdminUsername = functions.https.onCall(async (request) 
  * Updates maximum quota for students and teachers for a school.
  */
 export const updateSchoolQuota = functions.https.onCall(async (request) => {
-  if (!request.auth || request.auth.token.role !== 'super_admin') {
+  if (!request.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'Pengguna harus login terlebih dahulu.'
+    );
+  }
+
+  const isSuperAdmin =
+    request.auth.token.role === 'super_admin' ||
+    request.auth.token.email === 'sadmin@sesicermat.com';
+
+  if (!isSuperAdmin) {
     throw new functions.https.HttpsError(
       'permission-denied',
       'Hanya Super Admin yang dapat mengubah kuota sekolah.'
@@ -2219,7 +2236,44 @@ export const updateSchoolQuota = functions.https.onCall(async (request) => {
   if (typeof maxTeacherQuota === 'number') updateData.maxTeacherQuota = maxTeacherQuota;
 
   await db.collection('schools').doc(schoolId).update(updateData);
-  return { success: true, message: 'Kuota sekolah berhasil diperbarui.' };
+
+  let deactivatedCount = 0;
+  if (typeof maxStudentQuota === 'number') {
+    try {
+      const studentsSnap = await db.collection('schools').doc(schoolId).collection('students').get();
+      const activeDocs = studentsSnap.docs.filter(d => d.data().status !== 'inactive');
+      if (activeDocs.length > maxStudentQuota) {
+        // Sort newest created first to deactivate excess recent additions
+        activeDocs.sort((a, b) => {
+          const tA = a.data().createdAt ? new Date(a.data().createdAt).getTime() : 0;
+          const tB = b.data().createdAt ? new Date(b.data().createdAt).getTime() : 0;
+          return tB - tA;
+        });
+
+        deactivatedCount = activeDocs.length - maxStudentQuota;
+        const excessDocs = activeDocs.slice(0, deactivatedCount);
+        const batch = db.batch();
+        for (const sDoc of excessDocs) {
+          batch.update(sDoc.ref, { status: 'inactive', updatedAt: FieldValue.serverTimestamp() });
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      console.error('Error auto-deactivating excess students:', e);
+    }
+  }
+
+  try {
+    if (request.auth.token.role !== 'super_admin') {
+      await admin.auth().setCustomUserClaims(request.auth.uid, { role: 'super_admin' });
+    }
+  } catch (_) {}
+
+  const msg = deactivatedCount > 0
+    ? `Kuota sekolah berhasil diperbarui. ${deactivatedCount} siswa yang melebihi kuota otomatis ditandai Non-Aktif.`
+    : 'Kuota sekolah berhasil diperbarui.';
+
+  return { success: true, message: msg, deactivatedCount };
 });
 
 

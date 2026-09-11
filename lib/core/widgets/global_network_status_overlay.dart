@@ -16,8 +16,8 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<NetworkService>(
       builder: (context, networkService, _) {
-        final bool isOffline = !networkService.isOnline;
-        final bool showReconnected = networkService.showReconnectedBanner;
+        final bool isOffline = !networkService.isOnline && !networkService.suppressBanner;
+        final bool showReconnected = networkService.showReconnectedBanner && !networkService.suppressBanner;
 
         return Directionality(
           textDirection: TextDirection.ltr,

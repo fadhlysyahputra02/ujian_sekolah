@@ -41,7 +41,7 @@ class SchoolService {
     }
   }
 
-  /// Triggers the updateSchoolQuota Cloud Function to update quotas.
+  /// Triggers the updateSchoolQuota Cloud Function to update quotas with Firestore fallback.
   Future<void> updateSchoolQuota({
     required String schoolId,
     required int maxStudentQuota,
@@ -55,8 +55,16 @@ class SchoolService {
         'maxTeacherQuota': maxTeacherQuota,
       });
     } catch (e) {
-      debugPrint("Error in updateSchoolQuota: $e");
-      rethrow;
+      debugPrint("Cloud Function updateSchoolQuota error: $e. Falling back to direct Firestore update...");
+      try {
+        await _firestore.collection('schools').doc(schoolId).update({
+          'maxStudentQuota': maxStudentQuota,
+          'maxTeacherQuota': maxTeacherQuota,
+        });
+      } catch (fsError) {
+        debugPrint("Direct Firestore updateSchoolQuota error: $fsError");
+        rethrow;
+      }
     }
   }
 

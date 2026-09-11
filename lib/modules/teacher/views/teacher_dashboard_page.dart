@@ -549,7 +549,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       mainAxisSize: MainAxisSize.min,
       children: [
         InkWell(
-          onTap: () => authService.signOut(),
+          onTap: () => authService.confirmAndSignOut(context),
           borderRadius: BorderRadius.circular(12),
           child: Container(
             padding: EdgeInsets.symmetric(
@@ -633,7 +633,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               InkWell(
-                onTap: () => authService.signOut(),
+                onTap: () => authService.confirmAndSignOut(context),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
@@ -808,23 +808,25 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: Container(
             width: double.infinity,
             constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            padding: const EdgeInsets.all(28),
+            padding: EdgeInsets.all(isMobile ? 14.0 : 28.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildTeacherWelcomeBanner(teacher),
-                const SizedBox(height: 24),
-                _buildSectionLabel('Tugas & Statistik Anda'),
-                const SizedBox(height: 12),
+                SizedBox(height: isMobile ? 16 : 24),
+                _buildSectionLabel('Tugas & Statistik Anda', subtitle: 'Metrik tugas pembuat soal & pengawas ujian real-time.'),
+                SizedBox(height: isMobile ? 10 : 12),
                 _buildStatsGrid(schoolId, teacher.id),
-                const SizedBox(height: 28),
-                _buildSectionLabel('Daftar Event Ujian Semester'),
-                const SizedBox(height: 12),
+                SizedBox(height: isMobile ? 20 : 28),
+                _buildSectionLabel('Daftar Event Ujian Semester', subtitle: 'Pilih event ujian aktif untuk kelola soal & pengawasan.'),
+                SizedBox(height: isMobile ? 10 : 12),
                 _buildEventsList(schoolId, teacher.id),
               ],
             ),
@@ -838,72 +840,109 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     final isMale = teacher.gender == 'M';
     final honorific = isMale ? 'Pak' : 'Bu';
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF065F46), Color(0xFF0F766E), Color(0xFF115E59)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF047857).withValues(alpha: 0.25),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '👋 Selamat Datang Kembali,',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFA7F3D0),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '$honorific ${teacher.displayName}',
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'NIP: ${teacher.nip.isNotEmpty ? teacher.nip : "-"} • Mapel: ${teacher.subjects.join(", ")}',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFD1FAE5),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(isMobile ? 14 : 24),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF0F172A), Color(0xFF047857), Color(0xFF065F46)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
+            borderRadius: BorderRadius.circular(isMobile ? 14 : 20),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF047857).withValues(alpha: 0.2),
+                blurRadius: isMobile ? 12 : 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: Colors.white.withValues(alpha: 0.15),
-            child: Icon(
-              isMale ? Icons.face_rounded : Icons.face_3_rounded,
-              color: Colors.white,
-              size: 36,
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.25),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFF34D399).withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.school_rounded, color: Color(0xFF6EE7B7), size: 12),
+                              const SizedBox(width: 4),
+                              Text(
+                                'GURU / PENGAWAS',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFFA7F3D0),
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: isMobile ? 6 : 8),
+                    Text(
+                      '👋 Selamat Datang Kembali,',
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFFA7F3D0),
+                        fontSize: isMobile ? 11 : 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$honorific ${teacher.displayName}',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: isMobile ? 18 : 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    SizedBox(height: isMobile ? 4 : 8),
+                    Text(
+                      'NIP: ${teacher.nip.isNotEmpty ? teacher.nip : "-"} • Mapel: ${teacher.subjects.join(", ")}',
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFFD1FAE5),
+                        fontSize: isMobile ? 11 : 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              CircleAvatar(
+                radius: isMobile ? 22 : 28,
+                backgroundColor: Colors.white.withValues(alpha: 0.15),
+                child: Icon(
+                  isMale ? Icons.face_rounded : Icons.face_3_rounded,
+                  color: Colors.white,
+                  size: isMobile ? 26 : 36,
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -930,36 +969,40 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
 
         return LayoutBuilder(builder: (context, constraints) {
           final width = constraints.maxWidth;
-          final crossAxisCount = width > 600 ? 3 : 1;
+          final isMobile = width < 600;
+          final crossAxisCount = width > 700 ? 3 : (width > 340 ? 3 : 1);
 
           return GridView.count(
             crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 14,
-            mainAxisSpacing: 14,
+            crossAxisSpacing: isMobile ? 8 : 14,
+            mainAxisSpacing: isMobile ? 8 : 14,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: width > 600 ? 1.8 : 3.2,
+            childAspectRatio: width > 700 ? 1.8 : (isMobile ? 0.94 : 3.2),
             children: [
               _buildStatsCard(
-                title: 'Tugas Pembuat Soal',
+                title: 'Pembuat Soal',
                 value: '$_makingQuestionsCount',
-                desc: 'Mata pelajaran yang diampu',
+                desc: 'Mapel diampu',
                 icon: Icons.edit_note_rounded,
                 gradientColors: [const Color(0xFF0284C7), const Color(0xFF0369A1)],
+                isMobile: isMobile,
               ),
               _buildStatsCard(
-                title: 'Tugas Mengawas Ujian',
+                title: 'Mengawas Ujian',
                 value: '$_proctoringSessionsCount',
-                desc: 'Sesi ruangan ujian',
+                desc: 'Sesi ruangan',
                 icon: Icons.visibility_rounded,
                 gradientColors: [const Color(0xFFD97706), const Color(0xFFB45309)],
+                isMobile: isMobile,
               ),
               _buildStatsCard(
-                title: 'Total Event Berlangsung',
+                title: 'Event Aktif',
                 value: '${events.where((e) => (e.data() as Map)['status'] == 'published').length}',
-                desc: 'Event aktif di sekolah',
+                desc: 'Event sekolah',
                 icon: Icons.event_available_rounded,
                 gradientColors: [const Color(0xFF059669), const Color(0xFF047857)],
+                isMobile: isMobile,
               ),
             ],
           );
@@ -974,68 +1017,119 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     required String desc,
     required IconData icon,
     required List<Color> gradientColors,
+    bool isMobile = false,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isMobile ? 10 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(isMobile ? 12 : 16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
             color: gradientColors.first.withValues(alpha: 0.05),
-            blurRadius: 10,
+            blurRadius: isMobile ? 6 : 10,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: gradientColors),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
+      child: isMobile
+          ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(colors: gradientColors),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 16),
+                    ),
+                    Text(
+                      value,
+                      style: GoogleFonts.inter(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
                   title,
                   style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF64748B),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF334155),
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: GoogleFonts.inter(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1E293B),
-                  ),
-                ),
+                const SizedBox(height: 1),
                 Text(
                   desc,
                   style: GoogleFonts.inter(
-                    fontSize: 10,
-                    color: const Color(0xFF94A3B8),
+                    fontSize: 8.5,
+                    color: const Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
+            )
+          : Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: gradientColors),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        value,
+                        style: GoogleFonts.inter(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF1E293B),
+                        ),
+                      ),
+                      Text(
+                        desc,
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1065,30 +1159,31 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
 
         if (publishedEvents.isEmpty) {
           return Container(
-            padding: const EdgeInsets.all(32),
+            padding: const EdgeInsets.all(24),
             width: double.infinity,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
             child: Column(
               children: [
                 const Icon(Icons.event_busy_rounded,
-                    color: Color(0xFF94A3B8), size: 44),
-                const SizedBox(height: 12),
+                    color: Color(0xFF94A3B8), size: 36),
+                const SizedBox(height: 10),
                 Text(
                   'Belum Ada Event Aktif',
                   style: GoogleFonts.inter(
                     fontWeight: FontWeight.bold,
                     color: const Color(0xFF475569),
+                    fontSize: 14,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   'Hubungi admin sekolah untuk menerbitkan jadwal ujian.',
                   style: GoogleFonts.inter(
-                    fontSize: 12,
+                    fontSize: 11,
                     color: const Color(0xFF64748B),
                   ),
                   textAlign: TextAlign.center,
@@ -1098,11 +1193,13 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           );
         }
 
+        final isMobile = MediaQuery.of(context).size.width < 600;
+
         return ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: publishedEvents.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, __) => SizedBox(height: isMobile ? 10 : 12),
           itemBuilder: (context, index) {
             final doc = publishedEvents[index];
             final data = doc.data() as Map<String, dynamic>;
@@ -1134,12 +1231,12 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                   onTap: () {
                     context.go('/teacher/event/$eventId/buatsoal?name=${Uri.encodeComponent(eventName)}');
                   },
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(isMobile ? 14 : 16),
                   child: Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: EdgeInsets.all(isMobile ? 12 : 18),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(isMobile ? 14 : 16),
                       border: Border.all(
                         color: (isPembuatSoal || isPengawas)
                             ? const Color(0xFFA7F3D0)
@@ -1149,8 +1246,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                       boxShadow: [
                         BoxShadow(
                           color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
+                          blurRadius: isMobile ? 6 : 10,
+                          offset: const Offset(0, 3),
                         ),
                       ],
                     ),
@@ -1163,8 +1260,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                               Row(
                                 children: [
                                   Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 3),
+                                    padding: EdgeInsets.symmetric(
+                                        horizontal: isMobile ? 7 : 8, vertical: isMobile ? 2 : 3),
                                     decoration: BoxDecoration(
                                       color: (data['status'] == 'published')
                                           ? const Color(0xFFD1FAE5)
@@ -1174,7 +1271,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                                     child: Text(
                                       (data['status'] == 'published') ? 'AKTIF' : 'DRAF',
                                       style: GoogleFonts.inter(
-                                        fontSize: 9,
+                                        fontSize: isMobile ? 8.5 : 9,
                                         fontWeight: FontWeight.bold,
                                         color: (data['status'] == 'published')
                                             ? const Color(0xFF065F46)
@@ -1186,45 +1283,47 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                                   Text(
                                     dateStr,
                                     style: GoogleFonts.inter(
-                                      fontSize: 11,
+                                      fontSize: isMobile ? 10.5 : 11,
                                       color: const Color(0xFF64748B),
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 8),
+                              SizedBox(height: isMobile ? 6 : 8),
                               Text(
                                 eventName,
                                 style: GoogleFonts.inter(
-                                  fontSize: 16,
+                                  fontSize: isMobile ? 14.5 : 16,
                                   fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF1E293B),
+                                  color: const Color(0xFF0F172A),
                                 ),
                               ),
-                              const SizedBox(height: 10),
+                              SizedBox(height: isMobile ? 8 : 10),
                               Wrap(
-                                spacing: 8,
-                                runSpacing: 6,
+                                spacing: isMobile ? 6 : 8,
+                                runSpacing: isMobile ? 4 : 6,
                                 children: [
                                   _buildAssignmentBadge(
                                     label: 'Pembuat Soal',
                                     active: isPembuatSoal,
                                     icon: Icons.edit_note_rounded,
+                                    isMobile: isMobile,
                                   ),
                                   _buildAssignmentBadge(
                                     label: 'Pengawas Ruang',
                                     active: isPengawas,
                                     icon: Icons.visibility_rounded,
+                                    isMobile: isMobile,
                                   ),
                                 ],
                               ),
                             ],
                           ),
                         ),
-                        const Icon(
+                        Icon(
                           Icons.arrow_forward_ios_rounded,
-                          color: Color(0xFF94A3B8),
-                          size: 16,
+                          color: const Color(0xFF94A3B8),
+                          size: isMobile ? 14 : 16,
                         ),
                       ],
                     ),
@@ -1242,9 +1341,13 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     required String label,
     required bool active,
     required IconData icon,
+    bool isMobile = false,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 8 : 10,
+        vertical: isMobile ? 3 : 4,
+      ),
       decoration: BoxDecoration(
         color: active
             ? const Color(0xFFECFDF5)
@@ -1261,14 +1364,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
         children: [
           Icon(
             icon,
-            size: 14,
+            size: isMobile ? 12 : 14,
             color: active ? const Color(0xFF047857) : const Color(0xFF64748B),
           ),
           const SizedBox(width: 4),
           Text(
             label,
             style: GoogleFonts.inter(
-              fontSize: 11,
+              fontSize: isMobile ? 10 : 11,
               fontWeight: active ? FontWeight.bold : FontWeight.w500,
               color: active ? const Color(0xFF047857) : const Color(0xFF64748B),
             ),
@@ -1382,34 +1485,49 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     return res;
   }
 
-  Widget _buildSectionLabel(String text) {
-    return Row(
+  Widget _buildSectionLabel(String text, {String? subtitle}) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 4,
-          height: 18,
-          decoration: BoxDecoration(
-            color: const Color(0xFF10B981),
-            borderRadius: BorderRadius.circular(2),
-          ),
+        Row(
+          children: [
+            Container(
+              width: 4,
+              height: isMobile ? 15 : 18,
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: GoogleFonts.inter(
+                fontSize: isMobile ? 14.5 : 15,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(
-          text,
-          style: GoogleFonts.inter(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF1E293B),
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: Text(
+              subtitle,
+              style: GoogleFonts.inter(
+                fontSize: isMobile ? 10.5 : 11,
+                color: const Color(0xFF64748B),
+              ),
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ─────────────────────────────────────────────────────────────────────────
-  // TAB 2: EVENT UJIAN SEMESTER (PLACEHOLDER)
-  // ─────────────────────────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────────────────
   // TAB 2: EVENT UJIAN SEMESTER (STREAM ALL EVENTS)
   // ─────────────────────────────────────────────────────────────────────────
@@ -1480,42 +1598,62 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           );
         }
 
+        final isMobile = MediaQuery.of(context).size.width < 600;
+
         return ListView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(isMobile ? 14 : 24),
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFECFDF5),
-                    borderRadius: BorderRadius.circular(12),
+            Container(
+              padding: EdgeInsets.all(isMobile ? 14 : 18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(isMobile ? 14 : 16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F172A).withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
                   ),
-                  child: const Icon(Icons.event_available_rounded, color: Color(0xFF10B981), size: 24),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Daftar Event Ujian Semester',
-                        style: GoogleFonts.inter(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF0F172A),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.event_available_rounded, color: Color(0xFF10B981), size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Daftar Event Ujian Semester',
+                          style: GoogleFonts.inter(
+                            fontSize: isMobile ? 16 : 20,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF0F172A),
+                          ),
                         ),
-                      ),
-                      Text(
-                        'Pilih event ujian untuk melihat jadwal, mengedit/membuat soal, atau koreksi.',
-                        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                      ),
-                    ],
+                        Text(
+                          'Pilih event ujian untuk melihat jadwal, mengedit/membuat soal, atau koreksi.',
+                          style: GoogleFonts.inter(
+                            fontSize: isMobile ? 11.5 : 13,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: isMobile ? 14 : 24),
             ...docs.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
               final eventId = doc.id;
@@ -1551,21 +1689,21 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
               final isDesktopWidth = MediaQuery.of(context).size.width > 600;
 
               return Container(
-                margin: const EdgeInsets.only(bottom: 16),
+                margin: EdgeInsets.only(bottom: isMobile ? 10 : 16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(isMobile ? 14 : 16),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.03),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+                      blurRadius: isMobile ? 6 : 10,
+                      offset: const Offset(0, 3),
                     ),
                   ],
                 ),
                 child: Padding(
-                  padding: EdgeInsets.all(isDesktopWidth ? 20 : 16),
+                  padding: EdgeInsets.all(isDesktopWidth ? 20 : (isMobile ? 12 : 16)),
                   child: isDesktopWidth
                       ? Row(
                           children: [
@@ -1657,14 +1795,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Container(
-                                  padding: const EdgeInsets.all(10),
+                                  padding: const EdgeInsets.all(9),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF1F5F9),
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: const Icon(Icons.assignment_outlined, color: Color(0xFF4F46E5), size: 24),
+                                  child: const Icon(Icons.assignment_outlined, color: Color(0xFF4F46E5), size: 20),
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1672,14 +1810,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                                       Text(
                                         name,
                                         style: GoogleFonts.inter(
-                                          fontSize: 15,
+                                          fontSize: 14.5,
                                           fontWeight: FontWeight.bold,
                                           color: const Color(0xFF0F172A),
                                         ),
                                       ),
-                                      const SizedBox(height: 6),
+                                      const SizedBox(height: 4),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                         decoration: BoxDecoration(
                                           color: statusColor.withValues(alpha: 0.1),
                                           borderRadius: BorderRadius.circular(20),
@@ -1688,7 +1826,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                                         child: Text(
                                           statusLabel,
                                           style: GoogleFonts.inter(
-                                            fontSize: 10,
+                                            fontSize: 9.5,
                                             fontWeight: FontWeight.bold,
                                             color: statusColor,
                                           ),
@@ -1699,19 +1837,19 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 10),
                             Wrap(
                               spacing: 12,
-                              runSpacing: 6,
+                              runSpacing: 4,
                               children: [
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF64748B)),
-                                    const SizedBox(width: 6),
+                                    const SizedBox(width: 4),
                                     Text(
                                       dateStr,
-                                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                                      style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF64748B)),
                                     ),
                                   ],
                                 ),
@@ -1719,10 +1857,10 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     const Icon(Icons.school_rounded, size: 12, color: Color(0xFF64748B)),
-                                    const SizedBox(width: 6),
+                                    const SizedBox(width: 4),
                                     Text(
                                       'T.A $academicYear',
-                                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                                      style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF64748B)),
                                     ),
                                   ],
                                 ),

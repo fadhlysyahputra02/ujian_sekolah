@@ -266,7 +266,7 @@ class AppRouter {
                 actions: [
                   IconButton(
                     icon: const Icon(Icons.logout_rounded),
-                    onPressed: () => authService.signOut(),
+                    onPressed: () => authService.confirmAndSignOut(context),
                   )
                 ],
               ),
@@ -301,7 +301,7 @@ class AppRouter {
                     ),
                     const SizedBox(height: 24),
                     OutlinedButton.icon(
-                      onPressed: () => authService.signOut(),
+                      onPressed: () => authService.confirmAndSignOut(context),
                       icon: const Icon(Icons.logout_rounded),
                       label: const Text('Keluar'),
                     ),

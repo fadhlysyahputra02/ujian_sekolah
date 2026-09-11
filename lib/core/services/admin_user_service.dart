@@ -506,4 +506,44 @@ class AdminUserService {
       'studentIds': FieldValue.arrayRemove([studentId]),
     });
   }
+
+  /// Toggle status active/inactive for a student with quota check
+  Future<void> toggleStudentStatus({
+    required String schoolId,
+    required String studentId,
+    required String newStatus,
+  }) async {
+    if (newStatus == 'active') {
+      // Check active quota
+      final schoolDoc = await _firestore.collection('schools').doc(schoolId).get();
+      final maxQuota = (schoolDoc.data()?['maxStudentQuota'] as num?)?.toInt() ?? 500;
+
+      final activeSnap = await _firestore
+          .collection('schools')
+          .doc(schoolId)
+          .collection('students')
+          .get();
+      final activeCount = activeSnap.docs.where((d) => d.data()['status'] != 'inactive').length;
+
+      if (activeCount >= maxQuota) {
+        throw Exception('Kuota siswa aktif telah mencapai batas maksimal ($maxQuota). Non-aktifkan siswa lain terlebih dahulu.');
+      }
+    }
+
+    final schoolRef = _firestore.collection('schools').doc(schoolId);
+    await schoolRef.collection('students').doc(studentId).set({
+      'status': newStatus,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    final activeSnap = await schoolRef.collection('students').get();
+    final activeCount = activeSnap.docs.where((d) {
+      final data = d.data();
+      return data['status'] != 'inactive' && data['archived'] != true;
+    }).length;
+
+    await schoolRef.update({
+      'meta.studentCount': activeCount,
+    });
+  }
 }

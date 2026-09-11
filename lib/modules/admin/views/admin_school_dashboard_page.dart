@@ -1228,7 +1228,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             InkWell(
-                              onTap: () => authService.signOut(),
+                              onTap: () => authService.confirmAndSignOut(context),
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -1314,7 +1314,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       InkWell(
-                        onTap: () => authService.signOut(),
+                        onTap: () => authService.confirmAndSignOut(context),
                         borderRadius: BorderRadius.circular(8),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
