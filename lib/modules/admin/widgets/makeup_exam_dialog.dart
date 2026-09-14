@@ -432,8 +432,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             }
           }
 
-          if (studentHasSubmitted) continue; // Skip students who completed/submitted the exam!
-          if (alreadyApprovedKeys.contains(submitKey) || alreadyApprovedKeys.contains('${cleanStId}_$cleanSubName')) continue;
+          final isAlreadyApproved = alreadyApprovedKeys.contains(submitKey) || alreadyApprovedKeys.contains('${cleanStId}_$cleanSubName');
 
           // Check attendance status
           final attended = attendedKeys.contains('${dayIdx}_${sessIdx}_$stId') ||
@@ -453,10 +452,17 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           final hasPendingRequest = pendingDoc != null;
           final pendingReason = pendingDoc?['reason']?.toString();
 
-          // Skip students who attended the regular session OR completed the exam UNLESS they filed a pending makeup request for THIS subject!
-          if ((attended || studentHasSubmitted) && !hasPendingRequest) continue;
-
-          final statusLabel = hasPendingRequest ? 'Request Susulan' : 'Tidak Hadir';
+          // Determine status label accurately for all students
+          String statusLabel = 'Tidak Hadir';
+          if (hasPendingRequest) {
+            statusLabel = 'Request Susulan';
+          } else if (isAlreadyApproved) {
+            statusLabel = 'Sudah Dijadwalkan';
+          } else if (studentHasSubmitted) {
+            statusLabel = 'Sudah Ujian';
+          } else if (attended) {
+            statusLabel = 'Hadir';
+          }
 
           // Enforce 1 regular subject per student per session slot
           final slotKey = '${cleanStId}_${dayIdx}_${sessionId.isNotEmpty ? sessionId : sessIdx}';
@@ -479,6 +485,8 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                 'dayIndex': dayIdx,
                 'statusLabel': statusLabel,
                 'attended': attended,
+                'studentHasSubmitted': studentHasSubmitted,
+                'isAlreadyApproved': isAlreadyApproved,
                 'hasPendingRequest': hasPendingRequest,
                 'pendingReason': pendingReason,
               };
@@ -502,6 +510,8 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             'dayIndex': dayIdx,
             'statusLabel': statusLabel,
             'attended': attended,
+            'studentHasSubmitted': studentHasSubmitted,
+            'isAlreadyApproved': isAlreadyApproved,
             'hasPendingRequest': hasPendingRequest,
             'pendingReason': pendingReason,
           });
@@ -1032,13 +1042,13 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                     tabs: [
                       Tab(
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.group_off_rounded, size: 15),
+                          const Icon(Icons.people_alt_rounded, size: 15),
                           const SizedBox(width: 5),
-                          const Text('Siswa Absen'),
+                          const Text('Daftar Siswa'),
                           if (_missedStudents.isNotEmpty) ...[
                             const SizedBox(width: 5),
                             _countBadge(_missedStudents.length,
-                                const Color(0xFFEF4444)),
+                                const Color(0xFF7C3AED)),
                           ],
                         ]),
                       ),
@@ -1092,7 +1102,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             style: const TextStyle(fontSize: 10, color: Colors.white)),
       );
 
-  // ── TAB 1: SISWA ABSEN ──────────────────────────────────────────
+  // ── TAB 1: SISWA ABSEN / REMEDIAL ──────────────────────────────────────────
 
   Widget _buildTab1() {
     if (_isLoadingMissed) {
@@ -1129,8 +1139,9 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
       );
     }
 
-    final noShowCount = _missedStudents.where((s) => s['hasPendingRequest'] != true).length;
+    final noShowCount = _missedStudents.where((s) => s['hasPendingRequest'] != true && s['attended'] != true && s['studentHasSubmitted'] != true && s['isAlreadyApproved'] != true).length;
     final requestCount = _missedStudents.where((s) => s['hasPendingRequest'] == true).length;
+    final attendedOrSubmittedCount = _missedStudents.where((s) => s['attended'] == true || s['studentHasSubmitted'] == true).length;
 
     final Set<String> availableSubjectNames = {};
     for (final s in _missedStudents) {
@@ -1139,8 +1150,9 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     }
 
     final filteredStudents = _missedStudents.where((s) {
-      if (_tab1Filter == 1 && s['hasPendingRequest'] == true) return false;
+      if (_tab1Filter == 1 && (s['hasPendingRequest'] == true || s['attended'] == true || s['studentHasSubmitted'] == true)) return false;
       if (_tab1Filter == 2 && s['hasPendingRequest'] != true) return false;
+      if (_tab1Filter == 3 && s['attended'] != true && s['studentHasSubmitted'] != true) return false;
       if (_selectedSubjectFilter != null && (s['subjectName'] ?? '').toString().trim() != _selectedSubjectFilter) return false;
       return true;
     }).toList();
@@ -1160,12 +1172,16 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
-        child: Row(
-          children: [
-            _buildTab1FilterChip(0, 'Semua (${_missedStudents.length})', Icons.format_list_bulleted_rounded),
-            _buildTab1FilterChip(1, 'Tidak Mengikuti ($noShowCount)', Icons.person_off_rounded),
-            _buildTab1FilterChip(2, 'Request Susulan ($requestCount)', Icons.mark_email_unread_rounded),
-          ],
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildTab1FilterChip(0, 'Semua (${_missedStudents.length})', Icons.format_list_bulleted_rounded),
+              _buildTab1FilterChip(1, 'Tidak Hadir ($noShowCount)', Icons.person_off_rounded),
+              _buildTab1FilterChip(2, 'Request Susulan ($requestCount)', Icons.mark_email_unread_rounded),
+              _buildTab1FilterChip(3, 'Hadir / Sudah Ujian ($attendedOrSubmittedCount)', Icons.fact_check_rounded),
+            ],
+          ),
         ),
       ),
       if (availableSubjectNames.length > 1)
@@ -1217,7 +1233,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
                       color: const Color(0xFF0F172A))),
-              Text('Centang siswa yang dijadwalkan ujian susulan',
+              Text('Centang siswa yang dijadwalkan ujian susulan / remedial',
                   style: GoogleFonts.inter(
                       fontSize: 11, color: const Color(0xFF64748B))),
             ]),
@@ -1343,42 +1359,38 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
 
   Widget _buildTab1FilterChip(int filterVal, String label, IconData icon) {
     final isSel = _tab1Filter == filterVal;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _tab1Filter = filterVal),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSel ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: isSel
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    )
-                  ]
-                : [],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 13, color: isSel ? const Color(0xFF7C3AED) : const Color(0xFF64748B)),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  label,
-                  style: GoogleFonts.inter(
-                    fontSize: 10.5,
-                    fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                    color: isSel ? const Color(0xFF7C3AED) : const Color(0xFF64748B),
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
+    return GestureDetector(
+      onTap: () => setState(() => _tab1Filter = filterVal),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          color: isSel ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: isSel
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : [],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: isSel ? const Color(0xFF7C3AED) : const Color(0xFF64748B)),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                color: isSel ? const Color(0xFF7C3AED) : const Color(0xFF64748B),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1462,11 +1474,36 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
               ]),
             ),
             Builder(builder: (context) {
+              final statusLabel = s['statusLabel'] as String? ?? 'Tidak Hadir';
               final hasReq = s['hasPendingRequest'] == true;
-              final color = hasReq ? const Color(0xFF7C3AED) : const Color(0xFFDC2626);
-              final bg = hasReq ? const Color(0xFFEDE9FE) : const Color(0xFFFEE2E2);
-              final icon = hasReq ? Icons.mark_email_unread_rounded : Icons.person_off_rounded;
-              final label = s['statusLabel'] as String? ?? (hasReq ? 'Request Susulan' : 'Tidak Hadir');
+              final isAttended = s['attended'] == true;
+              final isSubmitted = s['studentHasSubmitted'] == true;
+              final isAlreadyApproved = s['isAlreadyApproved'] == true;
+
+              Color color;
+              Color bg;
+              IconData icon;
+              if (hasReq) {
+                color = const Color(0xFF7C3AED);
+                bg = const Color(0xFFEDE9FE);
+                icon = Icons.mark_email_unread_rounded;
+              } else if (isAlreadyApproved) {
+                color = const Color(0xFF2563EB);
+                bg = const Color(0xFFEFF6FF);
+                icon = Icons.event_available_rounded;
+              } else if (isSubmitted) {
+                color = const Color(0xFF059669);
+                bg = const Color(0xFFD1FAE5);
+                icon = Icons.task_alt_rounded;
+              } else if (isAttended) {
+                color = const Color(0xFFD97706);
+                bg = const Color(0xFFFEF3C7);
+                icon = Icons.fact_check_rounded;
+              } else {
+                color = const Color(0xFFDC2626);
+                bg = const Color(0xFFFEE2E2);
+                icon = Icons.person_off_rounded;
+              }
 
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1481,7 +1518,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                     color: color,
                   ),
                   const SizedBox(width: 4),
-                  Text(label,
+                  Text(statusLabel,
                       style: GoogleFonts.inter(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
@@ -2044,6 +2081,21 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                         fontWeight: FontWeight.bold),
                   ),
                 ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.edit_rounded, color: Colors.white, size: 18),
+                  tooltip: 'Edit Sesi Susulan',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () => _showEditSessionDialog(sess),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFECACA), size: 18),
+                  tooltip: 'Hapus Sesi Susulan',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () => _confirmDeleteSession(sess),
+                ),
               ]),
             ),
             Padding(
@@ -2222,6 +2274,461 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             }).toList(),
           ),
         ]);
+      },
+    );
+  }
+
+  Future<void> _confirmDeleteSession(Map<String, dynamic> sess) async {
+    final sessId = sess['id'] as String? ?? '';
+    final roomName = (sess['roomName'] ?? 'Ruang Susulan').toString();
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_forever_rounded, color: Color(0xFFDC2626), size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Hapus Sesi Susulan?',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: const Color(0xFF991B1B),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 380,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Apakah Anda yakin ingin menghapus sesi susulan untuk "$roomName"?',
+                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Text(
+                  'Catatan: Sesi susulan yang dihapus akan membatalkan persetujuan susulan siswa di ruangan ini.',
+                  style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF991B1B)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Batal', style: GoogleFonts.inter(color: const Color(0xFF64748B))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text('Ya, Hapus Sesi', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && sessId.isNotEmpty) {
+      try {
+        final db = FirebaseFirestore.instance;
+        final eventRef = db
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('events')
+            .doc(widget.eventId);
+
+        await eventRef.collection('makeup_sessions').doc(sessId).delete();
+
+        final approvedList = sess['approvedStudents'] as List<dynamic>? ?? [];
+        for (final stRaw in approvedList) {
+          final st = stRaw as Map<String, dynamic>? ?? {};
+          final stId = (st['studentId'] ?? '').toString().trim();
+          final subId = (st['subjectId'] ?? '').toString().trim();
+          if (stId.isNotEmpty && subId.isNotEmpty) {
+            final approvalDocId = '${stId}_$subId';
+            await eventRef.collection('makeup_approvals').doc(approvalDocId).delete();
+          }
+        }
+
+        _showSnack('Sesi susulan "$roomName" berhasil dihapus.');
+        await _loadData();
+      } catch (e) {
+        _showSnack('Gagal menghapus sesi: $e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _showEditSessionDialog(Map<String, dynamic> sess) async {
+    final sessId = sess['id'] as String? ?? '';
+    if (sessId.isEmpty) return;
+
+    final editRoomCtrl = TextEditingController(text: sess['roomName']?.toString() ?? 'Ruang Susulan');
+
+    DateTime? editDate;
+    try {
+      final dateStr = sess['date']?.toString();
+      if (dateStr != null && dateStr.isNotEmpty) {
+        editDate = DateTime.parse(dateStr);
+      }
+    } catch (_) {
+      editDate = DateTime.now();
+    }
+
+    TimeOfDay parseTime(String? tStr, TimeOfDay fallback) {
+      if (tStr == null || tStr.isEmpty) return fallback;
+      try {
+        final p = tStr.split(':');
+        if (p.length >= 2) {
+          return TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
+        }
+      } catch (_) {}
+      return fallback;
+    }
+
+    TimeOfDay editStart = parseTime(sess['startTime']?.toString(), const TimeOfDay(hour: 8, minute: 0));
+    TimeOfDay editEnd = parseTime(sess['endTime']?.toString(), const TimeOfDay(hour: 10, minute: 0));
+
+    List<String> editProctorIds = List<String>.from((sess['proctorIds'] as List<dynamic>? ?? []).map((e) => e.toString()));
+    List<String> editProctorNames = List<String>.from((sess['proctorNames'] as List<dynamic>? ?? []).map((e) => e.toString()));
+
+    String editStatus = (sess['status'] ?? 'active').toString();
+
+    await showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (stCtx, setDialogState) {
+            final dateDisplay = editDate != null
+                ? DateFormat('EEE, d MMM yyyy', 'id_ID').format(editDate!)
+                : 'Pilih Tanggal';
+
+            final startFmt = '${editStart.hour.toString().padLeft(2, '0')}:${editStart.minute.toString().padLeft(2, '0')}';
+            final endFmt = '${editEnd.hour.toString().padLeft(2, '0')}:${editEnd.minute.toString().padLeft(2, '0')}';
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.edit_calendar_rounded, color: Color(0xFF7C3AED), size: 24),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Edit Sesi Ujian Susulan',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 440,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Nama Ruangan
+                      Text('Nama Ruangan / Sesi:',
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF334155))),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: editRoomCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Contoh: Ruang Susulan 1',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Tanggal & Jam
+                      Text('Tanggal & Jam Ujian:',
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF334155))),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final d = await showDatePicker(
+                                  context: context,
+                                  initialDate: editDate ?? DateTime.now(),
+                                  firstDate: DateTime(2025),
+                                  lastDate: DateTime(2030),
+                                );
+                                if (d != null) {
+                                  setDialogState(() => editDate = d);
+                                }
+                              },
+                              icon: const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF7C3AED)),
+                              label: Text(dateDisplay, style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF0F172A))),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final t = await showTimePicker(context: context, initialTime: editStart);
+                                if (t != null) setDialogState(() => editStart = t);
+                              },
+                              icon: const Icon(Icons.access_time_rounded, size: 14, color: Color(0xFF7C3AED)),
+                              label: Text('Mulai: $startFmt', style: GoogleFonts.inter(fontSize: 11.5)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final t = await showTimePicker(context: context, initialTime: editEnd);
+                                if (t != null) setDialogState(() => editEnd = t);
+                              },
+                              icon: const Icon(Icons.access_time_filled_rounded, size: 14, color: Color(0xFF7C3AED)),
+                              label: Text('Selesai: $endFmt', style: GoogleFonts.inter(fontSize: 11.5)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Pengawas
+                      Text('Pengawas Ujian:',
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF334155))),
+                      const SizedBox(height: 6),
+                      InkWell(
+                        onTap: () async {
+                          final tempSelected = Set<String>.from(editProctorIds);
+                          final res = await showDialog<Set<String>>(
+                            context: context,
+                            builder: (pCtx) {
+                              return StatefulBuilder(builder: (pStCtx, pSetState) {
+                                return AlertDialog(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  title: Text('Pilih Pengawas Susulan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                                  content: SizedBox(
+                                    width: 350,
+                                    height: 360,
+                                    child: Scrollbar(
+                                      child: ListView.builder(
+                                        itemCount: _teachers.length,
+                                        itemBuilder: (_, i) {
+                                          final t = _teachers[i];
+                                          final tid = t['id']?.toString() ?? '';
+                                          final tname = (t['name'] ?? t['displayName'] ?? tid).toString().trim();
+                                          final isChecked = tempSelected.contains(tid);
+                                          return CheckboxListTile(
+                                            value: isChecked,
+                                            onChanged: (v) {
+                                              pSetState(() {
+                                                if (v == true) {
+                                                  tempSelected.add(tid);
+                                                } else {
+                                                  tempSelected.remove(tid);
+                                                }
+                                              });
+                                            },
+                                            title: Text(tname, style: GoogleFonts.inter(fontSize: 13)),
+                                            activeColor: const Color(0xFF7C3AED),
+                                            controlAffinity: ListTileControlAffinity.leading,
+                                            dense: true,
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(pCtx).pop(null),
+                                      child: const Text('Batal'),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.of(pCtx).pop(tempSelected),
+                                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7C3AED), foregroundColor: Colors.white),
+                                      child: const Text('Simpan'),
+                                    ),
+                                  ],
+                                );
+                              });
+                            },
+                          );
+                          if (res != null) {
+                            final newIds = <String>[];
+                            final newNames = <String>[];
+                            for (final tid in res) {
+                              newIds.add(tid);
+                              final t = _teachers.firstWhere(
+                                (e) => e['id']?.toString() == tid,
+                                orElse: () => {'name': tid},
+                              );
+                              newNames.add((t['name'] ?? t['displayName'] ?? tid).toString());
+                            }
+                            setDialogState(() {
+                              editProctorIds = newIds;
+                              editProctorNames = newNames;
+                            });
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.supervisor_account_rounded, size: 16, color: Color(0xFF7C3AED)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  editProctorNames.isEmpty ? 'Pilih Pengawas...' : editProctorNames.join(', '),
+                                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF0F172A)),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF64748B)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Status Sesi
+                      Text('Status Sesi:',
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF334155))),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String>(
+                        value: editStatus,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'active', child: Text('Aktif (Sedang Berjalan)')),
+                          DropdownMenuItem(value: 'completed', child: Text('Selesai')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setDialogState(() => editStatus = val);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(),
+                  child: Text('Batal', style: GoogleFonts.inter(color: const Color(0xFF64748B))),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (editRoomCtrl.text.trim().isEmpty) {
+                      _showSnack('Nama ruangan tidak boleh kosong', isError: true);
+                      return;
+                    }
+                    if (editDate == null) {
+                      _showSnack('Tanggal ujian wajib dipilih', isError: true);
+                      return;
+                    }
+
+                    final String dateStr = DateFormat('yyyy-MM-dd').format(editDate!);
+                    final String startStr = '${editStart.hour.toString().padLeft(2, '0')}:${editStart.minute.toString().padLeft(2, '0')}';
+                    final String endStr = '${editEnd.hour.toString().padLeft(2, '0')}:${editEnd.minute.toString().padLeft(2, '0')}';
+
+                    try {
+                      final db = FirebaseFirestore.instance;
+                      final eventRef = db
+                          .collection('schools')
+                          .doc(widget.schoolId)
+                          .collection('events')
+                          .doc(widget.eventId);
+
+                      await eventRef.collection('makeup_sessions').doc(sessId).update({
+                        'roomName': editRoomCtrl.text.trim(),
+                        'date': dateStr,
+                        'startTime': startStr,
+                        'endTime': endStr,
+                        'proctorIds': editProctorIds,
+                        'proctorNames': editProctorNames,
+                        'status': editStatus,
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      });
+
+                      final approvedList = sess['approvedStudents'] as List<dynamic>? ?? [];
+                      for (final stRaw in approvedList) {
+                        final st = stRaw as Map<String, dynamic>? ?? {};
+                        final stId = (st['studentId'] ?? '').toString().trim();
+                        final subId = (st['subjectId'] ?? '').toString().trim();
+                        if (stId.isNotEmpty && subId.isNotEmpty) {
+                          final approvalDocId = '${stId}_$subId';
+                          await eventRef.collection('makeup_approvals').doc(approvalDocId).set({
+                            'makeupRoom': editRoomCtrl.text.trim(),
+                            'makeupDate': dateStr,
+                            'makeupStartTime': startStr,
+                            'makeupEndTime': endStr,
+                            'proctorIds': editProctorIds,
+                            'proctorNames': editProctorNames,
+                            'updatedAt': FieldValue.serverTimestamp(),
+                          }, SetOptions(merge: true));
+                        }
+                      }
+
+                      if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+                      _showSnack('Sesi susulan berhasil diperbarui.');
+                      await _loadData();
+                    } catch (e) {
+                      _showSnack('Gagal memperbarui sesi: $e', isError: true);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: Text('Simpan Perubahan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
       },
     );
   }

@@ -199,7 +199,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         ex.TextCellValue('Jenis Kelamin'),
         ex.TextCellValue('Mata Pelajaran'),
         ex.TextCellValue('Email'),
-        ex.TextCellValue('Sandi Sementara'),
+        ex.TextCellValue('Kata Sandi'),
         ex.TextCellValue('Status Akun'),
       ]);
 
@@ -247,7 +247,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         ex.TextCellValue('Agama'),
         ex.TextCellValue('Angkatan'),
         ex.TextCellValue('Email'),
-        ex.TextCellValue('Sandi Sementara'),
+        ex.TextCellValue('Kata Sandi'),
         ex.TextCellValue('Status Akun'),
       ]);
 
@@ -2628,7 +2628,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             DataColumn(label: Text('NIP', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Mata Pelajaran', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Sandi Sementara', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
           ],
@@ -2641,7 +2641,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               DataCell(t.tempPassword != null && t.tempPassword!.isNotEmpty
                   ? SelectableText(
                       t.tempPassword!,
-                      style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                      style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
                     )
                   : OutlinedButton.icon(
                       onPressed: () => _generateSingleTeacherPasswordDirectly(schoolId, t),
@@ -2995,7 +2995,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Agama', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Angkatan', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Sandi Sementara', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
             DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
           ],
@@ -3010,7 +3010,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                DataCell(s.tempPassword != null && s.tempPassword!.isNotEmpty
                   ? SelectableText(
                       s.tempPassword!,
-                      style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                      style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
                     )
                   : OutlinedButton.icon(
                       onPressed: () => _generateSinglePasswordDirectly(schoolId, s),

@@ -1387,15 +1387,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                             ),
                                             const SizedBox(height: 20),
 
-                                            // 3. Class Color Legend Bar
-                                            ProctorClassLegendBar(
-                                              roomClasses: orderedRoomClasses,
-                                              classStudentCounts: classStudentCounts,
-                                              classColorMap: classColorMap,
-                                            ),
-                                            const SizedBox(height: 20),
-
-                                            // 4. Search Bar, Class Filter & Riwayat Keluar App Button
+                                            // 3. Search Bar, Class Filter & Riwayat Keluar App Button
                                             ProctorSearchFilterBar(
                                               searchQuery: _searchQuery,
                                               selectedClassFilter: _selectedClassFilter,
@@ -1486,46 +1478,22 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                             ),
                                             const SizedBox(height: 20),
 
-                                            // 5. Seating Grid Section Header & Legend Indicators
+                                            // 4. Seating Grid Section Header & Class Color Legend Bar (Right Aligned above student seats)
                                             Row(
                                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              crossAxisAlignment: CrossAxisAlignment.center,
                                               children: [
-                                                Text(
-                                                  'Denah Bangku & Posisi Murid (${isMakeupRoom ? 'Ujian Susulan' : 'Pola $gridColumns Kolom'} • $roomCapacity Bangku)',
-                                                  style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                                Expanded(
+                                                  child: Text(
+                                                    'Denah Bangku & Posisi Murid (${isMakeupRoom ? 'Ujian Susulan' : 'Pola $gridColumns Kolom'} • $roomCapacity Bangku)',
+                                                    style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                                  ),
                                                 ),
-                                                Row(
-                                                  children: [
-                                                    Row(
-                                                      children: [
-                                                        Container(
-                                                          width: 12,
-                                                          height: 12,
-                                                          decoration: BoxDecoration(
-                                                            color: const Color(0xFF4F46E5),
-                                                            borderRadius: BorderRadius.circular(3),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(width: 6),
-                                                        Text('Meja Terisi', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
-                                                      ],
-                                                    ),
-                                                    const SizedBox(width: 16),
-                                                    Row(
-                                                      children: [
-                                                        Container(
-                                                          width: 12,
-                                                          height: 12,
-                                                          decoration: BoxDecoration(
-                                                            color: const Color(0xFFCBD5E1),
-                                                            borderRadius: BorderRadius.circular(3),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(width: 6),
-                                                        Text('Meja Kosong', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
-                                                      ],
-                                                    ),
-                                                  ],
+                                                const SizedBox(width: 16),
+                                                ProctorClassLegendBar(
+                                                  roomClasses: orderedRoomClasses,
+                                                  classStudentCounts: classStudentCounts,
+                                                  classColorMap: classColorMap,
                                                 ),
                                               ],
                                             ),

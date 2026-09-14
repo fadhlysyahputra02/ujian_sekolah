@@ -640,66 +640,143 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     ),
                   ],
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Container(
+                child: LayoutBuilder(
+                  builder: (context, cardConstraints) {
+                    final isMobileCard = cardConstraints.maxWidth < 550;
+                    if (isMobileCard) {
+                      return Padding(
                         padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 30),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              subjectName,
-                              style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                            ),
-                            const SizedBox(height: 4),
                             Row(
                               children: [
-                                const Icon(Icons.groups_rounded, size: 14, color: Color(0xFF64748B)),
-                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFECFDF5),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 24),
+                                ),
+                                const SizedBox(width: 12),
                                 Expanded(
-                                  child: Text(
-                                    'Kelas Terkait: $classesStr',
-                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                                    overflow: TextOverflow.ellipsis,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        subjectName,
+                                        style: GoogleFonts.inter(fontSize: 15.5, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.groups_rounded, size: 13, color: Color(0xFF64748B)),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              'Kelas: $classesStr',
+                                              style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedSubjectMap = {
+                                      'id': subjectId,
+                                      'name': subjectName,
+                                    };
+                                  });
+                                },
+                                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                                label: const Text('Kelola Soal'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  elevation: 0,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
+                      );
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 30),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  subjectName,
+                                  style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.groups_rounded, size: 14, color: Color(0xFF64748B)),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Kelas Terkait: $classesStr',
+                                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _selectedSubjectMap = {
+                                  'id': subjectId,
+                                  'name': subjectName,
+                                };
+                              });
+                            },
+                            icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                            label: const Text('Kelola Soal'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              elevation: 0,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 16),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _selectedSubjectMap = {
-                              'id': subjectId,
-                              'name': subjectName,
-                            };
-                          });
-                        },
-                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                        label: const Text('Kelola Soal'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 0,
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               );
             }),
@@ -745,46 +822,56 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         return Column(
           children: [
             // Header Bar Navigasi Kembali ke Daftar Mapel
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-              ),
-              child: Row(
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _selectedSubjectMap = null;
-                      });
-                    },
-                    icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                    label: const Text('Kembali ke Daftar Mapel'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF475569),
-                      side: const BorderSide(color: Color(0xFFCBD5E1)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    ),
+            LayoutBuilder(
+              builder: (context, headerConstraints) {
+                final isMobileHeader = headerConstraints.maxWidth < 600;
+                return Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobileHeader ? 12 : 20,
+                    vertical: isMobileHeader ? 10 : 12,
                   ),
-                  const SizedBox(width: 16),
-                  Container(height: 24, width: 1, color: const Color(0xFFCBD5E1)),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                  ),
+                  child: Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedSubjectMap = null;
+                          });
+                        },
+                        icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                        label: Text(isMobileHeader ? 'Kembali' : 'Kembali ke Daftar Mapel'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF475569),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isMobileHeader ? 10 : 14,
+                            vertical: isMobileHeader ? 8 : 10,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: isMobileHeader ? 10 : 16),
+                      Container(height: 24, width: 1, color: const Color(0xFFCBD5E1)),
+                      SizedBox(width: isMobileHeader ? 10 : 16),
+                      Expanded(
+                        child: Text(
                           'Soal Ujian: $subjectName',
-                          style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                          style: GoogleFonts.inter(
+                            fontSize: isMobileHeader ? 14 : 16,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF0F172A),
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
 
             // TabBar Angkatan Aktif
@@ -908,114 +995,221 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
             final defaultEssayScore = (subData['defaultEssayScore_$angkatan'] as num?)?.toDouble() ??
                 _getDetectedEssayScore(qDocs);
 
-            return Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.center,
+            return LayoutBuilder(
+              builder: (context, bankConstraints) {
+                final isMobileBank = bankConstraints.maxWidth < 650;
+                return Padding(
+                  padding: EdgeInsets.all(isMobileBank ? 12 : 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Bank Soal — Angkatan $angkatan',
-                            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Total Soal: ${qDocs.length} butir',
-                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                          ),
-                        ],
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: isRandomized ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isRandomized ? const Color(0xFF93C5FD) : const Color(0xFFCBD5E1),
-                                width: 1.5,
+                      if (isMobileBank) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Bank Soal — $angkatan',
+                                    style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Total Soal: ${qDocs.length} butir',
+                                    style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                                  ),
+                                ],
                               ),
                             ),
-                            child: Row(
+                            ElevatedButton.icon(
+                              onPressed: () => _showQuestionDialog(
+                                subjectId: subjectId,
+                                angkatan: angkatan,
+                                questionIndex: qDocs.length,
+                                defaultPgScore: defaultPgScore,
+                                defaultEssayScore: defaultEssayScore,
+                              ),
+                              icon: const Icon(Icons.add_rounded, size: 16),
+                              label: Text(
+                                'Tambah Soal',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isRandomized ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isRandomized ? const Color(0xFF93C5FD) : const Color(0xFFCBD5E1),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.shuffle_rounded,
+                                    size: 16,
+                                    color: isRandomized ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Acak Soal Murid',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: isRandomized ? const Color(0xFF1E40AF) : const Color(0xFF475569),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Transform.scale(
+                                scale: 0.85,
+                                child: Switch(
+                                  value: isRandomized,
+                                  activeColor: const Color(0xFF2563EB),
+                                  activeTrackColor: const Color(0xFFBFDBFE),
+                                  inactiveThumbColor: const Color(0xFF94A3B8),
+                                  inactiveTrackColor: const Color(0xFFE2E8F0),
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  onChanged: (val) async {
+                                    await FirebaseFirestore.instance
+                                        .collection('schools')
+                                        .doc(_schoolId)
+                                        .collection('events')
+                                        .doc(widget.eventId)
+                                        .collection('subjects')
+                                        .doc(subjectId)
+                                        .set({
+                                          'randomizeQuestions_$angkatan': val,
+                                        }, SetOptions(merge: true));
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Bank Soal — Angkatan $angkatan',
+                                  style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Total Soal: ${qDocs.length} butir',
+                                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                ),
+                              ],
+                            ),
+                            Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  Icons.shuffle_rounded,
-                                  size: 16,
-                                  color: isRandomized ? const Color(0xFF2563EB) : const Color(0xFF64748B),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Acak Soal Murid',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: isRandomized ? const Color(0xFF1E40AF) : const Color(0xFF475569),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isRandomized ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isRandomized ? const Color(0xFF93C5FD) : const Color(0xFFCBD5E1),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.shuffle_rounded,
+                                        size: 16,
+                                        color: isRandomized ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Acak Soal Murid',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: isRandomized ? const Color(0xFF1E40AF) : const Color(0xFF475569),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Transform.scale(
+                                        scale: 0.85,
+                                        child: Switch(
+                                          value: isRandomized,
+                                          activeColor: const Color(0xFF2563EB),
+                                          activeTrackColor: const Color(0xFFBFDBFE),
+                                          inactiveThumbColor: const Color(0xFF94A3B8),
+                                          inactiveTrackColor: const Color(0xFFE2E8F0),
+                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          onChanged: (val) async {
+                                            await FirebaseFirestore.instance
+                                                .collection('schools')
+                                                .doc(_schoolId)
+                                                .collection('events')
+                                                .doc(widget.eventId)
+                                                .collection('subjects')
+                                                .doc(subjectId)
+                                                .set({
+                                                  'randomizeQuestions_$angkatan': val,
+                                                }, SetOptions(merge: true));
+                                          },
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                Transform.scale(
-                                  scale: 0.85,
-                                  child: Switch(
-                                    value: isRandomized,
-                                    activeColor: const Color(0xFF2563EB),
-                                    activeTrackColor: const Color(0xFFBFDBFE),
-                                    inactiveThumbColor: const Color(0xFF94A3B8),
-                                    inactiveTrackColor: const Color(0xFFE2E8F0),
-                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    onChanged: (val) async {
-                                      await FirebaseFirestore.instance
-                                          .collection('schools')
-                                          .doc(_schoolId)
-                                          .collection('events')
-                                          .doc(widget.eventId)
-                                          .collection('subjects')
-                                          .doc(subjectId)
-                                          .set({
-                                            'randomizeQuestions_$angkatan': val,
-                                          }, SetOptions(merge: true));
-                                    },
+                                const SizedBox(width: 12),
+                                ElevatedButton.icon(
+                                  onPressed: () => _showQuestionDialog(
+                                    subjectId: subjectId,
+                                    angkatan: angkatan,
+                                    questionIndex: qDocs.length,
+                                    defaultPgScore: defaultPgScore,
+                                    defaultEssayScore: defaultEssayScore,
+                                  ),
+                                  icon: const Icon(Icons.add_rounded, size: 18),
+                                  label: Text(
+                                    'Tambah Soal',
+                                    style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF10B981),
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: () => _showQuestionDialog(
-                              subjectId: subjectId,
-                              angkatan: angkatan,
-                              questionIndex: qDocs.length,
-                              defaultPgScore: defaultPgScore,
-                              defaultEssayScore: defaultEssayScore,
-                            ),
-                            icon: const Icon(Icons.add_rounded, size: 18),
-                            label: Text(
-                              'Tambah Soal',
-                              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF10B981),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildTotalScoreSummaryBanner(subjectId, subjectName, angkatan, qDocs, defaultPgScore, defaultEssayScore),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      _buildTotalScoreSummaryBanner(subjectId, subjectName, angkatan, qDocs, defaultPgScore, defaultEssayScore),
                   Expanded(
                 child: qDocs.isEmpty
                     ? Center(
@@ -1101,8 +1295,10 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
             ],
           ),
         );
-          },
-        );
+      },
+    );
+  },
+);
       },
     );
   }
@@ -1164,84 +1360,173 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       statusText = '⚠️ Total Akumulasi Skor: ${grandTotal.toStringAsFixed(grandTotal % 1 == 0 ? 0 : 1)} / 100 Poin (Kelebihan $diff Poin)';
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: bgCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 1.5),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
+    return LayoutBuilder(
+      builder: (context, bannerConstraints) {
+        final isMobileBanner = bannerConstraints.maxWidth < 600;
+
+        if (isMobileBanner) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              color: bgCard,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: borderColor, width: 1.5),
             ),
-            child: Icon(iconData, color: iconColor, size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  statusText,
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                Row(
                   children: [
-                    Text(
-                      'Pilihan Ganda ($pgCount soal): ${pgTotalScore.toStringAsFixed(pgTotalScore % 1 == 0 ? 0 : 1)} pt',
-                      style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF475569), fontWeight: FontWeight.w500),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(iconData, color: iconColor, size: 22),
                     ),
-                    Text(
-                      '•',
-                      style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
-                    ),
-                    Text(
-                      'Essay ($essayCount soal): ${essayTotalScore.toStringAsFixed(essayTotalScore % 1 == 0 ? 0 : 1)} pt',
-                      style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF475569), fontWeight: FontWeight.w500),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        statusText,
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          color: textColor,
+                        ),
+                      ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'Pilihan Ganda ($pgCount): ${pgTotalScore.toStringAsFixed(pgTotalScore % 1 == 0 ? 0 : 1)} pt',
+                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF475569), fontWeight: FontWeight.w500),
+                    ),
+                    Text('•', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8))),
+                    Text(
+                      'Essay ($essayCount): ${essayTotalScore.toStringAsFixed(essayTotalScore % 1 == 0 ? 0 : 1)} pt',
+                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF475569), fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _showBulkScoreDialog(
+                      subjectId: subjectId,
+                      angkatan: angkatan,
+                      qDocs: qDocs,
+                      defaultPgScore: defaultPgScore,
+                      defaultEssayScore: defaultEssayScore,
+                    ),
+                    icon: const Icon(Icons.tune_rounded, size: 15),
+                    label: Text(
+                      'Atur Skor Massal',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFF0F172A),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFFCBD5E1)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                    ),
+                  ),
+                ),
               ],
             ),
+          );
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: bgCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor, width: 1.5),
           ),
-          const SizedBox(width: 12),
-          ElevatedButton.icon(
-            onPressed: () => _showBulkScoreDialog(
-              subjectId: subjectId,
-              angkatan: angkatan,
-              qDocs: qDocs,
-              defaultPgScore: defaultPgScore,
-              defaultEssayScore: defaultEssayScore,
-            ),
-            icon: const Icon(Icons.tune_rounded, size: 16),
-            label: Text(
-              'Atur Skor Massal',
-              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: const Color(0xFF0F172A),
-              elevation: 0,
-              side: const BorderSide(color: Color(0xFFCBD5E1)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(iconData, color: iconColor, size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      statusText,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 12,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          'Pilihan Ganda ($pgCount soal): ${pgTotalScore.toStringAsFixed(pgTotalScore % 1 == 0 ? 0 : 1)} pt',
+                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF475569), fontWeight: FontWeight.w500),
+                        ),
+                        Text(
+                          '•',
+                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+                        ),
+                        Text(
+                          'Essay ($essayCount soal): ${essayTotalScore.toStringAsFixed(essayTotalScore % 1 == 0 ? 0 : 1)} pt',
+                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF475569), fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: () => _showBulkScoreDialog(
+                  subjectId: subjectId,
+                  angkatan: angkatan,
+                  qDocs: qDocs,
+                  defaultPgScore: defaultPgScore,
+                  defaultEssayScore: defaultEssayScore,
+                ),
+                icon: const Icon(Icons.tune_rounded, size: 16),
+                label: Text(
+                  'Atur Skor Massal',
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF0F172A),
+                  elevation: 0,
+                  side: const BorderSide(color: Color(0xFFCBD5E1)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -4455,12 +4740,14 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                                           border: Border.all(color: const Color(0xFFFCA5A5)),
                                                         ),
                                                         child: Text(
-                                                      'Sedang Mengerjakan',
-                                                      style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626), fontWeight: FontWeight.w600),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
+                                                          'Sedang Mengerjakan',
+                                                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626), fontWeight: FontWeight.w600),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
                                           );
                                         },
                                       ),
@@ -5061,92 +5348,98 @@ class _QuestionCardState extends State<QuestionCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    widget.dragHandle,
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isEssay ? const Color(0xFFFDF2F8) : const Color(0xFFECFDF5),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'Soal ${widget.index}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                          color: isEssay ? const Color(0xFFDB2777) : const Color(0xFF059669),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isEssay ? const Color(0xFFFFF1F2) : const Color(0xFFEEF2FF),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        isEssay ? 'Essay' : 'Pilihan Ganda',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 10,
-                          color: isEssay ? const Color(0xFFE11D48) : const Color(0xFF4F46E5),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Builder(builder: (context) {
-                      final scoreNum = (widget.qData['score'] as num?)?.toDouble() ?? (isEssay ? 10.0 : 5.0);
-                      final scoreStr = scoreNum % 1 == 0 ? scoreNum.toInt().toString() : scoreNum.toString();
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFFBEB),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFFDE68A)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.star_rounded, size: 13, color: Color(0xFFD97706)),
-                            const SizedBox(width: 4),
-                            Text(
-                              isEssay ? 'Max $scoreStr pt' : '$scoreStr pt',
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 10,
-                                color: const Color(0xFF92400E),
-                              ),
+                LayoutBuilder(
+                  builder: (context, cardHeaderConstraints) {
+                    final isMobileCard = cardHeaderConstraints.maxWidth < 520;
+                    final scoreNum = (widget.qData['score'] as num?)?.toDouble() ?? (isEssay ? 10.0 : 5.0);
+                    final scoreStr = scoreNum % 1 == 0 ? scoreNum.toInt().toString() : scoreNum.toString();
+
+                    return Row(
+                      children: [
+                        widget.dragHandle,
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: isMobileCard ? 6 : 8, vertical: isMobileCard ? 3 : 4),
+                          decoration: BoxDecoration(
+                            color: isEssay ? const Color(0xFFFDF2F8) : const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isMobileCard ? '#${widget.index}' : 'Soal ${widget.index}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: isMobileCard ? 11 : 12,
+                              color: isEssay ? const Color(0xFFDB2777) : const Color(0xFF059669),
                             ),
-                          ],
+                          ),
                         ),
-                      );
-                    }),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.edit_rounded, color: Color(0xFF4F46E5), size: 18),
-                      onPressed: () => widget.onEdit(widget.qId, widget.qData, widget.index),
-                      tooltip: 'Edit / Review Soal',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
-                      onPressed: () => widget.onDelete(widget.subjectId, widget.qId),
-                      tooltip: 'Hapus Soal',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                    const SizedBox(width: 12),
-                    Icon(
-                      _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                      color: const Color(0xFF64748B),
-                      size: 20,
-                    ),
-                  ],
+                        SizedBox(width: isMobileCard ? 4 : 8),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: isMobileCard ? 6 : 8, vertical: isMobileCard ? 3 : 4),
+                          decoration: BoxDecoration(
+                            color: isEssay ? const Color(0xFFFFF1F2) : const Color(0xFFEEF2FF),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isEssay ? 'Essay' : (isMobileCard ? 'PG' : 'Pilihan Ganda'),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
+                              color: isEssay ? const Color(0xFFE11D48) : const Color(0xFF4F46E5),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: isMobileCard ? 4 : 8),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: isMobileCard ? 5 : 8, vertical: isMobileCard ? 3 : 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFFDE68A)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (!isMobileCard) ...[
+                                const Icon(Icons.star_rounded, size: 13, color: Color(0xFFD97706)),
+                                const SizedBox(width: 4),
+                              ],
+                              Text(
+                                isMobileCard ? '$scoreStr pt' : (isEssay ? 'Max $scoreStr pt' : '$scoreStr pt'),
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                  color: const Color(0xFF92400E),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.edit_rounded, color: Color(0xFF4F46E5), size: 18),
+                          onPressed: () => widget.onEdit(widget.qId, widget.qData, widget.index),
+                          tooltip: 'Edit / Review Soal',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                        SizedBox(width: isMobileCard ? 8 : 12),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
+                          onPressed: () => widget.onDelete(widget.subjectId, widget.qId),
+                          tooltip: 'Hapus Soal',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                        SizedBox(width: isMobileCard ? 8 : 12),
+                        Icon(
+                          _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                          color: const Color(0xFF64748B),
+                          size: 20,
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 Text(
