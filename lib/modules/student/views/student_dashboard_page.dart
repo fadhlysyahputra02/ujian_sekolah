@@ -137,6 +137,31 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
     }
   }
 
+  DateTime _parseEventDate(Map<String, dynamic> data) {
+    final createdAt = data['createdAt'];
+    if (createdAt is Timestamp) return createdAt.toDate();
+    if (createdAt is String) {
+      final parsed = DateTime.tryParse(createdAt);
+      if (parsed != null) return parsed;
+    }
+
+    final startDate = data['startDate'];
+    if (startDate is Timestamp) return startDate.toDate();
+    if (startDate is String) {
+      final parsed = DateTime.tryParse(startDate);
+      if (parsed != null) return parsed;
+    }
+
+    final updatedAt = data['updatedAt'];
+    if (updatedAt is Timestamp) return updatedAt.toDate();
+    if (updatedAt is String) {
+      final parsed = DateTime.tryParse(updatedAt);
+      if (parsed != null) return parsed;
+    }
+
+    return DateTime(1970);
+  }
+
   String _getInitials(String name) {
     if (name.isEmpty) return 'S';
     final parts = name.trim().split(' ');
@@ -219,39 +244,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
             padding: const EdgeInsets.only(right: 16.0),
             child: Row(
               children: [
-                Consumer<NetworkService>(
-                  builder: (context, net, _) {
-                    final isOnline = net.isOnline;
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isOnline ? const Color(0xFF065F46).withValues(alpha: 0.3) : const Color(0xFF991B1B).withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                            size: 12,
-                            color: isOnline ? const Color(0xFF34D399) : const Color(0xFFFCA5A5),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isOnline ? 'Online' : 'Offline',
-                            style: GoogleFonts.inter(
-                              color: isOnline ? const Color(0xFF34D399) : const Color(0xFFFCA5A5),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(width: 8),
+
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -688,32 +681,88 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
         }
 
         final docs = snapshot.data?.docs ?? [];
-        final cleanMyClass = _myClassName?.toLowerCase().replaceAll(' ', '') ?? '';
-        final cleanMyClassId = _myClassId?.toLowerCase().replaceAll(' ', '') ?? '';
+
+        final Set<String> myClassTokens = {};
+        void addToken(String? val) {
+          if (val != null && val.trim().isNotEmpty) {
+            final raw = val.trim().toLowerCase();
+            myClassTokens.add(raw);
+            myClassTokens.add(raw.replaceAll(' ', ''));
+            final withoutKelas = raw.replaceAll('kelas', '').trim();
+            if (withoutKelas.isNotEmpty) {
+              myClassTokens.add(withoutKelas);
+              myClassTokens.add(withoutKelas.replaceAll(' ', ''));
+            }
+          }
+        }
+
+        addToken(_myClassName);
+        addToken(_myClassId);
+        addToken(_student?.angkatan);
 
         final publishedEvents = docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           final status = data['status'] as String? ?? 'draft';
           if (status == 'closed') return false;
 
-          // Filter target classes if the event specifies participating classes
-          final rawTargetClasses = data['targetClasses'] ?? data['classes'] ?? data['targetClassNames'];
-          if (rawTargetClasses is List && rawTargetClasses.isNotEmpty) {
-            final targetList = rawTargetClasses
-                .map((e) => e.toString().toLowerCase().replaceAll(' ', ''))
-                .toList();
+          // Collect target classes from all potential fields in event doc & timetable
+          final List<dynamic> rawTargetClasses = [];
+          if (data['targetClasses'] is List) rawTargetClasses.addAll(data['targetClasses'] as List);
+          if (data['classes'] is List) rawTargetClasses.addAll(data['classes'] as List);
+          if (data['targetClassNames'] is List) rawTargetClasses.addAll(data['targetClassNames'] as List);
 
-            final isMatched = targetList.any((t) =>
-                t == cleanMyClass ||
-                t == cleanMyClassId ||
-                (cleanMyClass.isNotEmpty && (t.contains(cleanMyClass) || cleanMyClass.contains(t))) ||
-                (cleanMyClassId.isNotEmpty && (t.contains(cleanMyClassId) || cleanMyClassId.contains(t))));
+          final timetableList = <dynamic>[];
+          if (data['timetable'] is List) timetableList.addAll(data['timetable'] as List);
+          final draftState = data['draftState'] as Map<String, dynamic>?;
+          if (draftState != null && draftState['step3'] is Map && draftState['step3']['timetable'] is List) {
+            timetableList.addAll(draftState['step3']['timetable'] as List);
+          }
+          if (draftState != null && draftState['timetable'] is List) {
+            timetableList.addAll(draftState['timetable'] as List);
+          }
 
-            if (!isMatched) return false;
+          for (var item in timetableList) {
+            if (item is Map) {
+              if (item['className'] != null) rawTargetClasses.add(item['className']);
+              if (item['classId'] != null) rawTargetClasses.add(item['classId']);
+              if (item['classIds'] is List) rawTargetClasses.addAll(item['classIds'] as List);
+              if (item['classNames'] is List) rawTargetClasses.addAll(item['classNames'] as List);
+              if (item['targetClasses'] is List) rawTargetClasses.addAll(item['targetClasses'] as List);
+            }
+          }
+
+          if (rawTargetClasses.isNotEmpty && myClassTokens.isNotEmpty) {
+            final eventTargetTokens = <String>{};
+            for (var e in rawTargetClasses) {
+              if (e != null && e.toString().trim().isNotEmpty) {
+                final raw = e.toString().trim().toLowerCase();
+                eventTargetTokens.add(raw);
+                eventTargetTokens.add(raw.replaceAll(' ', ''));
+                final withoutKelas = raw.replaceAll('kelas', '').trim();
+                if (withoutKelas.isNotEmpty) {
+                  eventTargetTokens.add(withoutKelas);
+                  eventTargetTokens.add(withoutKelas.replaceAll(' ', ''));
+                }
+              }
+            }
+
+            if (eventTargetTokens.isNotEmpty) {
+              final isMatched = myClassTokens.any((st) => eventTargetTokens.contains(st));
+              if (!isMatched) return false;
+            }
           }
 
           return true;
         }).toList();
+
+        // Sort events: NEWEST FIRST
+        publishedEvents.sort((a, b) {
+          final dataA = a.data() as Map<String, dynamic>;
+          final dataB = b.data() as Map<String, dynamic>;
+          final dateA = _parseEventDate(dataA);
+          final dateB = _parseEventDate(dataB);
+          return dateB.compareTo(dateA);
+        });
 
         // Section Title & Counter
         final sectionHeader = Row(

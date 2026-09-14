@@ -92,6 +92,31 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
         .snapshots();
   }
 
+  DateTime _parseEventDate(Map<String, dynamic> data) {
+    final createdAt = data['createdAt'];
+    if (createdAt is Timestamp) return createdAt.toDate();
+    if (createdAt is String) {
+      final parsed = DateTime.tryParse(createdAt);
+      if (parsed != null) return parsed;
+    }
+
+    final startDate = data['startDate'];
+    if (startDate is Timestamp) return startDate.toDate();
+    if (startDate is String) {
+      final parsed = DateTime.tryParse(startDate);
+      if (parsed != null) return parsed;
+    }
+
+    final updatedAt = data['updatedAt'];
+    if (updatedAt is Timestamp) return updatedAt.toDate();
+    if (updatedAt is String) {
+      final parsed = DateTime.tryParse(updatedAt);
+      if (parsed != null) return parsed;
+    }
+
+    return DateTime(1970);
+  }
+
   Stream<QuerySnapshot>? _getSubmissionsStream(DocumentSnapshot? eventDoc) {
     if (eventDoc == null) return null;
     if (_cachedSubmissionsEventId != eventDoc.id || _submissionsStream == null) {
@@ -172,9 +197,14 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width >= 768;
+
     return Container(
       color: const Color(0xFFF8FAFC),
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 24 : 16,
+        vertical: isDesktop ? 24 : 16,
+      ),
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         child: _selectedEventDoc == null
@@ -360,6 +390,14 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                 final title = (data['title'] ?? data['eventName'] ?? data['name'] ?? '').toString().toLowerCase();
                 return _eventSearchQuery.isEmpty || title.contains(_eventSearchQuery.toLowerCase());
               }).toList();
+
+              filteredEvents.sort((a, b) {
+                final dataA = a.data() as Map<String, dynamic>;
+                final dataB = b.data() as Map<String, dynamic>;
+                final dateA = _parseEventDate(dataA);
+                final dateB = _parseEventDate(dataB);
+                return dateB.compareTo(dateA);
+              });
 
               if (filteredEvents.isEmpty) {
                 return Center(

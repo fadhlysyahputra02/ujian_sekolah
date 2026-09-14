@@ -173,6 +173,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         'subjectId': widget.subjectId,
         'subjectName': widget.subjectName,
         'sessionName': widget.sessionName,
+        'isMakeup': widget.isMakeup,
         'status': status,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -183,6 +184,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         'subjectId': widget.subjectId,
         'subjectName': widget.subjectName,
         'sessionName': widget.sessionName,
+        'isMakeup': widget.isMakeup,
       };
 
       if (isLeftApp) {

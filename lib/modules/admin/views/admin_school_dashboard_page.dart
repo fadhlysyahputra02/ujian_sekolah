@@ -2768,21 +2768,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                               tooltip: 'Ekspor ke Excel',
                             ),
                             const SizedBox(width: 8),
-                            OutlinedButton.icon(
-                              onPressed: () => _syncMissingStudentsReligion(schoolId),
-                              icon: const Icon(Icons.sync_rounded, size: 16),
-                              label: Text(
-                                'Sinkronkan Agama',
-                                style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF10B981),
-                                side: const BorderSide(color: Color(0xFF10B981)),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
                             ElevatedButton.icon(
                               onPressed: () => _generateAllPasswords(schoolId, allStudents),
                               icon: const Icon(Icons.vpn_key_rounded, size: 16),

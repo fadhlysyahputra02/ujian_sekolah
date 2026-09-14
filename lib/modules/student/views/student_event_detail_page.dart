@@ -839,12 +839,13 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     String? sessionName,
     int? dayIndex,
     int? sessionIndex,
+    bool isMakeup = false,
   }) {
     showDialog(
       context: context,
       builder: (dialogCtx) {
         return StreamBuilder<QuerySnapshot>(
-          stream: (dayIndex != null && sessionIndex != null && _student?.id != null)
+          stream: ((dayIndex != null && sessionIndex != null) || isMakeup) && _student?.id != null
               ? FirebaseFirestore.instance
                   .collection('schools')
                   .doc(_schoolId)
@@ -855,47 +856,71 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   .snapshots()
               : null,
           builder: (ctx, attSnap) {
-            if (attSnap.hasData && dayIndex != null && sessionIndex != null) {
+            if (attSnap.hasData) {
               final docs = attSnap.data?.docs ?? [];
               for (var d in docs) {
                 final data = d.data() as Map<String, dynamic>? ?? {};
                 final isAtt = data['isAttended'] == true;
+                if (!isAtt) continue;
+
                 final aDay = (data['dayIndex'] as num?)?.toInt();
                 final aSess = (data['sessionIndex'] as num?)?.toInt();
+                final aRoom = (data['roomId'] ?? '').toString().toLowerCase().trim();
+                final targetRoom = roomName.toLowerCase().trim();
+                final aSubjId = (data['subjectId'] ?? '').toString().trim();
+                final aSubjName = (data['subjectName'] ?? '').toString().trim().toLowerCase();
+                final targetSubjId = (subjectId ?? '').trim();
+                final targetSubjName = (subjectName ?? '').trim().toLowerCase();
 
-                if (isAtt && aDay == dayIndex && aSess == sessionIndex) {
-                  if (dayIndex == 0 && sessionIndex == 0) {
-                    final aSubjId = (data['subjectId'] ?? '').toString().trim();
-                    final aSubjName = (data['subjectName'] ?? '').toString().trim().toLowerCase();
-                    final targetSubjId = (subjectId ?? '').trim();
-                    final targetSubjName = (subjectName ?? '').trim().toLowerCase();
+                final bool isDocMakeup = data['isMakeup'] == true ||
+                    aRoom.contains('susulan') ||
+                    aRoom.contains('makeup') ||
+                    (data['sessionName'] ?? '').toString().toLowerCase().contains('susulan');
 
-                    final bool subjectMatches = aSubjId.isEmpty ||
-                        aSubjId == targetSubjId ||
-                        aSubjName == targetSubjName ||
-                        targetSubjId.contains(aSubjId) ||
-                        aSubjId.contains(targetSubjId) ||
-                        (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
-                        (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName));
+                if (isMakeup) {
+                  // For Ujian Susulan: Must be a makeup attendance document
+                  if (!isDocMakeup) continue;
 
-                    if (!subjectMatches) continue;
-                  }
+                  // Room matching: Must match makeup room name if present
+                  bool roomMatches = targetRoom.isEmpty ||
+                      aRoom == targetRoom ||
+                      aRoom.contains(targetRoom) ||
+                      targetRoom.contains(aRoom);
+                  if (!roomMatches) continue;
 
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (dialogCtx.mounted && Navigator.of(dialogCtx).canPop()) {
-                      Navigator.of(dialogCtx).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('✅ Presensi berhasil! Sesi ${sessionName ?? ""} telah diverifikasi oleh pengawas.'),
-                          backgroundColor: const Color(0xFF059669),
-                          behavior: SnackBarBehavior.floating,
-                          duration: const Duration(seconds: 3),
-                        ),
-                      );
-                    }
-                  });
-                  break;
+                  // Subject matching: Must match target makeup subject
+                  bool subjectMatches = (targetSubjId.isNotEmpty && (aSubjId == targetSubjId || targetSubjId.contains(aSubjId) || aSubjId.contains(targetSubjId))) ||
+                      (targetSubjName.isNotEmpty && (aSubjName == targetSubjName || targetSubjName.contains(aSubjName) || aSubjName.contains(targetSubjName)));
+                  if (!subjectMatches && (aSubjId.isNotEmpty || aSubjName.isNotEmpty)) continue;
+                } else {
+                  // For Regular Exam: Must not be a makeup attendance document, and day/session must match
+                  if (isDocMakeup) continue;
+                  if (dayIndex == null || sessionIndex == null || aDay != dayIndex || aSess != sessionIndex) continue;
+
+                  bool subjectMatches = aSubjId.isEmpty ||
+                      aSubjId == targetSubjId ||
+                      aSubjName == targetSubjName ||
+                      targetSubjId.contains(aSubjId) ||
+                      aSubjId.contains(targetSubjId) ||
+                      (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
+                      (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName));
+                  if (!subjectMatches) continue;
                 }
+
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (dialogCtx.mounted && Navigator.of(dialogCtx).canPop()) {
+                    Navigator.of(dialogCtx).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✅ Presensi berhasil! Sesi ${sessionName ?? ""} telah diverifikasi oleh pengawas.'),
+                        backgroundColor: const Color(0xFF059669),
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                });
+                break;
               }
             }
 
@@ -1905,6 +1930,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                     sessionName: hasApprovedMakeup ? 'Ujian Susulan' : sName,
                                     dayIndex: hasApprovedMakeup ? 0 : resolvedDayIndex,
                                     sessionIndex: hasApprovedMakeup ? 0 : resolvedSessionIndex,
+                                    isMakeup: hasApprovedMakeup,
                                   );
                                 },
                                 child: Container(

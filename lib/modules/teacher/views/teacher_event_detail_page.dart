@@ -586,8 +586,10 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           );
         }
 
+        final isMobile = MediaQuery.of(context).size.width < 600;
+
         return ListView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(isMobile ? 14 : 24),
           children: [
             Row(
               children: [
@@ -600,22 +602,24 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                   child: const Icon(Icons.edit_document, color: Color(0xFF10B981), size: 24),
                 ),
                 const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Tugas Pembuat Soal',
-                      style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
-                    ),
-                    Text(
-                      'Pilih mata pelajaran di bawah untuk mengelola bank soal berdasarkan angkatan siswa.',
-                      style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                    ),
-                  ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tugas Pembuat Soal',
+                        style: GoogleFonts.inter(fontSize: isMobile ? 18 : 20, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+                      ),
+                      Text(
+                        'Pilih mata pelajaran di bawah untuk mengelola bank soal berdasarkan angkatan siswa.',
+                        style: GoogleFonts.inter(fontSize: isMobile ? 11.5 : 13, color: const Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: isMobile ? 16 : 24),
             ...subjectList.map((subj) {
               final subjectId = subj['id'] as String;
               final subjectName = subj['name'] as String;
@@ -3199,61 +3203,131 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                   ),
                   border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
+                child: LayoutBuilder(
+                  builder: (context, cardHeaderConstraints) {
+                    final isMobileCard = cardHeaderConstraints.maxWidth < 460;
+                    if (isMobileCard) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.calendar_today_rounded, size: 13, color: Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    dateLabel,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF1E293B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: isSessionEnded ? const Color(0xFFFEF2F2) : badgeBg,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: isSessionEnded ? const Color(0xFFFCA5A5) : badgeBorder),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(isSessionEnded ? Icons.history_toggle_off_rounded : badgeIcon, size: 11, color: isSessionEnded ? const Color(0xFFDC2626) : badgeText),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      isSessionEnded ? 'Sesi Selesai' : displayStatus,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: isSessionEnded ? const Color(0xFFDC2626) : badgeText,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (roomCapacity > 0) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEEF2FF),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '$roomCapacity Bangku',
+                                style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5)),
+                              ),
+                            ),
+                          ],
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF64748B)),
-                        const SizedBox(width: 8),
-                        Text(
-                          dateLabel,
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF1E293B),
+                        Row(
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF64748B)),
+                            const SizedBox(width: 8),
+                            Text(
+                              dateLabel,
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF1E293B),
+                              ),
+                            ),
+                            if (roomCapacity > 0) ...[
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEEF2FF),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '$roomCapacity Bangku',
+                                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5)),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isSessionEnded ? const Color(0xFFFEF2F2) : badgeBg,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: isSessionEnded ? const Color(0xFFFCA5A5) : badgeBorder),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(isSessionEnded ? Icons.history_toggle_off_rounded : badgeIcon, size: 13, color: isSessionEnded ? const Color(0xFFDC2626) : badgeText),
+                              const SizedBox(width: 5),
+                              Text(
+                                isSessionEnded ? 'Sesi Selesai' : displayStatus,
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isSessionEnded ? const Color(0xFFDC2626) : badgeText,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        if (roomCapacity > 0) ...[
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEEF2FF),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '$roomCapacity Bangku',
-                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5)),
-                            ),
-                          ),
-                        ],
                       ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isSessionEnded ? const Color(0xFFFEF2F2) : badgeBg,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: isSessionEnded ? const Color(0xFFFCA5A5) : badgeBorder),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(isSessionEnded ? Icons.history_toggle_off_rounded : badgeIcon, size: 13, color: isSessionEnded ? const Color(0xFFDC2626) : badgeText),
-                          const SizedBox(width: 5),
-                          Text(
-                            isSessionEnded ? 'Sesi Selesai' : displayStatus,
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: isSessionEnded ? const Color(0xFFDC2626) : badgeText,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
 
@@ -3808,6 +3882,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
                                   sName,
@@ -3816,6 +3891,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                     fontSize: 14,
                                     color: isSelected ? const Color(0xFF065F46) : const Color(0xFF0F172A),
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
@@ -3825,6 +3902,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                     fontWeight: FontWeight.w500,
                                     color: isSelected ? const Color(0xFF047857) : const Color(0xFF64748B),
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),
@@ -3919,40 +3998,88 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // Workspace Sub-header
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
-                                  border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
+                              LayoutBuilder(
+                                builder: (context, headerConstraints) {
+                                  final isMobileHeader = headerConstraints.maxWidth < 600;
+                                  if (isMobileHeader) {
+                                    return Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFFF8FAFC),
+                                        borderRadius: BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+                                        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.fact_check_rounded, color: Color(0xFF10B981), size: 20),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  'Koreksi Lembar Jawaban: $selectedSubjectName',
+                                                  style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14, color: const Color(0xFF0F172A)),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFECFDF5),
+                                              borderRadius: BorderRadius.circular(20),
+                                              border: Border.all(color: const Color(0xFFA7F3D0)),
+                                            ),
+                                            child: Text(
+                                              'Total: ${subDocs.length} siswa • Menampilkan ${filteredSubDocs.length} siswa',
+                                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF059669)),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFF8FAFC),
+                                      borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+                                      border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        const Icon(Icons.fact_check_rounded, color: Color(0xFF10B981), size: 22),
-                                        const SizedBox(width: 10),
-                                        Text(
-                                          'Koreksi Lembar Jawaban: $selectedSubjectName',
-                                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF0F172A)),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.fact_check_rounded, color: Color(0xFF10B981), size: 22),
+                                            const SizedBox(width: 10),
+                                            Text(
+                                              'Koreksi Lembar Jawaban: $selectedSubjectName',
+                                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF0F172A)),
+                                            ),
+                                          ],
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFECFDF5),
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                                          ),
+                                          child: Text(
+                                            'Total: ${subDocs.length} siswa • Menampilkan ${filteredSubDocs.length} siswa',
+                                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF059669)),
+                                          ),
                                         ),
                                       ],
                                     ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFECFDF5),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(color: const Color(0xFFA7F3D0)),
-                                      ),
-                                      child: Text(
-                                        'Total: ${subDocs.length} siswa • Menampilkan ${filteredSubDocs.length} siswa',
-                                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF059669)),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  );
+                                },
                               ),
 
                               // LIST CHOICECHIP KELAS
@@ -4111,105 +4238,223 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                           final calculatedScore = totalMaxRaw > 0 ? ((totalEarnedRaw / totalMaxRaw) * 100).round() : 0;
                                           final finalScore = (subData['score'] as num?)?.toInt() ?? calculatedScore;
 
-                                          return Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFF8FAFC),
-                                              borderRadius: BorderRadius.circular(14),
-                                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                Expanded(
+                                          return LayoutBuilder(
+                                            builder: (context, itemConstraints) {
+                                              final isMobileItem = itemConstraints.maxWidth < 520;
+                                              if (isMobileItem) {
+                                                return Container(
+                                                  padding: const EdgeInsets.all(12),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFF8FAFC),
+                                                    borderRadius: BorderRadius.circular(14),
+                                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                                  ),
                                                   child: Column(
                                                     crossAxisAlignment: CrossAxisAlignment.start,
                                                     children: [
                                                       Row(
                                                         children: [
-                                                          Text(
-                                                            studentName,
-                                                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14, color: const Color(0xFF0F172A)),
+                                                          Expanded(
+                                                            child: Row(
+                                                              children: [
+                                                                Flexible(
+                                                                  child: Text(
+                                                                    studentName,
+                                                                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13.5, color: const Color(0xFF0F172A)),
+                                                                    overflow: TextOverflow.ellipsis,
+                                                                  ),
+                                                                ),
+                                                                if (studentClass.isNotEmpty) ...[
+                                                                  const SizedBox(width: 6),
+                                                                  Container(
+                                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                                    decoration: BoxDecoration(
+                                                                      color: const Color(0xFFEFF6FF),
+                                                                      borderRadius: BorderRadius.circular(6),
+                                                                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                                                                    ),
+                                                                    child: Text(
+                                                                      studentClass,
+                                                                      style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.bold, color: const Color(0xFF2563EB)),
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ],
+                                                            ),
                                                           ),
-                                                          if (studentClass.isNotEmpty) ...[
-                                                            const SizedBox(width: 8),
+                                                          const SizedBox(width: 8),
+                                                          if (isCompleted)
                                                             Container(
-                                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                               decoration: BoxDecoration(
-                                                                color: const Color(0xFFEFF6FF),
+                                                                color: isGraded ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
                                                                 borderRadius: BorderRadius.circular(6),
-                                                                border: Border.all(color: const Color(0xFFBFDBFE)),
+                                                                border: Border.all(color: isGraded ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A)),
                                                               ),
                                                               child: Text(
-                                                                studentClass,
-                                                                style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF2563EB)),
+                                                                isGraded ? 'Nilai: $finalScore / 100' : 'Perlu Koreksi',
+                                                                style: GoogleFonts.inter(
+                                                                  fontSize: 10.5,
+                                                                  fontWeight: FontWeight.bold,
+                                                                  color: isGraded ? const Color(0xFF059669) : const Color(0xFFD97706),
+                                                                ),
+                                                              ),
+                                                            )
+                                                          else
+                                                            Container(
+                                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                              decoration: BoxDecoration(
+                                                                color: const Color(0xFFFEF2F2),
+                                                                borderRadius: BorderRadius.circular(6),
+                                                                border: Border.all(color: const Color(0xFFFCA5A5)),
+                                                              ),
+                                                              child: Text(
+                                                                'Belum Ujian',
+                                                                style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.bold, color: const Color(0xFFDC2626)),
                                                               ),
                                                             ),
-                                                          ],
                                                         ],
                                                       ),
-                                                      const SizedBox(height: 4),
+                                                      const SizedBox(height: 6),
                                                       Text(
                                                         'NIS: $nis • PG: $correctPgCount/$totalPgCount Benar (${autoPgScore.toInt()} pt)',
-                                                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                                        style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
                                                       ),
+                                                      if (isCompleted) ...[
+                                                        const SizedBox(height: 10),
+                                                        SizedBox(
+                                                          width: double.infinity,
+                                                          child: ElevatedButton.icon(
+                                                            onPressed: () => _gradeStudentDialog(
+                                                              subDocId: subDoc.id,
+                                                              studentName: studentName,
+                                                              subData: subData,
+                                                              questionDocs: targetQuestionDocs,
+                                                              autoPgScore: autoPgScore,
+                                                              totalPgMax: totalPgMax,
+                                                              correctPgCount: correctPgCount,
+                                                              totalPgCount: totalPgCount,
+                                                            ),
+                                                            icon: const Icon(Icons.edit_note_rounded, size: 16),
+                                                            label: Text(
+                                                              isGraded ? 'Edit Nilai Essay' : 'Koreksi Lembar Jawaban',
+                                                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold),
+                                                            ),
+                                                            style: ElevatedButton.styleFrom(
+                                                              backgroundColor: const Color(0xFF10B981),
+                                                              foregroundColor: Colors.white,
+                                                              elevation: 0,
+                                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                              padding: const EdgeInsets.symmetric(vertical: 9),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ],
                                                   ),
+                                                );
+                                              }
+
+                                              return Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFF8FAFC),
+                                                  borderRadius: BorderRadius.circular(14),
+                                                  border: Border.all(color: const Color(0xFFE2E8F0)),
                                                 ),
-                                                const SizedBox(width: 12),
-                                                if (isCompleted)
-                                                  Row(
-                                                    children: [
+                                                child: Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                                        children: [
+                                                          Row(
+                                                            children: [
+                                                              Text(
+                                                                studentName,
+                                                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14, color: const Color(0xFF0F172A)),
+                                                              ),
+                                                              if (studentClass.isNotEmpty) ...[
+                                                                const SizedBox(width: 8),
+                                                                Container(
+                                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                                  decoration: BoxDecoration(
+                                                                    color: const Color(0xFFEFF6FF),
+                                                                    borderRadius: BorderRadius.circular(6),
+                                                                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                                                                  ),
+                                                                  child: Text(
+                                                                    studentClass,
+                                                                    style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF2563EB)),
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ],
+                                                          ),
+                                                          const SizedBox(height: 4),
+                                                          Text(
+                                                            'NIS: $nis • PG: $correctPgCount/$totalPgCount Benar (${autoPgScore.toInt()} pt)',
+                                                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 12),
+                                                    if (isCompleted)
+                                                      Row(
+                                                        children: [
+                                                          Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                            decoration: BoxDecoration(
+                                                              color: isGraded ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
+                                                              borderRadius: BorderRadius.circular(8),
+                                                              border: Border.all(color: isGraded ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A)),
+                                                            ),
+                                                            child: Text(
+                                                              isGraded ? 'Nilai: $finalScore / 100' : 'Perlu Koreksi Essay',
+                                                              style: GoogleFonts.inter(
+                                                                fontSize: 12,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: isGraded ? const Color(0xFF059669) : const Color(0xFFD97706),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          ElevatedButton.icon(
+                                                            onPressed: () => _gradeStudentDialog(
+                                                              subDocId: subDoc.id,
+                                                              studentName: studentName,
+                                                              subData: subData,
+                                                              questionDocs: targetQuestionDocs,
+                                                              autoPgScore: autoPgScore,
+                                                              totalPgMax: totalPgMax,
+                                                              correctPgCount: correctPgCount,
+                                                              totalPgCount: totalPgCount,
+                                                            ),
+                                                            icon: const Icon(Icons.edit_note_rounded, size: 16),
+                                                            label: Text(
+                                                              isGraded ? 'Edit Nilai' : 'Koreksi',
+                                                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold),
+                                                            ),
+                                                            style: ElevatedButton.styleFrom(
+                                                              backgroundColor: const Color(0xFF10B981),
+                                                              foregroundColor: Colors.white,
+                                                              elevation: 0,
+                                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      )
+                                                    else
                                                       Container(
                                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                                         decoration: BoxDecoration(
-                                                          color: isGraded ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
+                                                          color: const Color(0xFFFEF2F2),
                                                           borderRadius: BorderRadius.circular(8),
-                                                          border: Border.all(color: isGraded ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A)),
+                                                          border: Border.all(color: const Color(0xFFFCA5A5)),
                                                         ),
                                                         child: Text(
-                                                          isGraded ? 'Nilai: $finalScore / 100' : 'Perlu Koreksi Essay',
-                                                          style: GoogleFonts.inter(
-                                                            fontSize: 12,
-                                                            fontWeight: FontWeight.bold,
-                                                            color: isGraded ? const Color(0xFF059669) : const Color(0xFFD97706),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      ElevatedButton.icon(
-                                                        onPressed: () => _gradeStudentDialog(
-                                                          subDocId: subDoc.id,
-                                                          studentName: studentName,
-                                                          subData: subData,
-                                                          questionDocs: targetQuestionDocs,
-                                                          autoPgScore: autoPgScore,
-                                                          totalPgMax: totalPgMax,
-                                                          correctPgCount: correctPgCount,
-                                                          totalPgCount: totalPgCount,
-                                                        ),
-                                                        icon: const Icon(Icons.edit_note_rounded, size: 16),
-                                                        label: Text(
-                                                          isGraded ? 'Edit Nilai' : 'Koreksi',
-                                                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold),
-                                                        ),
-                                                        style: ElevatedButton.styleFrom(
-                                                          backgroundColor: const Color(0xFF10B981),
-                                                          foregroundColor: Colors.white,
-                                                          elevation: 0,
-                                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  )
-                                                else
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                    decoration: BoxDecoration(
-                                                      color: const Color(0xFFFEF2F2),
-                                                      borderRadius: BorderRadius.circular(8),
-                                                    ),
-                                                    child: Text(
                                                       'Sedang Mengerjakan',
                                                       style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626), fontWeight: FontWeight.w600),
                                                     ),

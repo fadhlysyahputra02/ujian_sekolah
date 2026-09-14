@@ -748,6 +748,7 @@ class TeacherProctorController {
     Set<String>? allowedSubjectNames,
     Set<String>? allowedSubjectIds,
     String? sessionName,
+    bool isMakeupRoom = false,
   }) {
     final cleanAllowedSubjNames = allowedSubjectNames
         ?.map((s) => s.toLowerCase().trim())
@@ -865,7 +866,17 @@ class TeacherProctorController {
                       if (!isRoomStudent) continue;
                     }
 
-                    // 2. Subject / Session Check
+                    // 2. Makeup / Regular Session Filter Check
+                    final bool isDocMakeup = data['isMakeup'] == true ||
+                        (data['sessionName'] ?? '').toString().toLowerCase().contains('susulan') ||
+                        (data['roomId'] ?? data['roomName'] ?? '').toString().toLowerCase().contains('susulan') ||
+                        docId.toLowerCase().contains('susulan') ||
+                        docId.toLowerCase().contains('makeup');
+
+                    if (isMakeupRoom && !isDocMakeup) continue; // Skip regular exam logs when in makeup room!
+                    if (!isMakeupRoom && isDocMakeup) continue; // Skip makeup exam logs when in regular room!
+
+                    // 3. Subject / Session Check
                     final rtSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
                     final rtSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
 

@@ -1774,8 +1774,32 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
       final Set<String> targetClassesSet = {};
       for (var item in _timetable) {
-        final cName = (item['className'] ?? item['classId'] ?? '').toString().trim();
+        final cName = (item['className'] ?? '').toString().trim();
+        final cId = (item['classId'] ?? '').toString().trim();
         if (cName.isNotEmpty) targetClassesSet.add(cName);
+        if (cId.isNotEmpty) targetClassesSet.add(cId);
+
+        if (item['classIds'] is List) {
+          for (var id in item['classIds']) {
+            if (id != null && id.toString().trim().isNotEmpty) {
+              targetClassesSet.add(id.toString().trim());
+            }
+          }
+        }
+        if (item['classNames'] is List) {
+          for (var name in item['classNames']) {
+            if (name != null && name.toString().trim().isNotEmpty) {
+              targetClassesSet.add(name.toString().trim());
+            }
+          }
+        }
+        if (item['targetClasses'] is List) {
+          for (var name in item['targetClasses']) {
+            if (name != null && name.toString().trim().isNotEmpty) {
+              targetClassesSet.add(name.toString().trim());
+            }
+          }
+        }
       }
 
       final eventId = await _eventService.createEvent(

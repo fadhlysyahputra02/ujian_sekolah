@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../services/network_service.dart';
 
-/// Global overlay banner displaying offline / online network status across the app.
+/// Global overlay banner displaying offline / online network status modal at the bottom of the app.
 class GlobalNetworkStatusOverlay extends StatelessWidget {
   final Widget child;
 
@@ -25,28 +25,31 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
             children: [
               child,
 
-              // Offline Network Banner (Red)
+              // Offline Network Modal Card (Bottom)
               if (isOffline)
                 Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
+                  bottom: 16,
+                  left: 16,
+                  right: 16,
                   child: SafeArea(
-                    bottom: false,
+                    top: false,
                     child: Material(
                       color: Colors.transparent,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFDC2626), Color(0xFF991B1B)],
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                          ),
+                          color: const Color(0xFF0F172A),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.6), width: 1.5),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.red.withValues(alpha: 0.35),
-                              blurRadius: 10,
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8),
+                            ),
+                            BoxShadow(
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                              blurRadius: 12,
                               offset: const Offset(0, 4),
                             ),
                           ],
@@ -54,15 +57,15 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(6),
+                              padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
+                                color: const Color(0xFFEF4444).withValues(alpha: 0.2),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
                                 Icons.wifi_off_rounded,
-                                size: 18,
-                                color: Colors.white,
+                                size: 20,
+                                color: Color(0xFFF87171),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -72,19 +75,20 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    'Koneksi Terputus (Offline)',
-                                    style: GoogleFonts.inter(
+                                    'Perangkat Offline',
+                                    style: GoogleFonts.plusJakartaSans(
                                       fontSize: 13,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.white,
                                     ),
                                   ),
+                                  const SizedBox(height: 2),
                                   Text(
-                                    'Perangkat tidak terhubung internet. Jawaban tetap tersimpan lokal.',
-                                    style: GoogleFonts.inter(
+                                    'Koneksi terputus. Jawaban tetap tersimpan di memori perangkat.',
+                                    style: GoogleFonts.plusJakartaSans(
                                       fontSize: 11,
-                                      color: const Color(0xFFFCA5A5),
-                                      height: 1.2,
+                                      color: const Color(0xFF94A3B8),
+                                      height: 1.3,
                                     ),
                                   ),
                                 ],
@@ -93,16 +97,16 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
                             const SizedBox(width: 8),
                             InkWell(
                               onTap: () => networkService.forceCheck(),
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(10),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.25),
-                                  borderRadius: BorderRadius.circular(8),
+                                  color: const Color(0xFFEF4444),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Text(
                                   'Coba Lagi',
-                                  style: GoogleFonts.inter(
+                                  style: GoogleFonts.plusJakartaSans(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
@@ -117,28 +121,31 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
                   ),
                 ),
 
-              // Reconnected Network Banner (Green)
+              // Reconnected Network Modal Card (Bottom, Temporary)
               if (showReconnected && !isOffline)
                 Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
+                  bottom: 16,
+                  left: 16,
+                  right: 16,
                   child: SafeArea(
-                    bottom: false,
+                    top: false,
                     child: Material(
                       color: Colors.transparent,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF059669), Color(0xFF047857)],
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                          ),
+                          color: const Color(0xFF0F172A),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.6), width: 1.5),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.green.withValues(alpha: 0.35),
-                              blurRadius: 10,
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8),
+                            ),
+                            BoxShadow(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                              blurRadius: 12,
                               offset: const Offset(0, 4),
                             ),
                           ],
@@ -146,26 +153,41 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(6),
+                              padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
+                                color: const Color(0xFF10B981).withValues(alpha: 0.2),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
                                 Icons.wifi_rounded,
-                                size: 18,
-                                color: Colors.white,
+                                size: 20,
+                                color: Color(0xFF34D399),
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: Text(
-                                'Terhubung Kembali: Perangkat Anda sudah terhubung ke internet.',
-                                style: GoogleFonts.inter(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Perangkat Online',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Koneksi internet terhubung kembali.',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 11,
+                                      color: const Color(0xFF94A3B8),
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -181,3 +203,4 @@ class GlobalNetworkStatusOverlay extends StatelessWidget {
     );
   }
 }
+

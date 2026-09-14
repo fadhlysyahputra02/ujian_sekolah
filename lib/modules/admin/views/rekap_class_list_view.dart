@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../../core/services/auth_service.dart';
 
 class RekapClassListView extends StatelessWidget {
   final String schoolId;
@@ -21,6 +23,18 @@ class RekapClassListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final authService = Provider.of<AuthService>(context);
+    final activeSchoolId = schoolId.isNotEmpty ? schoolId : (authService.schoolId ?? '');
+
+    if (authService.isLoading || activeSchoolId.isEmpty) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF059669)),
+        ),
+      );
+    }
+
     final isDesktop = MediaQuery.of(context).size.width >= 768;
 
     return Scaffold(
@@ -69,7 +83,7 @@ class RekapClassListView extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('schools')
-            .doc(schoolId)
+            .doc(activeSchoolId)
             .collection('classes')
             .orderBy('name')
             .snapshots(),
@@ -77,7 +91,7 @@ class RekapClassListView extends StatelessWidget {
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('schools')
-                .doc(schoolId)
+                .doc(activeSchoolId)
                 .collection('events')
                 .doc(eventId)
                 .collection('timetable')
@@ -86,7 +100,7 @@ class RekapClassListView extends StatelessWidget {
               return StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('schools')
-                    .doc(schoolId)
+                    .doc(activeSchoolId)
                     .collection('events')
                     .doc(eventId)
                     .collection('submissions')
@@ -266,12 +280,12 @@ class RekapClassListView extends StatelessWidget {
 
                   return SingleChildScrollView(
                     padding: EdgeInsets.symmetric(
-                      horizontal: isDesktop ? 40 : 20,
-                      vertical: 28,
+                      horizontal: isDesktop ? 24 : 16,
+                      vertical: 24,
                     ),
                     child: Center(
                       child: Container(
-                        constraints: const BoxConstraints(maxWidth: 900),
+                        constraints: const BoxConstraints(maxWidth: 1400),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

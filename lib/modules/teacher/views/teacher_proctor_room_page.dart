@@ -917,6 +917,17 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 if (sId.isNotEmpty) realtimeMap[sId] = data;
                 if (sNis.isNotEmpty) realtimeMap[sNis] = data;
                 if (sName.isNotEmpty) realtimeMap[sName] = data;
+
+                if (rtSubjId.isNotEmpty) {
+                  if (sId.isNotEmpty) realtimeMap['${sId}_$rtSubjId'] = data;
+                  if (sNis.isNotEmpty) realtimeMap['${sNis}_$rtSubjId'] = data;
+                  if (sName.isNotEmpty) realtimeMap['${sName}_$rtSubjId'] = data;
+                }
+                if (rtSubjName.isNotEmpty) {
+                  if (sId.isNotEmpty) realtimeMap['${sId}_$rtSubjName'] = data;
+                  if (sNis.isNotEmpty) realtimeMap['${sNis}_$rtSubjName'] = data;
+                  if (sName.isNotEmpty) realtimeMap['${sName}_$rtSubjName'] = data;
+                }
               }
 
               return StreamBuilder<QuerySnapshot>(
@@ -965,6 +976,17 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                             if (sId.isNotEmpty) submissionsMap[sId] = data;
                             if (sNis.isNotEmpty) submissionsMap[sNis] = data;
                             if (sName.isNotEmpty) submissionsMap[sName] = data;
+
+                            if (subSubjId.isNotEmpty) {
+                              if (sId.isNotEmpty) submissionsMap['${sId}_$subSubjId'] = data;
+                              if (sNis.isNotEmpty) submissionsMap['${sNis}_$subSubjId'] = data;
+                              if (sName.isNotEmpty) submissionsMap['${sName}_$subSubjId'] = data;
+                            }
+                            if (subSubjName.isNotEmpty) {
+                              if (sId.isNotEmpty) submissionsMap['${sId}_$subSubjName'] = data;
+                              if (sNis.isNotEmpty) submissionsMap['${sNis}_$subSubjName'] = data;
+                              if (sName.isNotEmpty) submissionsMap['${sName}_$subSubjName'] = data;
+                            }
                           }
 
                   return StreamBuilder<QuerySnapshot>(
@@ -1161,20 +1183,25 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
                               // Ensure attendance state & realtime control synced into seatMap entries
                               seatMap.forEach((seatNum, sData) {
-                                final sId = (sData['studentId'] ?? sData['id'] ?? '').toString().toLowerCase();
-                                final sNis = (sData['nis'] ?? '').toString().toLowerCase();
-                                final sName = (sData['displayName'] ?? sData['studentName'] ?? '').toString().toLowerCase();
-                                final sSubj = (sData['subjectId'] ?? sData['subjectName'] ?? '').toString().toLowerCase();
+                                final sId = (sData['studentId'] ?? sData['id'] ?? '').toString().toLowerCase().trim();
+                                final sNis = (sData['nis'] ?? '').toString().toLowerCase().trim();
+                                final sName = (sData['displayName'] ?? sData['studentName'] ?? '').toString().toLowerCase().trim();
+                                final sSubjId = (sData['subjectId'] ?? '').toString().toLowerCase().trim();
+                                final sSubjName = (sData['subjectName'] ?? '').toString().toLowerCase().trim();
 
                                 bool isAttended = false;
-                                if (isMakeupRoom && sSubj.isNotEmpty) {
-                                  if (sId.isNotEmpty && _localAttendedMap['${sId}_$sSubj'] == true) {
+                                if (isMakeupRoom && (sSubjId.isNotEmpty || sSubjName.isNotEmpty)) {
+                                  if (sId.isNotEmpty && sSubjId.isNotEmpty && _localAttendedMap['${sId}_$sSubjId'] == true) {
                                     isAttended = true;
-                                  } else if (sNis.isNotEmpty && _localAttendedMap['${sNis}_$sSubj'] == true) {
+                                  } else if (sId.isNotEmpty && sSubjName.isNotEmpty && _localAttendedMap['${sId}_$sSubjName'] == true) {
                                     isAttended = true;
-                                  } else if (sName.isNotEmpty && _localAttendedMap['${sName}_$sSubj'] == true) {
+                                  } else if (sNis.isNotEmpty && sSubjId.isNotEmpty && _localAttendedMap['${sNis}_$sSubjId'] == true) {
                                     isAttended = true;
-                                  } else if (_localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubj'] == true) {
+                                  } else if (sNis.isNotEmpty && sSubjName.isNotEmpty && _localAttendedMap['${sNis}_$sSubjName'] == true) {
+                                    isAttended = true;
+                                  } else if (sName.isNotEmpty && sSubjName.isNotEmpty && _localAttendedMap['${sName}_$sSubjName'] == true) {
+                                    isAttended = true;
+                                  } else if (sSubjName.isNotEmpty && _localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubjName'] == true) {
                                     isAttended = true;
                                   }
                                 } else {
@@ -1194,15 +1221,34 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
                                 final cleanName = sName.replaceAll(' ', '').replaceAll('.', '').replaceAll('-', '');
 
-                                Map<String, dynamic>? rtData = (sId.isNotEmpty ? realtimeMap[sId] : null) ??
-                                    (sNis.isNotEmpty ? realtimeMap[sNis] : null) ??
-                                    (sName.isNotEmpty ? realtimeMap[sName] : null) ??
-                                    (cleanName.isNotEmpty ? realtimeMap[cleanName] : null);
+                                Map<String, dynamic>? rtData;
+                                Map<String, dynamic>? subData;
 
-                                Map<String, dynamic>? subData = (sId.isNotEmpty ? submissionsMap[sId] : null) ??
-                                    (sNis.isNotEmpty ? submissionsMap[sNis] : null) ??
-                                    (sName.isNotEmpty ? submissionsMap[sName] : null) ??
-                                    (cleanName.isNotEmpty ? submissionsMap[cleanName] : null);
+                                if (isMakeupRoom && (sSubjId.isNotEmpty || sSubjName.isNotEmpty)) {
+                                  rtData = (sId.isNotEmpty && sSubjId.isNotEmpty ? realtimeMap['${sId}_$sSubjId'] : null) ??
+                                      (sId.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${sId}_$sSubjName'] : null) ??
+                                      (sNis.isNotEmpty && sSubjId.isNotEmpty ? realtimeMap['${sNis}_$sSubjId'] : null) ??
+                                      (sNis.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${sNis}_$sSubjName'] : null) ??
+                                      (sName.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${sName}_$sSubjName'] : null) ??
+                                      (cleanName.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${cleanName}_$sSubjName'] : null);
+
+                                  subData = (sId.isNotEmpty && sSubjId.isNotEmpty ? submissionsMap['${sId}_$sSubjId'] : null) ??
+                                      (sId.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${sId}_$sSubjName'] : null) ??
+                                      (sNis.isNotEmpty && sSubjId.isNotEmpty ? submissionsMap['${sNis}_$sSubjId'] : null) ??
+                                      (sNis.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${sNis}_$sSubjName'] : null) ??
+                                      (sName.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${sName}_$sSubjName'] : null) ??
+                                      (cleanName.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${cleanName}_$sSubjName'] : null);
+                                } else {
+                                  rtData = (sId.isNotEmpty ? realtimeMap[sId] : null) ??
+                                      (sNis.isNotEmpty ? realtimeMap[sNis] : null) ??
+                                      (sName.isNotEmpty ? realtimeMap[sName] : null) ??
+                                      (cleanName.isNotEmpty ? realtimeMap[cleanName] : null);
+
+                                  subData = (sId.isNotEmpty ? submissionsMap[sId] : null) ??
+                                      (sNis.isNotEmpty ? submissionsMap[sNis] : null) ??
+                                      (sName.isNotEmpty ? submissionsMap[sName] : null) ??
+                                      (cleanName.isNotEmpty ? submissionsMap[cleanName] : null);
+                                }
 
                                 bool isCompleted = (rtData?['isCompleted'] == true) ||
                                     (rtData?['status'] == 'completed') ||
@@ -1365,6 +1411,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                 allowedSubjectNames: cleanActiveSubjectNames,
                                                 allowedSubjectIds: matchedSubjectIds,
                                                 sessionName: sessionLabel,
+                                                isMakeupRoom: isMakeupRoom,
                                               ),
                                               exitLogCount: () {
                                                 final exitedStudents = <String>{};
@@ -1381,6 +1428,15 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                       (sNis.isNotEmpty && roomStudentNises.any((nis) => nis.isNotEmpty && docId.contains(nis)));
 
                                                   if (!isRoomStudent && roomStudentIds.isNotEmpty) continue;
+
+                                                  final bool isDocMakeup = d['isMakeup'] == true ||
+                                                      (d['sessionName'] ?? '').toString().toLowerCase().contains('susulan') ||
+                                                      (d['roomId'] ?? d['roomName'] ?? '').toString().toLowerCase().contains('susulan') ||
+                                                      docId.toLowerCase().contains('susulan') ||
+                                                      docId.toLowerCase().contains('makeup');
+
+                                                  if (isMakeupRoom && !isDocMakeup) continue; // Skip regular exam logs in makeup room!
+                                                  if (!isMakeupRoom && isDocMakeup) continue; // Skip makeup exam logs in regular room!
 
                                                   final rtSubjId = (d['subjectId'] ?? '').toString().toLowerCase().trim();
                                                   final rtSubjName = (d['subjectName'] ?? '').toString().toLowerCase().trim();

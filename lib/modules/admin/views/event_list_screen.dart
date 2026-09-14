@@ -831,28 +831,27 @@ class _EventListScreenState extends State<EventListScreen> {
                                         ),
                                       ),
                                     // 4. Ujian Susulan: Soft Lavender Tint
-                                    if (status == 'published' || status == 'closed')
-                                      ElevatedButton.icon(
-                                        onPressed: () => showDialog(
-                                          context: context,
-                                          barrierDismissible: false,
-                                          builder: (_) => MakeupExamDialog(
-                                            schoolId: widget.schoolId,
-                                            eventId: e['id'],
-                                            eventName: name,
-                                          ),
-                                        ),
-                                        icon: const Icon(Icons.history_edu_rounded, size: 15),
-                                        label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFFF3E8FF),
-                                          foregroundColor: const Color(0xFF7C3AED),
-                                          elevation: 0,
-                                          side: const BorderSide(color: Color(0xFFDDD6FE)),
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                    ElevatedButton.icon(
+                                      onPressed: () => showDialog(
+                                        context: context,
+                                        barrierDismissible: false,
+                                        builder: (_) => MakeupExamDialog(
+                                          schoolId: widget.schoolId,
+                                          eventId: e['id'],
+                                          eventName: name,
                                         ),
                                       ),
+                                      icon: const Icon(Icons.history_edu_rounded, size: 15),
+                                      label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFF3E8FF),
+                                        foregroundColor: const Color(0xFF7C3AED),
+                                        elevation: 0,
+                                        side: const BorderSide(color: Color(0xFFDDD6FE)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                      ),
+                                    ),
                                     // 5. Publish / Tutup Event: Accent Fill
                                     if (status != 'closed')
                                       ElevatedButton.icon(

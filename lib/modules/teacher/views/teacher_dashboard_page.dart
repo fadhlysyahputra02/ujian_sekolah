@@ -26,17 +26,61 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   // Cached statistics statically to persist across widget destructions/recreations during route changes
   static String? _lastTeacherId;
   static List<QueryDocumentSnapshot>? _lastEvents;
+  static String? _lastEventsKey;
   static int _makingQuestionsCount = 0;
   static int _proctoringSessionsCount = 0;
   static bool _statsLoaded = false;
 
+  bool _isEventFinished(Map<String, dynamic> evData) {
+    final status = (evData['status'] as String? ?? '').toLowerCase().trim();
+    return status == 'closed' ||
+        status == 'finished' ||
+        status == 'completed' ||
+        status == 'archived' ||
+        status == 'done' ||
+        status == 'selesai';
+  }
+
+  bool _isEventActive(Map<String, dynamic> evData) {
+    return !_isEventFinished(evData);
+  }
+
+  DateTime _parseEventDate(Map<String, dynamic> data) {
+    final createdAt = data['createdAt'];
+    if (createdAt is Timestamp) return createdAt.toDate();
+    if (createdAt is String) {
+      final parsed = DateTime.tryParse(createdAt);
+      if (parsed != null) return parsed;
+    }
+
+    final startDate = data['startDate'];
+    if (startDate is Timestamp) return startDate.toDate();
+    if (startDate is String) {
+      final parsed = DateTime.tryParse(startDate);
+      if (parsed != null) return parsed;
+    }
+
+    final updatedAt = data['updatedAt'];
+    if (updatedAt is Timestamp) return updatedAt.toDate();
+    if (updatedAt is String) {
+      final parsed = DateTime.tryParse(updatedAt);
+      if (parsed != null) return parsed;
+    }
+
+    return DateTime(1970);
+  }
+
   void _updateStats(String schoolId, String teacherId, List<QueryDocumentSnapshot> events) {
-    final currentIds = events.map((e) => e.id).toSet();
-    final lastIds = _lastEvents?.map((e) => e.id).toSet();
-    if (_lastTeacherId == teacherId && lastIds != null && lastIds.length == currentIds.length && lastIds.containsAll(currentIds)) {
+    final currentKey = events.map((e) {
+      final d = e.data() as Map<String, dynamic>? ?? {};
+      return '${e.id}_${d['status']}_${d['updatedAt']}';
+    }).join('|');
+
+    if (_lastTeacherId == teacherId && _lastEventsKey == currentKey && _statsLoaded) {
       return;
     }
     _lastTeacherId = teacherId;
+    _lastEventsKey = currentKey;
     _lastEvents = events;
     _loadStatsAsync(schoolId, teacherId, events);
   }
@@ -50,6 +94,12 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     try {
       await Future.wait(events.map((evDoc) async {
         final evData = evDoc.data() as Map<String, dynamic>? ?? {};
+
+        // Skip finished or closed events from active task statistics
+        if (_isEventFinished(evData)) return;
+
+        final assignments = await _checkTeacherAssignments(schoolId, evDoc.id, teacherId);
+
         final timetableList = <Map<String, dynamic>>[];
 
         // 1. Dari subkoleksi timetable
@@ -60,11 +110,18 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           }
         } catch (_) {}
 
-        // 2. Dari field draftState -> timetable
+        // 2. Dari field draftState -> step3 -> timetable & draftState -> timetable
         final draftState = evData['draftState'] as Map<String, dynamic>?;
-        if (draftState != null && draftState['timetable'] is List) {
-          for (var item in (draftState['timetable'] as List)) {
-            if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+        if (draftState != null) {
+          if (draftState['step3'] is Map && draftState['step3']['timetable'] is List) {
+            for (var item in (draftState['step3']['timetable'] as List)) {
+              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+            }
+          }
+          if (draftState['timetable'] is List) {
+            for (var item in (draftState['timetable'] as List)) {
+              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+            }
           }
         }
 
@@ -82,7 +139,12 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
             teacherSubjects.add(subjName);
           }
         }
-        questionCount += teacherSubjects.length;
+
+        if (teacherSubjects.isNotEmpty) {
+          questionCount += teacherSubjects.length;
+        } else if (assignments['isPembuatSoal'] == true) {
+          questionCount += 1;
+        }
 
         // Proctors count
         int eventProctors = 0;
@@ -116,7 +178,12 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
             if (isCurrentTeacher(val.toString())) eventProctors++;
           }
         }
-        proctorCount += eventProctors;
+
+        if (eventProctors > 0) {
+          proctorCount += eventProctors;
+        } else if (assignments['isPengawas'] == true) {
+          proctorCount += 1;
+        }
       }));
     } catch (e) {
       debugPrint("Error loading stats: $e");
@@ -968,43 +1035,145 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
         });
 
         return LayoutBuilder(builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final isMobile = width < 600;
-          final crossAxisCount = width > 700 ? 3 : (width > 340 ? 3 : 1);
+          final isMobile = constraints.maxWidth < 600;
 
-          return GridView.count(
-            crossAxisCount: crossAxisCount,
-            crossAxisSpacing: isMobile ? 8 : 14,
-            mainAxisSpacing: isMobile ? 8 : 14,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: width > 700 ? 1.8 : (isMobile ? 0.94 : 3.2),
-            children: [
-              _buildStatsCard(
-                title: 'Pembuat Soal',
-                value: '$_makingQuestionsCount',
-                desc: 'Mapel diampu',
-                icon: Icons.edit_note_rounded,
-                gradientColors: [const Color(0xFF0284C7), const Color(0xFF0369A1)],
-                isMobile: isMobile,
-              ),
-              _buildStatsCard(
-                title: 'Mengawas Ujian',
-                value: '$_proctoringSessionsCount',
-                desc: 'Sesi ruangan',
-                icon: Icons.visibility_rounded,
-                gradientColors: [const Color(0xFFD97706), const Color(0xFFB45309)],
-                isMobile: isMobile,
-              ),
-              _buildStatsCard(
-                title: 'Event Aktif',
-                value: '${events.where((e) => (e.data() as Map)['status'] == 'published').length}',
-                desc: 'Event sekolah',
-                icon: Icons.event_available_rounded,
-                gradientColors: [const Color(0xFF059669), const Color(0xFF047857)],
-                isMobile: isMobile,
-              ),
-            ],
+          final statsData = [
+            {
+              'title': 'Pembuat Soal',
+              'value': '$_makingQuestionsCount',
+              'desc': 'Mapel diampu',
+              'icon': Icons.edit_note_rounded,
+              'gradientColors': [const Color(0xFF0284C7), const Color(0xFF0369A1)],
+            },
+            {
+              'title': 'Mengawas Ujian',
+              'value': '$_proctoringSessionsCount',
+              'desc': 'Sesi ruangan',
+              'icon': Icons.visibility_rounded,
+              'gradientColors': [const Color(0xFFD97706), const Color(0xFFB45309)],
+            },
+            {
+              'title': 'Event Aktif',
+              'value': '${events.where((e) => _isEventActive(e.data() as Map<String, dynamic>)).length}',
+              'desc': 'Event sekolah',
+              'icon': Icons.event_available_rounded,
+              'gradientColors': [const Color(0xFF059669), const Color(0xFF047857)],
+            },
+          ];
+
+          if (isMobile) {
+            return Column(
+              children: statsData.map((item) {
+                final gradientColors = item['gradientColors'] as List<Color>;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: gradientColors.first.withValues(alpha: 0.06),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: gradientColors,
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: gradientColors.first.withValues(alpha: 0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            item['icon'] as IconData,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                item['title'] as String,
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item['desc'] as String,
+                                style: GoogleFonts.inter(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: gradientColors.first.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: gradientColors.first.withValues(alpha: 0.18),
+                            ),
+                          ),
+                          child: Text(
+                            item['value'] as String,
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: gradientColors.first,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          }
+
+          return Row(
+            children: statsData.map((item) {
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: _buildStatsCard(
+                    title: item['title'] as String,
+                    value: item['value'] as String,
+                    desc: item['desc'] as String,
+                    icon: item['icon'] as IconData,
+                    gradientColors: item['gradientColors'] as List<Color>,
+                  ),
+                ),
+              );
+            }).toList(),
           );
         });
       },
@@ -1017,119 +1186,68 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     required String desc,
     required IconData icon,
     required List<Color> gradientColors,
-    bool isMobile = false,
   }) {
     return Container(
-      padding: EdgeInsets.all(isMobile ? 10 : 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(isMobile ? 12 : 16),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
             color: gradientColors.first.withValues(alpha: 0.05),
-            blurRadius: isMobile ? 6 : 10,
+            blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: isMobile
-          ? Column(
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: gradientColors),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(colors: gradientColors),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(icon, color: Colors.white, size: 16),
-                    ),
-                    Text(
-                      value,
-                      style: GoogleFonts.inter(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: const Color(0xFF0F172A),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
                 Text(
                   title,
                   style: GoogleFonts.inter(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF334155),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF64748B),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 1),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: GoogleFonts.inter(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
                 Text(
                   desc,
                   style: GoogleFonts.inter(
-                    fontSize: 8.5,
-                    color: const Color(0xFF64748B),
-                    fontWeight: FontWeight.w500,
+                    fontSize: 10,
+                    color: const Color(0xFF94A3B8),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
-            )
-          : Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: gradientColors),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 24),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        title,
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF64748B),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        value,
-                        style: GoogleFonts.inter(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF1E293B),
-                        ),
-                      ),
-                      Text(
-                        desc,
-                        style: GoogleFonts.inter(
-                          fontSize: 10,
-                          color: const Color(0xFF94A3B8),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1156,6 +1274,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           final status = data['status'] as String? ?? 'draft';
           return status == 'published' || status == 'draft';
         }).toList();
+
+        publishedEvents.sort((a, b) {
+          final dataA = a.data() as Map<String, dynamic>;
+          final dataB = b.data() as Map<String, dynamic>;
+          final dateA = _parseEventDate(dataA);
+          final dateB = _parseEventDate(dataB);
+          return dateB.compareTo(dateA);
+        });
 
         if (publishedEvents.isEmpty) {
           return Container(
@@ -1556,7 +1682,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           );
         }
 
-        final docs = snapshot.data?.docs ?? [];
+        final docs = List<QueryDocumentSnapshot>.from(snapshot.data?.docs ?? []);
+        docs.sort((a, b) {
+          final dataA = a.data() as Map<String, dynamic>;
+          final dataB = b.data() as Map<String, dynamic>;
+          final dateA = _parseEventDate(dataA);
+          final dateB = _parseEventDate(dataB);
+          return dateB.compareTo(dateA);
+        });
 
         if (docs.isEmpty) {
           return Center(

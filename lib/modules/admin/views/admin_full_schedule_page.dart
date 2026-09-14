@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:provider/provider.dart';
+import '../../../core/services/auth_service.dart';
 
 class AdminFullSchedulePage extends StatefulWidget {
   final String schoolId;
@@ -50,8 +52,24 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
   Future<void> _loadAllScheduleData() async {
     setState(() => _isLoading = true);
     try {
+      String effectiveSchoolId = widget.schoolId;
+      if (effectiveSchoolId.isEmpty && mounted) {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        int attempts = 0;
+        while (authService.isLoading && attempts < 50) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          attempts++;
+        }
+        effectiveSchoolId = authService.schoolId ?? '';
+      }
+
+      if (effectiveSchoolId.isEmpty) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
       final db = FirebaseFirestore.instance;
-      final schoolRef = db.collection('schools').doc(widget.schoolId);
+      final schoolRef = db.collection('schools').doc(effectiveSchoolId);
       final eventRef = schoolRef.collection('events').doc(widget.eventId);
 
       // 1. Fetch Event Doc

@@ -2,8 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/models/student.dart';
 import '../../../core/services/admin_user_service.dart';
+import '../../../core/services/auth_service.dart';
 import '../widgets/class_form_dialog.dart';
 
 class ClassDetailScreen extends StatefulWidget {
@@ -369,10 +371,20 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   // ── UI ──
   @override
   Widget build(BuildContext context) {
+    final authService = Provider.of<AuthService>(context);
+    final activeSchoolId = widget.schoolId.isNotEmpty ? widget.schoolId : (authService.schoolId ?? '');
+
+    if (authService.isLoading || activeSchoolId.isEmpty) {
+      return const Scaffold(
+        backgroundColor: _background,
+        body: Center(child: CircularProgressIndicator(color: _indigo)),
+      );
+    }
+
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
           .collection('schools')
-          .doc(widget.schoolId)
+          .doc(activeSchoolId)
           .collection('classes')
           .doc(_classId)
           .snapshots(),
@@ -397,7 +409,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
         return Scaffold(
           backgroundColor: _background,
           body: StreamBuilder<List<Student>>(
-            stream: _service.streamStudents(widget.schoolId),
+            stream: _service.streamStudents(activeSchoolId),
             builder: (context, studentsSnap) {
               if (studentsSnap.hasError) {
                 return Center(child: Text('Error: ${studentsSnap.error}'));

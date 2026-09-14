@@ -244,87 +244,128 @@ class AuthService extends ChangeNotifier {
       context: context,
       barrierDismissible: true,
       builder: (BuildContext dialogContext) {
-        return AlertDialog(
+        return Dialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
           ),
+          elevation: 12,
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,
-          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
-          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.logout_rounded,
-                  color: Color(0xFFEF4444),
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  'Konfirmasi Keluar',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: const Color(0xFF0F172A),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Icon Header with glowing badge
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFFFEE2E2),
+                        width: 4,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.logout_rounded,
+                      color: Color(0xFFEF4444),
+                      size: 28,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 20),
+
+                  // Title
+                  Text(
+                    'Keluar dari Akun?',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                      color: const Color(0xFF0F172A),
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Description
+                  Text(
+                    'Sesi Anda akan diakhiri. Pastikan semua aktivitas ujian dan pekerjaan Anda telah tersimpan sebelum keluar.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF64748B),
+                      fontSize: 13.5,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+
+                  // Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            backgroundColor: const Color(0xFFF8FAFC),
+                            foregroundColor: const Color(0xFF475569),
+                            side: const BorderSide(color: Color(0xFFE2E8F0)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            'Batal',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => Navigator.of(dialogContext).pop(true),
+                          icon: const Icon(Icons.logout_rounded, size: 17),
+                          label: Text(
+                            'Ya, Keluar',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF4444),
+                            foregroundColor: Colors.white,
+                            elevation: 2,
+                            shadowColor: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
-          ),
-          content: Text(
-            'Apakah Anda yakin ingin keluar dari akun Anda?',
-            style: GoogleFonts.plusJakartaSans(
-              color: const Color(0xFF475569),
-              fontSize: 14,
-              height: 1.4,
             ),
           ),
-          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-          actions: [
-            OutlinedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                side: BorderSide(color: Colors.grey.shade300),
-              ),
-              child: Text(
-                'Batal',
-                style: GoogleFonts.plusJakartaSans(
-                  color: const Color(0xFF475569),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFEF4444),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text(
-                'Ya, Keluar',
-                style: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
         );
       },
     );

@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../../core/services/auth_service.dart';
 
 class RekapStudentGradesView extends StatefulWidget {
   final String schoolId;
@@ -51,10 +53,31 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
     });
 
     try {
+      String effectiveSchoolId = widget.schoolId;
+      if (effectiveSchoolId.isEmpty && mounted) {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        int attempts = 0;
+        while (authService.isLoading && attempts < 50) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          attempts++;
+        }
+        effectiveSchoolId = authService.schoolId ?? '';
+      }
+
+      if (effectiveSchoolId.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'School ID tidak ditemukan. Silakan muat ulang halaman.';
+          });
+        }
+        return;
+      }
+
       // 1. Fetch Class Document to get studentIds & real class name
       DocumentSnapshot classDocSnap = await _firestore
           .collection('schools')
-          .doc(widget.schoolId)
+          .doc(effectiveSchoolId)
           .collection('classes')
           .doc(widget.classId)
           .get();
@@ -76,7 +99,7 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
       // 2. Fetch All Students in School
       QuerySnapshot studentSnap = await _firestore
           .collection('schools')
-          .doc(widget.schoolId)
+          .doc(effectiveSchoolId)
           .collection('students')
           .get();
 
@@ -112,7 +135,7 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
       // 3. Fetch Submissions for this event
       QuerySnapshot subSnap = await _firestore
           .collection('schools')
-          .doc(widget.schoolId)
+          .doc(effectiveSchoolId)
           .collection('events')
           .doc(widget.eventId)
           .collection('submissions')
@@ -526,12 +549,12 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
                 )
               : SingleChildScrollView(
                   padding: EdgeInsets.symmetric(
-                    horizontal: isDesktop ? 40 : 20,
-                    vertical: 28,
+                    horizontal: isDesktop ? 24 : 16,
+                    vertical: 24,
                   ),
                   child: Center(
                     child: Container(
-                      constraints: const BoxConstraints(maxWidth: 1000),
+                      constraints: const BoxConstraints(maxWidth: 1400),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -717,110 +740,114 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
                                       ),
                                     ),
                                     const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                                    SingleChildScrollView(
-                                      scrollDirection: Axis.horizontal,
-                                      child: ConstrainedBox(
-                                        constraints: BoxConstraints(minWidth: isDesktop ? 900 : 700),
-                                        child: DataTable(
-                                          headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
-                                          dataRowMinHeight: 60,
-                                          dataRowMaxHeight: 65,
-                                          horizontalMargin: 20,
-                                          columnSpacing: 24,
-                                          columns: const [
-                                            DataColumn(label: Text('NIS', style: TextStyle(fontWeight: FontWeight.bold))),
-                                            DataColumn(label: Text('NAMA MURID', style: TextStyle(fontWeight: FontWeight.bold))),
-                                            DataColumn(label: Text('NILAI PG', style: TextStyle(fontWeight: FontWeight.bold))),
-                                            DataColumn(label: Text('NILAI ESSAY', style: TextStyle(fontWeight: FontWeight.bold))),
-                                            DataColumn(label: Text('TOTAL NILAI', style: TextStyle(fontWeight: FontWeight.bold))),
-                                            DataColumn(label: Text('STATUS KOREKSI', style: TextStyle(fontWeight: FontWeight.bold))),
-                                            DataColumn(label: Text('AKSI', style: TextStyle(fontWeight: FontWeight.bold))),
-                                          ],
-                                          rows: filtered.map((sData) {
-                                            final nis = (sData['nis'] ?? '-').toString();
-                                            final name = (sData['displayName'] ?? sData['name'] ?? '-').toString();
-                                            final sub = _getSubmissionForStudent(sData);
+                                    LayoutBuilder(
+                                      builder: (context, tableConstraints) {
+                                        return SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: ConstrainedBox(
+                                            constraints: BoxConstraints(minWidth: tableConstraints.maxWidth),
+                                            child: DataTable(
+                                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                                              dataRowMinHeight: 60,
+                                              dataRowMaxHeight: 65,
+                                              horizontalMargin: 24,
+                                              columnSpacing: isDesktop ? 32 : 16,
+                                              columns: const [
+                                                DataColumn(label: Text('NIS', style: TextStyle(fontWeight: FontWeight.bold))),
+                                                DataColumn(label: Text('NAMA MURID', style: TextStyle(fontWeight: FontWeight.bold))),
+                                                DataColumn(label: Text('NILAI PG', style: TextStyle(fontWeight: FontWeight.bold))),
+                                                DataColumn(label: Text('NILAI ESSAY', style: TextStyle(fontWeight: FontWeight.bold))),
+                                                DataColumn(label: Text('TOTAL NILAI', style: TextStyle(fontWeight: FontWeight.bold))),
+                                                DataColumn(label: Text('STATUS KOREKSI', style: TextStyle(fontWeight: FontWeight.bold))),
+                                                DataColumn(label: Text('AKSI', style: TextStyle(fontWeight: FontWeight.bold))),
+                                              ],
+                                              rows: filtered.map((sData) {
+                                                final nis = (sData['nis'] ?? '-').toString();
+                                                final name = (sData['displayName'] ?? sData['name'] ?? '-').toString();
+                                                final sub = _getSubmissionForStudent(sData);
 
-                                            final submitted = _hasSubmitted(sub);
-                                            final graded = _isGraded(sub);
-                                            final pgScore = _extractPgScore(sub);
-                                            final essayScore = _extractEssayScore(sub);
-                                            final totalScore = _extractTotalScore(sub);
+                                                final submitted = _hasSubmitted(sub);
+                                                final graded = _isGraded(sub);
+                                                final pgScore = _extractPgScore(sub);
+                                                final essayScore = _extractEssayScore(sub);
+                                                final totalScore = _extractTotalScore(sub);
 
-                                            return DataRow(
-                                              cells: [
-                                                DataCell(
-                                                  Text(nis, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF334155))),
-                                                ),
-                                                DataCell(
-                                                  Row(
-                                                    children: [
-                                                      CircleAvatar(
-                                                        radius: 14,
-                                                        backgroundColor: const Color(0xFFEEF2FF),
-                                                        child: Text(
-                                                          name.isNotEmpty ? name[0].toUpperCase() : 'M',
-                                                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF4F46E5)),
+                                                return DataRow(
+                                                  cells: [
+                                                    DataCell(
+                                                      Text(nis, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF334155))),
+                                                    ),
+                                                    DataCell(
+                                                      Row(
+                                                        children: [
+                                                          CircleAvatar(
+                                                            radius: 14,
+                                                            backgroundColor: const Color(0xFFEEF2FF),
+                                                            child: Text(
+                                                              name.isNotEmpty ? name[0].toUpperCase() : 'M',
+                                                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF4F46E5)),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 10),
+                                                          Text(
+                                                            name,
+                                                            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    DataCell(
+                                                      Text(
+                                                        submitted ? (pgScore != null ? '$pgScore' : '-') : '-',
+                                                        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                                                      ),
+                                                    ),
+                                                    DataCell(
+                                                      Text(
+                                                        submitted ? (essayScore != null ? '$essayScore' : 'Belum') : '-',
+                                                        style: GoogleFonts.inter(
+                                                          fontSize: 13,
+                                                          color: essayScore != null ? const Color(0xFF0F172A) : const Color(0xFFD97706),
+                                                          fontWeight: essayScore != null ? FontWeight.bold : FontWeight.w500,
                                                         ),
                                                       ),
-                                                      const SizedBox(width: 10),
-                                                      Text(
-                                                        name,
-                                                        style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                DataCell(
-                                                  Text(
-                                                    submitted ? (pgScore != null ? '$pgScore' : '-') : '-',
-                                                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
-                                                  ),
-                                                ),
-                                                DataCell(
-                                                  Text(
-                                                    submitted ? (essayScore != null ? '$essayScore' : 'Belum') : '-',
-                                                    style: GoogleFonts.inter(
-                                                      fontSize: 13,
-                                                      color: essayScore != null ? const Color(0xFF0F172A) : const Color(0xFFD97706),
-                                                      fontWeight: essayScore != null ? FontWeight.bold : FontWeight.w500,
                                                     ),
-                                                  ),
-                                                ),
-                                                DataCell(
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                                    decoration: BoxDecoration(
-                                                      color: graded
-                                                          ? const Color(0xFFECFDF5)
-                                                          : (submitted ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9)),
-                                                      borderRadius: BorderRadius.circular(8),
-                                                    ),
-                                                    child: Text(
-                                                      submitted ? (totalScore != null ? '$totalScore' : '-') : '-',
-                                                      style: GoogleFonts.inter(
-                                                        fontSize: 14,
-                                                        fontWeight: FontWeight.w900,
-                                                        color: graded
-                                                            ? const Color(0xFF059669)
-                                                            : (submitted ? const Color(0xFF2563EB) : const Color(0xFF94A3B8)),
+                                                    DataCell(
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                        decoration: BoxDecoration(
+                                                          color: graded
+                                                              ? const Color(0xFFECFDF5)
+                                                              : (submitted ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9)),
+                                                          borderRadius: BorderRadius.circular(8),
+                                                        ),
+                                                        child: Text(
+                                                          submitted ? (totalScore != null ? '$totalScore' : '-') : '-',
+                                                          style: GoogleFonts.inter(
+                                                            fontSize: 14,
+                                                            fontWeight: FontWeight.w900,
+                                                            color: graded
+                                                                ? const Color(0xFF059669)
+                                                                : (submitted ? const Color(0xFF2563EB) : const Color(0xFF94A3B8)),
+                                                          ),
+                                                        ),
                                                       ),
                                                     ),
-                                                  ),
-                                                ),
-                                                DataCell(_buildStatusBadge(sub)),
-                                                DataCell(
-                                                  IconButton(
-                                                    icon: const Icon(Icons.info_outline_rounded, color: Color(0xFF4F46E5), size: 20),
-                                                    tooltip: 'Lihat Detail Nilai',
-                                                    onPressed: () => _showStudentDetailModal(sData, sub),
-                                                  ),
-                                                ),
-                                              ],
-                                            );
-                                          }).toList(),
-                                        ),
-                                      ),
+                                                    DataCell(_buildStatusBadge(sub)),
+                                                    DataCell(
+                                                      IconButton(
+                                                        icon: const Icon(Icons.info_outline_rounded, color: Color(0xFF4F46E5), size: 20),
+                                                        tooltip: 'Lihat Detail Nilai',
+                                                        onPressed: () => _showStudentDetailModal(sData, sub),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                );
+                                              }).toList(),
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
                                   ],
                                 ),
