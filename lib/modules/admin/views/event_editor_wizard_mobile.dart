@@ -3116,16 +3116,15 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                     elevation: 0,
                   ),
                   onPressed: () async {
-                    final daysList = self._examDays();
-                    await ExamPdfGenerator.downloadSchedulePerClass(
+                    await ExamPdfGenerator.downloadSeatLayout(
                       eventName: self._nameController.text,
                       examType: self._examType,
                       startDate: self._startDate,
                       endDate: self._endDate,
-                      sessions: self._sessions,
-                      timetable: self._timetable,
                       rooms: self._rooms,
                       roomAssignments: self._roomAssignments,
+                      classRealStudentsMap: self.classRealStudentsMap,
+                      addState: self._addState,
                     );
                   },
                 ),
@@ -3145,19 +3144,15 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                     elevation: 0,
                   ),
                   onPressed: () async {
-                    final daysList = self._examDays();
-                    final teachers = await _adminUserService.streamTeachers(self.widget.schoolId).first;
-                    await ExamPdfGenerator.downloadProctorSchedule(
+                    await ExamPdfGenerator.downloadDeskCards(
                       eventName: self._nameController.text,
                       examType: self._examType,
                       startDate: self._startDate,
                       endDate: self._endDate,
-                      sessions: self._sessions,
-                      timetable: self._timetable,
-                      proctorGrid: self._proctorGrid,
                       rooms: self._rooms,
                       roomAssignments: self._roomAssignments,
-                      teachers: teachers.map((t) => {'id': t.id, 'displayName': t.displayName, 'email': t.email}).toList(),
+                      classRealStudentsMap: self.classRealStudentsMap,
+                      addState: self._addState,
                     );
                   },
                 ),

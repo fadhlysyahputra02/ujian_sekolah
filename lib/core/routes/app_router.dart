@@ -35,17 +35,17 @@ class AppRouter {
           return isLoginRoute ? null : '/login';
         }
 
-        // 2. Jika sudah login dan mencoba ke /login -> redirect ke / (yang akan memicu guard role)
-        if (isLoginRoute) {
-          return '/';
-        }
-
-        // 3. Cek status blokir langganan sekolah
+        // 2. Cek status blokir langganan sekolah atau akun murid non-aktif (sebelum redirect dari /login)
         if (authService.isBlocked && loc != '/blocked') {
           return '/blocked';
         }
 
         if (!authService.isBlocked && loc == '/blocked') {
+          return '/';
+        }
+
+        // 3. Jika sudah login dan tidak diblokir, tapi mencoba ke /login -> redirect ke /
+        if (isLoginRoute) {
           return '/';
         }
 
