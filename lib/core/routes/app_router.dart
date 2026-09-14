@@ -35,12 +35,12 @@ class AppRouter {
           return isLoginRoute ? null : '/login';
         }
 
-        // 2. Cek status blokir langganan sekolah atau akun murid non-aktif (sebelum redirect dari /login)
-        if (authService.isBlocked && loc != '/blocked') {
-          return '/blocked';
+        // 2. Cek status blokir langganan sekolah atau akun murid non-aktif
+        if (authService.isBlocked) {
+          return loc == '/blocked' ? null : '/blocked';
         }
 
-        if (!authService.isBlocked && loc == '/blocked') {
+        if (loc == '/blocked') {
           return '/';
         }
 

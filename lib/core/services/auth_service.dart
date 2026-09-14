@@ -76,7 +76,20 @@ class AuthService extends ChangeNotifier {
         return;
       }
 
-      // Fallback: Jika custom claim role tidak ada, cek dokumen koleksi teachers dan students di Firestore
+      // Fallback: Jika custom claim role atau schoolId belum terkonfigurasi di token
+      if ((_role == null || _schoolId == null) && user.uid.isNotEmpty) {
+        try {
+          final userDoc = await _firestore.collection('users').doc(user.uid).get();
+          if (userDoc.exists) {
+            final uData = userDoc.data();
+            _role ??= uData?['role'] as String?;
+            _schoolId ??= uData?['schoolId'] as String?;
+          }
+        } catch (e) {
+          debugPrint("Error reading users/{uid}: $e");
+        }
+      }
+
       if (_role == null && user.email != null) {
         try {
           final studentQuery = await _firestore
@@ -110,18 +123,45 @@ class AuthService extends ChangeNotifier {
       }
 
       // 2. Listen to student status in real-time if role is student
-      if (_role == 'student' && user.email != null) {
-        _studentSubscription = _firestore
-            .collectionGroup('students')
-            .where('email', isEqualTo: user.email)
-            .limit(1)
-            .snapshots()
-            .listen((snapshot) {
+      if (_role == 'student') {
+        final Stream<QuerySnapshot> studentStream;
+        if (_schoolId != null && _schoolId!.isNotEmpty) {
+          studentStream = _firestore
+              .collection('schools')
+              .doc(_schoolId)
+              .collection('students')
+              .where('uid', isEqualTo: user.uid)
+              .snapshots();
+        } else {
+          studentStream = _firestore
+              .collectionGroup('students')
+              .where('email', isEqualTo: user.email)
+              .limit(1)
+              .snapshots();
+        }
+
+        _studentSubscription = studentStream.listen((snapshot) async {
           bool newInactive = false;
           if (snapshot.docs.isNotEmpty) {
             final data = snapshot.docs.first.data() as Map<String, dynamic>?;
-            newInactive = data?['status'] == 'inactive';
+            newInactive = data?['status'] == 'inactive' || data?['disabled'] == true;
+          } else if (_schoolId != null && user.email != null) {
+            // Fallback check by email if uid query returned empty
+            try {
+              final emailSnap = await _firestore
+                  .collection('schools')
+                  .doc(_schoolId)
+                  .collection('students')
+                  .where('email', isEqualTo: user.email)
+                  .limit(1)
+                  .get();
+              if (emailSnap.docs.isNotEmpty) {
+                final data = emailSnap.docs.first.data();
+                newInactive = data['status'] == 'inactive' || data['disabled'] == true;
+              }
+            } catch (_) {}
           }
+
           final bool wasLoading = _isLoading;
           if (wasLoading || newInactive != _isStudentInactive) {
             _isStudentInactive = newInactive;
@@ -129,6 +169,7 @@ class AuthService extends ChangeNotifier {
             notifyListeners();
           }
         }, onError: (e) {
+          debugPrint("Error in student status subscription: $e");
           _isLoading = false;
           notifyListeners();
         });

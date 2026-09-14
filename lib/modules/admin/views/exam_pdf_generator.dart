@@ -523,16 +523,33 @@ class ExamPdfGenerator {
         final seat = seatData[i];
         final sName = seat['name'] ?? '';
         if (sName.isEmpty) continue;
+
+        final int seatNum = i + 1;
+        final yearStr = startDate != null
+            ? startDate.year.toString()
+            : ((seat['angkatan'] ?? '').trim().isNotEmpty
+                ? seat['angkatan']!.trim()
+                : DateTime.now().year.toString());
+        final yearClean = yearStr.length == 4 ? yearStr : DateTime.now().year.toString();
+
+        final roomDigits = RegExp(r'\d+').allMatches(rname).map((m) => m.group(0)!).join('');
+        final roomNum = roomDigits.isNotEmpty ? int.tryParse(roomDigits) ?? 1 : 1;
+        final roomClean = roomNum.toString().padLeft(2, '0');
+
+        final seatClean = seatNum.toString().padLeft(3, '0');
+
+        final participantNo = '$yearClean-$roomClean-$seatClean';
+
         allCards.add({
           'name': sName,
           'class': seat['class'] ?? '',
-          'seatNo': '${i + 1}',
+          'seatNo': '$seatNum',
           'room': rname,
           'eventName': eventName,
           'examType': examType,
           'dateRange': dateRange,
           'academicYear': academicYear,
-          'nis': seat['nis'] ?? '',
+          'nis': participantNo,
         });
       }
     }
@@ -580,6 +597,10 @@ class ExamPdfGenerator {
                         final cardIdx = rowIdx * cols + colIdx;
                         final card = pageCards[cardIdx];
                         final isEmpty = (card['name'] ?? '').isEmpty;
+                        final rawRoom = (card['room'] ?? '').trim();
+                        final roomText = rawRoom.isEmpty
+                            ? '-'
+                            : (rawRoom.toLowerCase().startsWith('ruang') ? rawRoom : 'Ruang $rawRoom');
 
                         return pw.Padding(
                           padding: const pw.EdgeInsets.all(3.0),
@@ -680,12 +701,20 @@ class ExamPdfGenerator {
                                                   pw.SizedBox(width: 8),
                                                   pw.Column(
                                                     crossAxisAlignment: pw.CrossAxisAlignment.start,
+                                                    mainAxisAlignment: pw.MainAxisAlignment.center,
                                                     children: [
-                                                      pw.Text('No. Kursi',
-                                                          style: pw.TextStyle(fontSize: 6, color: _pdfColor(const Color(0xFF94A3B8)))),
                                                       pw.Text(
-                                                        card['room']!.isNotEmpty ? 'Ruang ${card['room']}' : '-',
-                                                        style: pw.TextStyle(fontSize: 7, color: _slate, fontWeight: pw.FontWeight.bold),
+                                                        'RUANGAN',
+                                                        style: pw.TextStyle(
+                                                          fontSize: 6,
+                                                          color: _pdfColor(const Color(0xFF94A3B8)),
+                                                          fontWeight: pw.FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                      pw.SizedBox(height: 1),
+                                                      pw.Text(
+                                                        roomText,
+                                                        style: pw.TextStyle(fontSize: 7.5, color: _slate, fontWeight: pw.FontWeight.bold),
                                                       ),
                                                     ],
                                                   ),
@@ -702,12 +731,27 @@ class ExamPdfGenerator {
                                                 maxLines: 2,
                                               ),
                                               pw.Row(
+                                                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                                                 children: [
-                                                  pw.Text('Kelas: ',
-                                                      style: pw.TextStyle(fontSize: 7, color: _pdfColor(const Color(0xFF94A3B8)))),
-                                                  pw.Text(
-                                                    card['class']!.isNotEmpty ? card['class']! : '-',
-                                                    style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: _slate),
+                                                  pw.Row(
+                                                    children: [
+                                                      pw.Text('Kelas: ',
+                                                          style: pw.TextStyle(fontSize: 7, color: _pdfColor(const Color(0xFF94A3B8)))),
+                                                      pw.Text(
+                                                        card['class']!.isNotEmpty ? card['class']! : '-',
+                                                        style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: _slate),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  pw.Row(
+                                                    children: [
+                                                      pw.Text('No. Peserta: ',
+                                                          style: pw.TextStyle(fontSize: 6.5, color: _pdfColor(const Color(0xFF94A3B8)))),
+                                                      pw.Text(
+                                                        (card['nis'] ?? '').isNotEmpty ? card['nis']! : '-',
+                                                        style: pw.TextStyle(fontSize: 6.5, fontWeight: pw.FontWeight.bold, color: _slate),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ],
                                               ),
@@ -758,7 +802,9 @@ class ExamPdfGenerator {
     final String arrangeMode = (layoutState?['arrange'] as String?) ?? 'normal';
     final int seed = (layoutState?['seed'] as int?) ?? (rid.hashCode.abs() % 100000 + 42);
 
-    final Map<String, int> skipCountMap = {};
+    // Track allocated student IDs across preceding rooms
+    final Map<String, Set<String>> allocatedStudentIdsPerClass = {};
+
     for (var rMap in rooms) {
       final rId = (rMap['id'] ?? rMap['code'] ?? rMap['name'] ?? '').toString();
       final rName = (rMap['name'] ?? rMap['code'] ?? rId).toString();
@@ -781,12 +827,30 @@ class ExamPdfGenerator {
       for (var a in rAssgn) {
         if (a is Map) {
           final cName = (a['className'] ?? a['classId'] ?? '').toString().trim();
+          final cleanC = cName.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
           final cnt = (a['count'] as num?)?.toInt() ?? 0;
-          if (cName.isNotEmpty && cnt > 0) {
-            skipCountMap[cName] = (skipCountMap[cName] ?? 0) + cnt;
-            final cleanC = cName.toLowerCase().replaceAll(' ', '').replaceAll('-', '');
-            if (cleanC.isNotEmpty && cleanC != cName) {
-              skipCountMap[cleanC] = (skipCountMap[cleanC] ?? 0) + cnt;
+          final sIds = a['studentIds'];
+
+          allocatedStudentIdsPerClass.putIfAbsent(cName, () => <String>{});
+          if (cleanC.isNotEmpty && cleanC != cName) {
+            allocatedStudentIdsPerClass.putIfAbsent(cleanC, () => allocatedStudentIdsPerClass[cName]!);
+          }
+
+          final realList = classRealStudentsMap[cName] ?? classRealStudentsMap[cleanC] ?? [];
+
+          if (sIds is List && sIds.isNotEmpty) {
+            for (var id in sIds) {
+              allocatedStudentIdsPerClass[cName]!.add(id.toString());
+            }
+          } else {
+            int taken = 0;
+            for (var s in realList) {
+              final sId = (s['studentId'] ?? s['id'] ?? '').toString();
+              if (sId.isNotEmpty && !allocatedStudentIdsPerClass[cName]!.contains(sId)) {
+                allocatedStudentIdsPerClass[cName]!.add(sId);
+                taken++;
+                if (taken >= cnt) break;
+              }
             }
           }
         }
@@ -796,6 +860,9 @@ class ExamPdfGenerator {
     final List<List<Map<String, String>>> classQueues = [];
     final List<Map<String, String>> allItems = [];
 
+    // Track allocated student IDs for THIS room
+    final Map<String, Set<String>> roomAllocatedStudentIdsPerClass = {};
+
     for (final a in assignments) {
       final cnt = (a['count'] as num?)?.toInt() ?? 0;
       final cName = (a['className'] ?? a['classId'] ?? 'Kelas').toString().trim();
@@ -804,12 +871,24 @@ class ExamPdfGenerator {
           ? (a['studentIds'] as List).map((e) => e.toString()).toList()
           : <String>[];
       final realList = classRealStudentsMap[cName] ?? classRealStudentsMap[cleanC] ?? [];
-      final skipIdx = skipCountMap[cName] ?? skipCountMap[cleanC] ?? 0;
+
+      final precedingAllocated = allocatedStudentIdsPerClass[cName] ?? allocatedStudentIdsPerClass[cleanC] ?? <String>{};
+      roomAllocatedStudentIdsPerClass.putIfAbsent(cName, () => Set<String>.from(precedingAllocated));
+      final currentAllocated = roomAllocatedStudentIdsPerClass[cName]!;
+
+      final unallocatedRealList = realList.where((r) {
+        final sId = (r['studentId'] ?? r['id'] ?? '').toString();
+        return sId.isEmpty || !currentAllocated.contains(sId);
+      }).toList();
 
       final classList = <Map<String, String>>[];
+      int unallocIdx = 0;
+
       for (int k = 0; k < cnt; k++) {
         String sName = '';
         String sNis = '';
+        String sAngkatan = '';
+
         if (studentIdsList.isNotEmpty && k < studentIdsList.length) {
           final targetSid = studentIdsList[k];
           final found = realList.firstWhere(
@@ -818,25 +897,35 @@ class ExamPdfGenerator {
           );
           if (found.isNotEmpty) {
             sName = (found['displayName'] ?? found['studentName'] ?? '').toString();
-            sNis = (found['nis'] ?? found['nisn'] ?? found['noPeserta'] ?? found['studentCode'] ?? found['username'] ?? found['userCode'] ?? '').toString();
+            sNis = (found['nis'] ?? found['participantNumber'] ?? found['noPeserta'] ?? found['studentCode'] ?? found['nisn'] ?? found['username'] ?? found['userCode'] ?? found['code'] ?? found['studentId'] ?? found['id'] ?? '').toString();
+            sAngkatan = (found['angkatan'] ?? '').toString();
+            final sId = (found['studentId'] ?? found['id'] ?? '').toString();
+            if (sId.isNotEmpty) currentAllocated.add(sId);
           }
         }
+
         if (sName.isEmpty) {
-          final targetIdx = skipIdx + k;
-          if (targetIdx < realList.length) {
-            final r = realList[targetIdx];
-            sName = (r['displayName'] ?? r['studentName'] ?? '').toString();
-            sNis = (r['nis'] ?? r['nisn'] ?? r['noPeserta'] ?? r['studentCode'] ?? r['username'] ?? r['userCode'] ?? '').toString();
+          while (unallocIdx < unallocatedRealList.length) {
+            final r = unallocatedRealList[unallocIdx++];
+            final sId = (r['studentId'] ?? r['id'] ?? '').toString();
+            if (sId.isEmpty || !currentAllocated.contains(sId)) {
+              sName = (r['displayName'] ?? r['studentName'] ?? '').toString();
+              sNis = (r['nis'] ?? r['participantNumber'] ?? r['noPeserta'] ?? r['studentCode'] ?? r['nisn'] ?? r['username'] ?? r['userCode'] ?? r['code'] ?? r['studentId'] ?? r['id'] ?? '').toString();
+              sAngkatan = (r['angkatan'] ?? '').toString();
+              if (sId.isNotEmpty) currentAllocated.add(sId);
+              break;
+            }
           }
         }
+
         if (sName.isEmpty) sName = '$cName #${k + 1}';
-        classList.add({'name': sName, 'class': cName, 'nis': sNis});
-        allItems.add({'name': sName, 'class': cName, 'nis': sNis});
+        classList.add({'name': sName, 'class': cName, 'nis': sNis, 'angkatan': sAngkatan});
+        allItems.add({'name': sName, 'class': cName, 'nis': sNis, 'angkatan': sAngkatan});
       }
       classQueues.add(classList);
     }
 
-    final seatData = List<Map<String, String>>.filled(roomCapacity, {'name': '', 'class': ''});
+    final seatData = List<Map<String, String>>.filled(roomCapacity, {'name': '', 'class': '', 'nis': '', 'angkatan': ''});
 
     if (arrangeMode == 'acak') {
       final shuffled = List<Map<String, String>>.from(allItems)..shuffle(Random(seed));

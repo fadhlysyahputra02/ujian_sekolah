@@ -281,14 +281,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     try {
       await authService.signIn(emailOrUsername, password);
 
-      if (authService.isStudentInactive) {
-        await authService.signOut();
-        if (mounted) {
-          setState(() => _isLoggingIn = false);
-          await _showStudentInactiveDialog();
-        }
-        return;
-      }
+      // Auth state and GoRouter refreshListenable automatically handle redirect
+      // to /blocked if student is inactive, or to /student/ringkasan if active.
 
       // 2. Pengecekan menyeluruh setelah signIn di Web: Cek apakah user login adalah siswa
       if (kIsWeb && authService.user != null) {
@@ -499,103 +493,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  Future<void> _showStudentInactiveDialog() async {
-    if (!mounted) return;
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          contentPadding: EdgeInsets.zero,
-          content: Container(
-            width: 380,
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.person_off_rounded,
-                          color: Colors.white,
-                          size: 36,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Akun Siswa Non-Aktif',
-                        style: GoogleFonts.inter(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Mohon maaf, akun siswa Anda saat ini dalam status Non-Aktif karena penyesuaian kuota sekolah.\n\nSilakan hubungi Admin Sekolah untuk mengaktifkan kembali akun Anda.',
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: const Color(0xFF334155),
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 46,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFD97706),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Text(
-                            'Saya Mengerti',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {

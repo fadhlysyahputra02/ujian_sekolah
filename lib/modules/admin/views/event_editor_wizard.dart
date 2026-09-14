@@ -909,7 +909,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         if (data['archived'] == true || data['disabled'] == true || data['status'] == 'inactive') continue;
 
         final sName = (data['displayName'] ?? data['name'] ?? data['fullName'] ?? '').toString().trim();
-        final sNis = (data['nis'] ?? '').toString().trim();
+        final sNis = (data['nis'] ?? data['participantNumber'] ?? data['noPeserta'] ?? data['studentCode'] ?? data['nisn'] ?? data['username'] ?? data['userCode'] ?? data['code'] ?? doc.id).toString().trim();
+        final sAngkatan = (data['angkatan'] ?? '').toString().trim();
         final sClass = (data['className'] ?? data['classId'] ?? studentIdToClassName[doc.id] ?? 'Siswa').toString().trim();
 
         if (sName.isNotEmpty) {
@@ -918,6 +919,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             'studentName': sName,
             'displayName': sName,
             'nis': sNis,
+            'participantNumber': sNis,
+            'angkatan': sAngkatan,
             'className': sClass,
           };
           map.putIfAbsent(sClass, () => []).add(item);
