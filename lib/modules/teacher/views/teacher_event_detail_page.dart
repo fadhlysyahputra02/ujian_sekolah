@@ -12,8 +12,30 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
-
 import '../../../core/utils/url_history_helper.dart';
+
+String _getQuestionType(Map<String, dynamic> data) {
+  final rawType = (data['type'] ?? '').toString().toLowerCase().trim();
+  if (rawType == 'essay' || rawType == 'uraian') return 'essay';
+  if (rawType == 'pilihan_ganda' || rawType == 'pg' || rawType == 'multiple_choice' || rawType == 'mc') return 'pilihan_ganda';
+
+  final correctOpt = (data['correctOption'] ?? data['correctAnswer'] ?? '').toString().trim();
+  if (correctOpt.isNotEmpty) return 'pilihan_ganda';
+
+  final opts = data['options'];
+  if (opts != null) {
+    if (opts is Map && opts.isNotEmpty) return 'pilihan_ganda';
+    if (opts is List && opts.isNotEmpty) return 'pilihan_ganda';
+  }
+
+  final optImgs = data['optionImages'];
+  if (optImgs != null) {
+    if (optImgs is Map && optImgs.isNotEmpty) return 'pilihan_ganda';
+    if (optImgs is List && optImgs.isNotEmpty) return 'pilihan_ganda';
+  }
+
+  return 'essay';
+}
 
 class TeacherEventDetailPage extends StatefulWidget {
   final String eventId;
@@ -778,7 +800,6 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         indicatorColor: const Color(0xFF10B981),
                         indicatorWeight: 3,
                         tabs: displayAngkatans.map((ang) {
-                          final count = angkatanCounts[ang] ?? 0;
                           return Tab(
                             child: Row(
                               children: [
@@ -809,11 +830,12 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     );
   }
 
+
+
   double _getDetectedPgScore(List<DocumentSnapshot> qDocs) {
     for (var doc in qDocs) {
       final data = doc.data() as Map<String, dynamic>? ?? {};
-      final type = data['type'] ??
-          ((data['options'] != null && (data['options'] as Map).isNotEmpty) ? 'pilihan_ganda' : 'essay');
+      final type = _getQuestionType(data);
       if (type == 'pilihan_ganda' && data['score'] != null) {
         return (data['score'] as num).toDouble();
       }
@@ -824,8 +846,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   double _getDetectedEssayScore(List<DocumentSnapshot> qDocs) {
     for (var doc in qDocs) {
       final data = doc.data() as Map<String, dynamic>? ?? {};
-      final type = data['type'] ??
-          ((data['options'] != null && (data['options'] as Map).isNotEmpty) ? 'pilihan_ganda' : 'essay');
+      final type = _getQuestionType(data);
       if (type == 'essay' && data['score'] != null) {
         return (data['score'] as num).toDouble();
       }
@@ -1096,8 +1117,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
     for (var doc in qDocs) {
       final data = doc.data() as Map<String, dynamic>? ?? {};
-      final type = data['type'] ??
-          ((data['options'] != null && (data['options'] as Map).isNotEmpty) ? 'pilihan_ganda' : 'essay');
+      final type = _getQuestionType(data);
       final score = (data['score'] as num?)?.toDouble() ?? (type == 'essay' ? defaultEssayScore : defaultPgScore);
 
       if (type == 'pilihan_ganda') {
@@ -1321,8 +1341,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
                 for (var doc in qDocs) {
                   final data = doc.data() as Map<String, dynamic>? ?? {};
-                  final type = data['type'] ??
-                      ((data['options'] != null && (data['options'] as Map).isNotEmpty) ? 'pilihan_ganda' : 'essay');
+                  final type = _getQuestionType(data);
                   final newScore = (type == 'pilihan_ganda') ? pgScore : essayScore;
 
                   final ref = FirebaseFirestore.instance
@@ -1521,8 +1540,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     final formKey = GlobalKey<FormState>();
     final textController = TextEditingController(text: questionData?['text'] ?? '');
 
-    final initialType = questionData?['type'] ??
-        (questionData?['options'] != null && (questionData?['options'] as Map).isNotEmpty ? 'pilihan_ganda' : 'pilihan_ganda');
+    final initialType = _getQuestionType(questionData ?? {});
     String questionType = initialType;
 
     final initialScoreVal = (questionData?['score'] as num?)?.toDouble() ??
@@ -1532,12 +1550,22 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     final scoreController = TextEditingController(text: scoreStr);
 
     List<OptionField> optionFields = [];
-    if (questionData?['options'] != null && (questionData?['options'] as Map).isNotEmpty) {
-      final opts = Map<String, dynamic>.from(questionData!['options']);
-      final sortedKeys = opts.keys.toList()..sort();
-      optionFields = sortedKeys
-          .map((k) => OptionField(k, TextEditingController(text: opts[k]?.toString() ?? '')))
-          .toList();
+    final rawOpts = questionData?['options'];
+    if (rawOpts != null) {
+      if (rawOpts is Map && rawOpts.isNotEmpty) {
+        final sortedKeys = rawOpts.keys.map((e) => e.toString()).toList()..sort();
+        optionFields = sortedKeys
+            .map((k) => OptionField(k, TextEditingController(text: rawOpts[k]?.toString() ?? '')))
+            .toList();
+      } else if (rawOpts is List && rawOpts.isNotEmpty) {
+        optionFields = [];
+        for (int i = 0; i < rawOpts.length; i++) {
+          final label = String.fromCharCode(65 + i);
+          final val = rawOpts[i];
+          final txt = val is Map ? (val['text'] ?? val['label'] ?? '').toString() : val.toString();
+          optionFields.add(OptionField(label, TextEditingController(text: txt)));
+        }
+      }
     } else {
       optionFields = [
         OptionField('A', TextEditingController()),
@@ -3562,6 +3590,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
 
 
+
+
   Future<void> _updateProctorStatus(String proctorDocId, String newStatus) async {
     try {
       await FirebaseFirestore.instance
@@ -4016,19 +4046,44 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                           final isCompleted = subData['isCompleted'] == true;
                                           final isGraded = subData['isGraded'] == true;
 
-                                          // Auto PG Calculation
+                                          // Filter questionDocs for student's angkatan
+                                          String studentAngkatan = (subData['angkatan'] ?? subData['studentAngkatan'] ?? '').toString().trim();
                                           final answers = Map<String, dynamic>.from(subData['answers'] ?? {});
+                                          final essayAnswers = Map<String, dynamic>.from(subData['essayAnswers'] ?? {});
+
+                                          if (studentAngkatan.isEmpty) {
+                                            final allAnsweredQIds = {...answers.keys, ...essayAnswers.keys};
+                                            for (var qDoc in questionDocs) {
+                                              if (allAnsweredQIds.contains(qDoc.id)) {
+                                                final qData = qDoc.data() as Map<String, dynamic>;
+                                                final qAng = qData['angkatan']?.toString().trim();
+                                                if (qAng != null && qAng.isNotEmpty) {
+                                                  studentAngkatan = qAng;
+                                                  break;
+                                                }
+                                              }
+                                            }
+                                          }
+
+                                          final targetQuestionDocs = questionDocs.where((qDoc) {
+                                            final qData = qDoc.data() as Map<String, dynamic>;
+                                            final qAng = qData['angkatan']?.toString().trim();
+                                            if (qAng == null || qAng.isEmpty) return true;
+                                            if (studentAngkatan.isNotEmpty) return qAng == studentAngkatan;
+                                            return true;
+                                          }).toList();
+
+                                          // Auto PG Calculation
                                           double autoPgScore = 0;
                                           double totalPgMax = 0;
                                           double totalEssayMax = 0;
                                           int correctPgCount = 0;
                                           int totalPgCount = 0;
 
-                                          for (var qDoc in questionDocs) {
+                                          for (var qDoc in targetQuestionDocs) {
                                             final qData = qDoc.data() as Map<String, dynamic>;
                                             final qId = qDoc.id;
-                                            final type = qData['type'] ??
-                                                ((qData['options'] != null && (qData['options'] as Map).isNotEmpty) ? 'pilihan_ganda' : 'essay');
+                                            final type = _getQuestionType(qData);
                                             final score = (qData['score'] as num?)?.toDouble() ?? (type == 'essay' ? 10.0 : 5.0);
 
                                             if (type == 'pilihan_ganda') {
@@ -4126,7 +4181,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                                           subDocId: subDoc.id,
                                                           studentName: studentName,
                                                           subData: subData,
-                                                          questionDocs: questionDocs,
+                                                          questionDocs: targetQuestionDocs,
                                                           autoPgScore: autoPgScore,
                                                           totalPgMax: totalPgMax,
                                                           correctPgCount: correctPgCount,
@@ -4196,9 +4251,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   }) {
     final essayDocs = questionDocs.where((qDoc) {
       final qData = qDoc.data() as Map<String, dynamic>;
-      final type = qData['type'] ??
-          ((qData['options'] != null && (qData['options'] as Map).isNotEmpty) ? 'pilihan_ganda' : 'essay');
-      return type == 'essay';
+      return _getQuestionType(qData) == 'essay';
     }).toList();
 
     final essayAnswers = Map<String, dynamic>.from(subData['essayAnswers'] ?? subData['answers'] ?? {});
@@ -4209,7 +4262,9 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       final qId = eDoc.id;
       final maxScore = ((eDoc.data() as Map<String, dynamic>)['score'] as num?)?.toDouble() ?? 10.0;
       final savedScore = (existingEssayScores[qId] as num?)?.toDouble();
-      final initVal = savedScore ?? maxScore;
+      final studentEssayAns = (essayAnswers[qId] ?? '').toString().trim();
+      final defaultScore = studentEssayAns.isEmpty ? 0.0 : maxScore;
+      final initVal = savedScore ?? defaultScore;
       final str = initVal % 1 == 0 ? initVal.toInt().toString() : initVal.toString();
       scoreControllers[qId] = TextEditingController(text: str);
     }
@@ -4712,9 +4767,20 @@ class _QuestionCardState extends State<QuestionCard> {
   @override
   Widget build(BuildContext context) {
     final text = widget.qData['text'] ?? '';
-    final options = Map<String, dynamic>.from(widget.qData['options'] ?? {});
-    final correctOpt = widget.qData['correctOption'] ?? '';
-    final type = widget.qData['type'] ?? (options.isNotEmpty ? 'pilihan_ganda' : 'essay');
+    final rawOpts = widget.qData['options'];
+    final Map<String, String> options = {};
+    if (rawOpts is Map) {
+      rawOpts.forEach((k, v) => options[k.toString()] = v.toString());
+    } else if (rawOpts is List) {
+      for (int i = 0; i < rawOpts.length; i++) {
+        final label = String.fromCharCode(65 + i);
+        final val = rawOpts[i];
+        final txt = val is Map ? (val['text'] ?? val['label'] ?? '').toString() : val.toString();
+        options[label] = txt;
+      }
+    }
+    final correctOpt = (widget.qData['correctOption'] ?? widget.qData['correctAnswer'] ?? '').toString().trim();
+    final type = _getQuestionType(widget.qData);
     final isEssay = type == 'essay';
     final qImgUrl = widget.qData['imageUrl'] as String?;
     final optImages = Map<String, dynamic>.from(widget.qData['optionImages'] ?? {});
@@ -4904,7 +4970,7 @@ class _QuestionCardState extends State<QuestionCard> {
                             ],
                             Expanded(
                               child: Text(
-                                opt.value?.toString() ?? '',
+                                opt.value.toString(),
                                 style: GoogleFonts.inter(
                                   color: isCorrect ? const Color(0xFF065F46) : const Color(0xFF334155),
                                   fontWeight: isCorrect ? FontWeight.w600 : FontWeight.normal,
