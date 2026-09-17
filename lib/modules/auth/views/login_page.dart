@@ -115,12 +115,22 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           .map((doc) {
         final data = doc.data();
 
-        // Read activeUserCount from cached fields only — no subcollection queries
+        // Read user count from meta.studentCount + meta.teacherCount (cached fields)
+        // Fallback to other possible field names
         int activeUserCount = 0;
-        for (final key in ['activeUserCount', 'userCount', 'totalUsers', 'activeUsers']) {
-          if (data[key] is num) {
-            activeUserCount = (data[key] as num).toInt();
-            break;
+        final meta = data['meta'];
+        if (meta is Map) {
+          final sc = meta['studentCount'];
+          final tc = meta['teacherCount'];
+          activeUserCount = ((sc is num ? sc.toInt() : 0) + (tc is num ? tc.toInt() : 0));
+        }
+        // Fallback to top-level cached fields
+        if (activeUserCount == 0) {
+          for (final key in ['activeUserCount', 'userCount', 'totalUsers', 'activeUsers']) {
+            if (data[key] is num) {
+              activeUserCount = (data[key] as num).toInt();
+              break;
+            }
           }
         }
 
@@ -886,7 +896,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           ),
           const SizedBox(height: 4),
           Text(
-            'Sistem Ujian Sekolah Digital',
+            'SesiCermat Exam',
             style: GoogleFonts.inter(
               color: const Color(0xFF94A3B8),
               fontSize: 13,

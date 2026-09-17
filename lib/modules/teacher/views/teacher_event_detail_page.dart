@@ -34,7 +34,7 @@ String _getQuestionType(Map<String, dynamic> data) {
     if (optImgs is List && optImgs.isNotEmpty) return 'pilihan_ganda';
   }
 
-  return 'essay';
+  return 'pilihan_ganda';
 }
 
 class TeacherEventDetailPage extends StatefulWidget {
@@ -1929,10 +1929,14 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                   ),
                 ],
               ),
-              content: SizedBox(
-                width: 500,
-                child: SingleChildScrollView(
-                  child: isEditing
+              content: Builder(
+                builder: (context) {
+                  final screenWidth = MediaQuery.of(context).size.width;
+                  final dialogWidth = screenWidth < 548 ? screenWidth - 48 : 500.0;
+                  return SizedBox(
+                    width: dialogWidth,
+                    child: SingleChildScrollView(
+                      child: isEditing
                       ? Form(
                           key: formKey,
                           child: Column(
@@ -2232,46 +2236,95 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                               ],
                               if (questionType == 'pilihan_ganda') ...[
                                 const SizedBox(height: 16),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Opsi Jawaban',
-                                          style: GoogleFonts.inter(
-                                              fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF475569)),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Ketuk lingkaran huruf untuk memilih kunci jawaban',
-                                          style: GoogleFonts.inter(
-                                              fontSize: 11,
-                                              color: const Color(0xFF10B981),
-                                              fontWeight: FontWeight.w600),
-                                        ),
-                                      ],
-                                    ),
-                                    if (optionFields.length < 8)
-                                      TextButton.icon(
-                                        onPressed: () {
-                                          setDialogState(() {
-                                            final nextChar = String.fromCharCode('A'.codeUnitAt(0) + optionFields.length);
-                                            optionFields.add(OptionField(nextChar, TextEditingController()));
-                                          });
-                                        },
-                                        icon: const Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF4F46E5)),
-                                        label: Text(
-                                          'Tambah Opsi',
-                                          style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: const Color(0xFF4F46E5)),
-                                        ),
+                                dialogWidth < 450
+                                    ? Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Opsi Jawaban',
+                                                style: GoogleFonts.inter(
+                                                    fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF475569)),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Ketuk huruf untuk memilih kunci jawaban',
+                                                style: GoogleFonts.inter(
+                                                    fontSize: 11,
+                                                    color: const Color(0xFF10B981),
+                                                    fontWeight: FontWeight.w600),
+                                              ),
+                                            ],
+                                          ),
+                                          if (optionFields.length < 8) ...[
+                                            const SizedBox(height: 8),
+                                            Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: TextButton.icon(
+                                                onPressed: () {
+                                                  setDialogState(() {
+                                                    final nextChar = String.fromCharCode('A'.codeUnitAt(0) + optionFields.length);
+                                                    optionFields.add(OptionField(nextChar, TextEditingController()));
+                                                  });
+                                                },
+                                                icon: const Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF4F46E5)),
+                                                label: Text(
+                                                  'Tambah',
+                                                  style: GoogleFonts.inter(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: const Color(0xFF4F46E5)),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Flexible(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  'Opsi Jawaban',
+                                                  style: GoogleFonts.inter(
+                                                      fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF475569)),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  'Ketuk huruf untuk memilih kunci jawaban',
+                                                  style: GoogleFonts.inter(
+                                                      fontSize: 11,
+                                                      color: const Color(0xFF10B981),
+                                                      fontWeight: FontWeight.w600),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (optionFields.length < 8)
+                                            TextButton.icon(
+                                              onPressed: () {
+                                                setDialogState(() {
+                                                  final nextChar = String.fromCharCode('A'.codeUnitAt(0) + optionFields.length);
+                                                  optionFields.add(OptionField(nextChar, TextEditingController()));
+                                                });
+                                              },
+                                              icon: const Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF4F46E5)),
+                                              label: Text(
+                                                'Tambah',
+                                                style: GoogleFonts.inter(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: const Color(0xFF4F46E5)),
+                                              ),
+                                            ),
+                                        ],
                                       ),
-                                  ],
-                                ),
                                 const SizedBox(height: 10),
                                 ...optionFields.asMap().entries.map((entry) {
                                   final idx = entry.key;
@@ -2344,74 +2397,85 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                                   controller: field.controller,
                                                   style: GoogleFonts.inter(fontSize: 13),
                                                   decoration: const InputDecoration(
-                                                    hintText: 'Tulis opsi jawaban di sini...',
+                                                    hintText: 'Tulis opsi jawaban...',
                                                     border: InputBorder.none,
                                                     contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                                                   ),
                                                   validator: (v) {
                                                     final hasImg = optionImgUrl != null && optionImgUrl.isNotEmpty;
                                                     if (!hasImg && (v == null || v.trim().isEmpty)) {
-                                                      return 'Opsi ${field.label} wajib diisi (teks atau gambar)';
+                                                      return 'Opsi ${field.label} wajib diisi';
                                                     }
                                                     return null;
                                                   },
                                                 ),
                                               ),
-                                              if (isCorrect) ...[
-                                                const SizedBox(width: 4),
-                                                const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 20),
-                                              ],
-                                              if (isUploadingOpt) ...[
-                                                const SizedBox(width: 8),
-                                                const SizedBox(
-                                                  width: 24,
-                                                  height: 24,
-                                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4F46E5)),
-                                                ),
-                                              ] else if (optionImgUrl == null || optionImgUrl.isEmpty) ...[
-                                                const SizedBox(width: 4),
-                                                IconButton(
-                                                  icon: const Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF64748B), size: 20),
-                                                  padding: EdgeInsets.zero,
-                                                  constraints: const BoxConstraints(),
-                                                  onPressed: () async {
-                                                    setDialogState(() => isUploadingOptionImage[field.label] = true);
-                                                    final url = await _pickAndUploadImage('options_${field.label}');
-                                                    setDialogState(() {
-                                                      if (url != null) {
-                                                        optionImages[field.label] = url;
-                                                      }
-                                                      isUploadingOptionImage[field.label] = false;
-                                                    });
-                                                  },
-                                                  tooltip: 'Tambah Gambar Opsi',
-                                                ),
-                                              ],
-                                              if (optionFields.length > 2) ...[
-                                                const SizedBox(width: 4),
-                                                IconButton(
-                                                  icon: const Icon(Icons.delete_outline_rounded,
-                                                      color: Color(0xFFEF4444), size: 20),
-                                                  padding: EdgeInsets.zero,
-                                                  constraints: const BoxConstraints(),
-                                                  onPressed: () {
-                                                    setDialogState(() {
-                                                      optionFields.removeAt(idx);
-                                                      // Restructure optionImages map upon label shifts
-                                                      final newOptionImages = <String, String>{};
-                                                      for (int k = 0; k < optionFields.length; k++) {
-                                                        final oldLabel = optionFields[k].label;
-                                                        final newLabel = String.fromCharCode('A'.codeUnitAt(0) + k);
-                                                        optionFields[k].label = newLabel;
-                                                        if (optionImages.containsKey(oldLabel)) {
-                                                          newOptionImages[newLabel] = optionImages[oldLabel]!;
-                                                        }
-                                                      }
-                                                      optionImages = newOptionImages;
-                                                    });
-                                                  },
-                                                ),
-                                              ],
+                                              // Action icons — tightly packed with Wrap to prevent overflow
+                                              Wrap(
+                                                spacing: 2,
+                                                runSpacing: 2,
+                                                alignment: WrapAlignment.end,
+                                                children: [
+                                                  if (isCorrect)
+                                                    const Padding(
+                                                      padding: EdgeInsets.symmetric(horizontal: 2),
+                                                      child: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18),
+                                                    ),
+                                                  if (isUploadingOpt)
+                                                    const Padding(
+                                                      padding: EdgeInsets.symmetric(horizontal: 2),
+                                                      child: SizedBox(
+                                                        width: 20,
+                                                        height: 20,
+                                                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4F46E5)),
+                                                      ),
+                                                    )
+                                                  else if (optionImgUrl == null || optionImgUrl.isEmpty)
+                                                    SizedBox(
+                                                      width: 28,
+                                                      height: 28,
+                                                      child: IconButton(
+                                                        icon: const Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF64748B), size: 18),
+                                                        padding: EdgeInsets.zero,
+                                                        constraints: const BoxConstraints(),
+                                                        onPressed: () async {
+                                                          setDialogState(() => isUploadingOptionImage[field.label] = true);
+                                                          final url = await _pickAndUploadImage('options_${field.label}');
+                                                          setDialogState(() {
+                                                            if (url != null) optionImages[field.label] = url;
+                                                            isUploadingOptionImage[field.label] = false;
+                                                          });
+                                                        },
+                                                        tooltip: 'Tambah Gambar',
+                                                      ),
+                                                    ),
+                                                  if (optionFields.length > 2)
+                                                    SizedBox(
+                                                      width: 28,
+                                                      height: 28,
+                                                      child: IconButton(
+                                                        icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 18),
+                                                        padding: EdgeInsets.zero,
+                                                        constraints: const BoxConstraints(),
+                                                        onPressed: () {
+                                                          setDialogState(() {
+                                                            optionFields.removeAt(idx);
+                                                            final newOptionImages = <String, String>{};
+                                                            for (int k = 0; k < optionFields.length; k++) {
+                                                              final oldLabel = optionFields[k].label;
+                                                              final newLabel = String.fromCharCode('A'.codeUnitAt(0) + k);
+                                                              optionFields[k].label = newLabel;
+                                                              if (optionImages.containsKey(oldLabel)) {
+                                                                newOptionImages[newLabel] = optionImages[oldLabel]!;
+                                                              }
+                                                            }
+                                                            optionImages = newOptionImages;
+                                                          });
+                                                        },
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
                                             ],
                                           ),
                                           if (optionImgUrl != null && optionImgUrl.isNotEmpty) ...[
@@ -2628,7 +2692,9 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                           ],
                         ),
                 ),
-              ),
+                    );
+                  },
+                ),
               actions: [
                 if (isEditing) ...[
                   TextButton(
@@ -3739,47 +3805,76 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     const SizedBox(height: 18),
 
                     // BOTTOM ACTION BAR
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (displayStatus == 'Sedang Berlangsung' && !docId.startsWith('grid_') && !isSessionEnded)
-                          OutlinedButton.icon(
-                            onPressed: () => _updateProctorStatus(docId, 'Selesai'),
-                            icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
-                            label: const Text('Selesaikan Sesi'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF059669),
-                              side: const BorderSide(color: Color(0xFFA7F3D0)),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          )
-                        else
-                          const SizedBox(),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isMobileAction = constraints.maxWidth < 460;
+                        final hasEndSession = displayStatus == 'Sedang Berlangsung' && !docId.startsWith('grid_') && !isSessionEnded;
 
-                        ElevatedButton(
+                        final endSessionBtn = hasEndSession
+                            ? OutlinedButton.icon(
+                                onPressed: () => _updateProctorStatus(docId, 'Selesai'),
+                                icon: const Icon(Icons.check_circle_outline_rounded, size: 15),
+                                label: const Text('Selesaikan Sesi'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF059669),
+                                  side: const BorderSide(color: Color(0xFFA7F3D0)),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isMobileAction ? 0 : 14,
+                                    vertical: 11,
+                                  ),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              )
+                            : null;
+
+                        final mainBtn = ElevatedButton(
                           onPressed: navigateToProctorRoom,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: isSessionEnded ? const Color(0xFF64748B) : const Color(0xFF4F46E5),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isMobileAction ? 0 : 20,
+                              vertical: 12,
+                            ),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             elevation: isSessionEnded ? 0 : 2,
                             shadowColor: isSessionEnded ? Colors.transparent : const Color(0xFF4F46E5).withValues(alpha: 0.4),
                           ),
                           child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                            mainAxisSize: isMobileAction ? MainAxisSize.max : MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                isSessionEnded ? 'Sesi Selesai (Kadaluarsa)' : 'Masuk ke Ruangan',
+                                isSessionEnded ? 'Sesi Kadaluarsa' : 'Masuk ke Ruangan',
                                 style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700),
                               ),
                               const SizedBox(width: 8),
                               Icon(isSessionEnded ? Icons.lock_clock_rounded : Icons.arrow_forward_rounded, size: 16),
                             ],
                           ),
-                        ),
-                      ],
+                        );
+
+                        if (isMobileAction) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              mainBtn,
+                              if (endSessionBtn != null) ...[
+                                const SizedBox(height: 8),
+                                endSessionBtn,
+                              ],
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            if (endSessionBtn != null) endSessionBtn else const SizedBox(),
+                            mainBtn,
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),

@@ -1478,28 +1478,46 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                             ),
                                             const SizedBox(height: 20),
 
-                                            // 4. Seating Grid Section Header & Class Color Legend Bar (Right Aligned above student seats)
-                                            Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              crossAxisAlignment: CrossAxisAlignment.center,
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
+                                            // 4. Seating Grid Section Header & Class Color Legend Bar
+                                            if (isDesktop) ...[
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                crossAxisAlignment: CrossAxisAlignment.center,
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Denah Bangku & Posisi Murid (${isMakeupRoom ? 'Ujian Susulan' : 'Pola $gridColumns Kolom'} • $roomCapacity Bangku)',
+                                                      style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 16),
+                                                  ProctorClassLegendBar(
+                                                    roomClasses: orderedRoomClasses,
+                                                    classStudentCounts: classStudentCounts,
+                                                    classColorMap: classColorMap,
+                                                  ),
+                                                ],
+                                              ),
+                                            ] else ...[
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
                                                     'Denah Bangku & Posisi Murid (${isMakeupRoom ? 'Ujian Susulan' : 'Pola $gridColumns Kolom'} • $roomCapacity Bangku)',
                                                     style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
                                                   ),
-                                                ),
-                                                const SizedBox(width: 16),
-                                                ProctorClassLegendBar(
-                                                  roomClasses: orderedRoomClasses,
-                                                  classStudentCounts: classStudentCounts,
-                                                  classColorMap: classColorMap,
-                                                ),
-                                              ],
-                                            ),
+                                                  const SizedBox(height: 10),
+                                                  ProctorClassLegendBar(
+                                                    roomClasses: orderedRoomClasses,
+                                                    classStudentCounts: classStudentCounts,
+                                                    classColorMap: classColorMap,
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
                                             const SizedBox(height: 16),
 
-                                            // 6. GridView of Seats
+                                            // 6. GridView of Seats (Responsive with smooth horizontal scroll if columns exceed mobile width)
                                             ValueListenableBuilder<int>(
                                               valueListenable: _seatNotifier,
                                               builder: (context, seatValue, child) {
@@ -1507,33 +1525,79 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                     ? roomCapacity
                                                     : filteredSeatIndices.length;
 
-                                                return GridView.builder(
-                                                  shrinkWrap: true,
-                                                  physics: const NeverScrollableScrollPhysics(),
-                                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                                    crossAxisCount: isDesktop ? gridColumns : (gridColumns > 4 ? 4 : gridColumns),
-                                                    crossAxisSpacing: 12,
-                                                    mainAxisSpacing: 12,
-                                                    childAspectRatio: 1.15,
-                                                  ),
-                                                  itemCount: totalDisplayItems,
-                                                  itemBuilder: (context, idx) {
-                                                    final seatNum = idx < filteredSeatIndices.length ? filteredSeatIndices[idx] : (idx + 1);
-                                                    final seatData = seatMap[seatNum];
+                                                const double minDeskWidth = 140.0;
+                                                const double deskSpacing = 12.0;
+                                                final double naturalGridWidth = (gridColumns * minDeskWidth) + ((gridColumns - 1) * deskSpacing);
+                                                final bool needsHorizontalScroll = naturalGridWidth > constraints.maxWidth;
+                                                final double actualGridWidth = needsHorizontalScroll ? naturalGridWidth : constraints.maxWidth;
 
-                                                    return ProctorSeatCard(
-                                                      seatNum: seatNum,
-                                                      seatData: seatData,
-                                                      orderedRoomClasses: orderedRoomClasses,
-                                                      schoolId: schoolId,
-                                                      eventId: widget.eventId,
-                                                      roomId: widget.roomId,
-                                                      localAttendedMap: _localAttendedMap,
-                                                      seatNotifier: _seatNotifier,
-                                                      dayIndex: widget.dayIndex,
-                                                      sessionIndex: widget.sessionIndex,
-                                                    );
-                                                  },
+                                                return Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    if (needsHorizontalScroll) ...[
+                                                      Container(
+                                                        width: double.infinity,
+                                                        margin: const EdgeInsets.only(bottom: 12),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(0xFFEFF6FF),
+                                                          borderRadius: BorderRadius.circular(10),
+                                                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                                                        ),
+                                                        child: Row(
+                                                          children: [
+                                                            const Icon(Icons.swipe_rounded, size: 16, color: Color(0xFF2563EB)),
+                                                            const SizedBox(width: 8),
+                                                            Expanded(
+                                                              child: Text(
+                                                                'Geser ke samping untuk melihat seluruh $gridColumns kolom denah ruangan',
+                                                                style: GoogleFonts.inter(
+                                                                  fontSize: 11.5,
+                                                                  color: const Color(0xFF1D4ED8),
+                                                                  fontWeight: FontWeight.w600,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                    SingleChildScrollView(
+                                                      scrollDirection: Axis.horizontal,
+                                                      physics: const BouncingScrollPhysics(),
+                                                      child: SizedBox(
+                                                        width: actualGridWidth,
+                                                        child: GridView.builder(
+                                                          shrinkWrap: true,
+                                                          physics: const NeverScrollableScrollPhysics(),
+                                                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                                            crossAxisCount: gridColumns,
+                                                            crossAxisSpacing: deskSpacing,
+                                                            mainAxisSpacing: deskSpacing,
+                                                            childAspectRatio: 1.18,
+                                                          ),
+                                                          itemCount: totalDisplayItems,
+                                                          itemBuilder: (context, idx) {
+                                                            final seatNum = idx < filteredSeatIndices.length ? filteredSeatIndices[idx] : (idx + 1);
+                                                            final seatData = seatMap[seatNum];
+
+                                                            return ProctorSeatCard(
+                                                              seatNum: seatNum,
+                                                              seatData: seatData,
+                                                              orderedRoomClasses: orderedRoomClasses,
+                                                              schoolId: schoolId,
+                                                              eventId: widget.eventId,
+                                                              roomId: widget.roomId,
+                                                              localAttendedMap: _localAttendedMap,
+                                                              seatNotifier: _seatNotifier,
+                                                              dayIndex: widget.dayIndex,
+                                                              sessionIndex: widget.sessionIndex,
+                                                            );
+                                                          },
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
                                                 );
                                               },
                                             ),

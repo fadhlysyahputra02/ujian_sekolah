@@ -559,74 +559,84 @@ class TeacherProctorController {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 CircleAvatar(
-                  radius: 28,
+                  radius: 24,
                   backgroundColor: isCompleted
                       ? const Color(0xFF10B981)
                       : (isLeftApp ? const Color(0xFFEF4444) : scheme['bg']),
                   child: Text(
                     name.isNotEmpty ? name[0].toUpperCase() : 'S',
                     style: GoogleFonts.inter(
-                      fontSize: 22,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: (isCompleted || isLeftApp) ? Colors.white : scheme['primary'],
                     ),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         name,
-                        style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
+                        style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
-                      Row(
+                      const SizedBox(height: 3),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
                             decoration: BoxDecoration(
                               color: scheme['bg'],
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(5),
                               border: Border.all(color: scheme['border']!),
                             ),
                             child: Text(
                               'Kelas $className',
-                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: scheme['text']),
+                              style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.bold, color: scheme['text']),
                             ),
                           ),
-                          const SizedBox(width: 10),
                           Text(
-                            'No. Peserta: $number',
-                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                            'No: $number',
+                            style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isCompleted
-                        ? const Color(0xFF10B981)
-                        : (isLeftApp ? const Color(0xFFEF4444) : (isAttended ? const Color(0xFF059669) : scheme['primary'])),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    isCompleted
-                        ? 'SELESAI (#$seatNum)'
-                        : (isLeftApp ? 'KELUAR APP! (#$seatNum)' : (isAttended ? 'HADIR (#$seatNum)' : 'Meja #$seatNum')),
-                    style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                const SizedBox(width: 8),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isCompleted
+                          ? const Color(0xFF10B981)
+                          : (isLeftApp ? const Color(0xFFEF4444) : (isAttended ? const Color(0xFF059669) : scheme['primary'])),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isCompleted
+                          ? 'SELESAI (#$seatNum)'
+                          : (isLeftApp ? 'KELUAR APP! (#$seatNum)' : (isAttended ? 'HADIR (#$seatNum)' : 'Meja #$seatNum')),
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 16),
             const SizedBox(height: 20),
             Container(
               padding: const EdgeInsets.all(14),
@@ -766,12 +776,12 @@ class TeacherProctorController {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
-        height: MediaQuery.of(ctx).size.height * 0.75,
+        height: MediaQuery.of(ctx).size.height * 0.8,
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -785,46 +795,46 @@ class TeacherProctorController {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF2F2),
-                        borderRadius: BorderRadius.circular(12),
+                Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.history_toggle_off_rounded, color: Color(0xFFDC2626), size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Riwayat Keluar Aplikasi',
+                        style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
                       ),
-                      child: const Icon(Icons.history_toggle_off_rounded, color: Color(0xFFDC2626), size: 24),
-                    ),
-                    const SizedBox(width: 14),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Riwayat Keluar Aplikasi',
-                          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Daftar murid yang terdeteksi meminimalkan / keluar aplikasi saat ujian',
-                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                        ),
-                      ],
-                    ),
-                  ],
+                      const SizedBox(height: 2),
+                      Text(
+                        'Daftar murid yang terdeteksi meminimalkan / keluar aplikasi saat ujian',
+                        style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
+                  icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B), size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            const Divider(height: 1, color: Color(0xFFF1F5F9)),
             const SizedBox(height: 16),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            const SizedBox(height: 14),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance

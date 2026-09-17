@@ -1,11 +1,11 @@
 {
-    "name": "sys_exam_school",
-    "short_name": "sys_exam_school",
+    "name": "SesiCermat Exam",
+    "short_name": "SesiCermat",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Platform ujian sekolah digital yang modern dan efisien.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

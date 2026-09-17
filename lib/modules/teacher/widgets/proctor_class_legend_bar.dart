@@ -59,9 +59,10 @@ class _ProctorClassLegendBarState extends State<ProctorClassLegendBar>
         ],
       ),
       child: Wrap(
-        spacing: 16,
-        runSpacing: 10,
+        spacing: 12,
+        runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
+        alignment: WrapAlignment.start,
         children: [
           // 1. Indikator Warna Kelas Siswa
           ...widget.roomClasses.map((cls) {

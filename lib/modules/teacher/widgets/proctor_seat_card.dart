@@ -90,10 +90,10 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
     if (widget.seatData == null) {
       // Empty Chair Card
       return Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
         child: Column(
@@ -104,7 +104,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
                   decoration: BoxDecoration(
                     color: const Color(0xFFCBD5E1),
                     borderRadius: BorderRadius.circular(6),
@@ -220,13 +220,13 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
               dayIndex: widget.dayIndex,
               sessionIndex: widget.sessionIndex,
             ),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: bgColor,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: borderColor, width: (isCompleted || isLeftApp || isAttended) ? 2 : 1.5),
                 boxShadow: boxShadow,
               ),
@@ -239,53 +239,64 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: (isCompleted || isLeftApp || isAttended) ? Colors.black.withValues(alpha: 0.3) : scheme['primary'],
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(5),
                         ),
                         child: Text(
                           'Meja #${widget.seatNum}',
-                          style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+                          style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: (isCompleted || isLeftApp || isAttended) ? Colors.white.withValues(alpha: 0.25) : Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: (isCompleted || isLeftApp || isAttended) ? Colors.white.withValues(alpha: 0.4) : scheme['border']!),
-                        ),
-                        child: Text(
-                          className.isNotEmpty ? className : 'Kelas',
-                          style: GoogleFonts.inter(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            color: (isCompleted || isLeftApp || isAttended) ? Colors.white : scheme['text'],
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: (isCompleted || isLeftApp || isAttended) ? Colors.white.withValues(alpha: 0.25) : Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: (isCompleted || isLeftApp || isAttended) ? Colors.white.withValues(alpha: 0.4) : scheme['border']!),
+                          ),
+                          child: Text(
+                            className.isNotEmpty ? className : 'Kelas',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w900,
+                              color: (isCompleted || isLeftApp || isAttended) ? Colors.white : scheme['text'],
+                            ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
 
                   // Full Student Name
-                  Text(
-                    fullName,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w900,
-                      color: textColor,
-                      height: 1.25,
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        fullName,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                          height: 1.2,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
 
                   // Bottom Bar: Status Badge
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(
                         child: Text(
@@ -293,7 +304,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
                           style: GoogleFonts.inter(
-                            fontSize: 10,
+                            fontSize: 9.5,
                             fontWeight: FontWeight.w700,
                             color: (isCompleted || isLeftApp || isWorking || isAttended) ? Colors.white : scheme['primary'],
                           ),
@@ -307,17 +318,17 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
+                                const Icon(Icons.check_circle_rounded, size: 10, color: Color(0xFF059669)),
                                 const SizedBox(width: 2),
                                 Text(
                                   'SELESAI',
                                   style: GoogleFonts.inter(
-                                    fontSize: 8.5,
+                                    fontSize: 8,
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFF059669),
                                   ),
@@ -333,17 +344,17 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.warning_amber_rounded, size: 11, color: Color(0xFFDC2626)),
+                                const Icon(Icons.warning_amber_rounded, size: 10, color: Color(0xFFDC2626)),
                                 const SizedBox(width: 2),
                                 Text(
                                   'KELUAR APP!',
                                   style: GoogleFonts.inter(
-                                    fontSize: 8.5,
+                                    fontSize: 8,
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFFDC2626),
                                   ),
@@ -359,17 +370,17 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
+                                const Icon(Icons.check_circle_rounded, size: 10, color: Color(0xFF059669)),
                                 const SizedBox(width: 2),
                                 Text(
                                   'STANDBY',
                                   style: GoogleFonts.inter(
-                                    fontSize: 8.5,
+                                    fontSize: 8,
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFF059669),
                                   ),
@@ -380,22 +391,23 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                         )
                       else
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                               decoration: BoxDecoration(
                                 color: scheme['primary']!.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 genderSymbol,
-                                style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w900, color: scheme['primary']),
+                                style: GoogleFonts.inter(fontSize: 8.5, fontWeight: FontWeight.w900, color: scheme['primary']),
                               ),
                             ),
                             const SizedBox(width: 4),
                             Container(
-                              width: 7,
-                              height: 7,
+                              width: 6,
+                              height: 6,
                               decoration: BoxDecoration(
                                 color: scheme['primary'],
                                 shape: BoxShape.circle,
