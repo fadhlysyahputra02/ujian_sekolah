@@ -108,23 +108,48 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('schools')
-          .orderBy('name')
           .get();
+
+      final List<Map<String, dynamic>> loadedSchools = snapshot.docs
+          .where((doc) => doc.data()['deleted'] != true)
+          .map((doc) {
+        final data = doc.data();
+
+        // Read activeUserCount from cached fields only — no subcollection queries
+        int activeUserCount = 0;
+        for (final key in ['activeUserCount', 'userCount', 'totalUsers', 'activeUsers']) {
+          if (data[key] is num) {
+            activeUserCount = (data[key] as num).toInt();
+            break;
+          }
+        }
+
+        return {
+          'id': doc.id,
+          'name': (data['name'] ?? '').toString(),
+          'adminEmail': (data['adminEmail'] ?? '').toString(),
+          'code': (data['code'] ?? '').toString(),
+          'logoUrl': data['logoUrl'] ?? data['logoBase64'] ?? data['logo'],
+          'activeUserCount': activeUserCount,
+        };
+      }).toList();
+
+      // Sort: most active users first, then alphabetical
+      loadedSchools.sort((a, b) {
+        final int countA = (a['activeUserCount'] as num?)?.toInt() ?? 0;
+        final int countB = (b['activeUserCount'] as num?)?.toInt() ?? 0;
+        if (countB != countA) return countB.compareTo(countA);
+        return (a['name'] ?? '').toString().toLowerCase()
+            .compareTo((b['name'] ?? '').toString().toLowerCase());
+      });
+
       if (mounted) {
         setState(() {
-          _schools = snapshot.docs
-              .where((doc) => doc.data()['deleted'] != true)
-              .map((doc) => {
-            'id': doc.id,
-            'name': doc.data()['name'],
-            'adminEmail': doc.data()['adminEmail'],
-            'code': doc.data()['code'],
-            'logoUrl': doc.data()['logoUrl'] ?? doc.data()['logoBase64'] ?? doc.data()['logo'],
-          }).toList();
+          _schools = loadedSchools;
           _isLoadingSchools = false;
         });
         removeSessionItem('fs_reloaded');
-        debugPrint('[LOGIN] Berhasil mengambil ${_schools.length} sekolah');
+        debugPrint('[LOGIN] Loaded ${_schools.length} schools (sorted by activeUserCount)');
       }
     } catch (e) {
       debugPrint('[LOGIN] Fetch gagal: $e');
@@ -978,7 +1003,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             ],
             // Header Title
             Text(
-              _selectedSchool != null ? 'Selamat Datang' : 'Selamat Datang 👋',
+              _selectedSchool != null ? 'Selamat Datang' : 'Selamat Datang',
               style: GoogleFonts.inter(
                 fontSize: 26,
                 fontWeight: FontWeight.w800,

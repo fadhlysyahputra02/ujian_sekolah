@@ -965,7 +965,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
                     ),
                     SizedBox(height: isMobile ? 6 : 8),
                     Text(
-                      '👋 Selamat Datang Kembali,',
+                      'Selamat Datang Kembali,',
                       style: GoogleFonts.inter(
                         color: const Color(0xFFA7F3D0),
                         fontSize: isMobile ? 11 : 13,

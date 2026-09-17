@@ -2617,80 +2617,87 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       elevation: 1,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.vertical,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
-          columns: const [
-            DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('NIP', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Mata Pelajaran', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
-          ],
-          rows: teachers.map((t) {
-            return DataRow(cells: [
-              DataCell(Text(t.displayName)),
-              DataCell(Text(t.nip)),
-              DataCell(Text(t.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
-              DataCell(Text(t.subjects.isEmpty ? '-' : t.subjects.join(', '))),
-              DataCell(t.tempPassword != null && t.tempPassword!.isNotEmpty
-                  ? SelectableText(
-                      t.tempPassword!,
-                      style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
-                    )
-                  : OutlinedButton.icon(
-                      onPressed: () => _generateSingleTeacherPasswordDirectly(schoolId, t),
-                      icon: const Icon(Icons.vpn_key_rounded, size: 12),
-                      label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFF59E0B),
-                        side: const BorderSide(color: Color(0xFFF59E0B)),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.vertical,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: DataTable(
+                  headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                  columns: const [
+                    DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('NIP', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Mata Pelajaran', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
+                  ],
+                  rows: teachers.map((t) {
+                    return DataRow(cells: [
+                      DataCell(Text(t.displayName)),
+                      DataCell(Text(t.nip)),
+                      DataCell(Text(t.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
+                      DataCell(Text(t.subjects.isEmpty ? '-' : t.subjects.join(', '))),
+                      DataCell(t.tempPassword != null && t.tempPassword!.isNotEmpty
+                          ? SelectableText(
+                              t.tempPassword!,
+                              style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: () => _generateSingleTeacherPasswordDirectly(schoolId, t),
+                              icon: const Icon(Icons.vpn_key_rounded, size: 12),
+                              label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFFF59E0B),
+                                side: const BorderSide(color: Color(0xFFF59E0B)),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                            )),
+                      DataCell(Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      ),
-                    )),
-              DataCell(Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: t.disabled ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
-                  borderRadius: BorderRadius.circular(6),
+                        decoration: BoxDecoration(
+                          color: t.disabled ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          t.disabled ? 'Nonaktif' : 'Aktif',
+                          style: TextStyle(color: t.disabled ? const Color(0xFFEF4444) : const Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      )),
+                      DataCell(Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 20),
+                            tooltip: t.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
+                            onPressed: () => _resetPassword(schoolId, 'teachers', t.id, t.displayName),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 20),
+                            tooltip: 'Ubah Data',
+                            onPressed: () => _showTeacherForm(schoolId, teacher: t),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
+                            tooltip: 'Hapus Permanen',
+                            onPressed: () => _deleteUser(schoolId, 'teachers', t.id, t.displayName, t.nip),
+                          ),
+                        ],
+                      )),
+                    ]);
+                  }).toList(),
                 ),
-                child: Text(
-                  t.disabled ? 'Nonaktif' : 'Aktif',
-                  style: TextStyle(color: t.disabled ? const Color(0xFFEF4444) : const Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              )),
-              DataCell(Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 20),
-                    tooltip: t.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
-                    onPressed: () => _resetPassword(schoolId, 'teachers', t.id, t.displayName),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 20),
-                    tooltip: 'Ubah Data',
-                    onPressed: () => _showTeacherForm(schoolId, teacher: t),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
-                    tooltip: 'Hapus Permanen',
-                    onPressed: () => _deleteUser(schoolId, 'teachers', t.id, t.displayName, t.nip),
-                  ),
-                ],
-              )),
-            ]);
-          }).toList(),
-        ),
-        ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -2982,106 +2989,113 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       elevation: 1,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.vertical,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
-          columns: const [
-            DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('NIS', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Kelas', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Agama', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Angkatan', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
-          ],
-          rows: students.map((s) {
-            return DataRow(cells: [
-              DataCell(Text(s.displayName)),
-              DataCell(Text(s.nis)),
-              DataCell(Text(studentClassMap[s.id] ?? '-')),
-              DataCell(Text(s.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
-              DataCell(Text(s.religion)),
-              DataCell(Text(s.angkatan)),
-               DataCell(s.tempPassword != null && s.tempPassword!.isNotEmpty
-                  ? SelectableText(
-                      s.tempPassword!,
-                      style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
-                    )
-                  : OutlinedButton.icon(
-                      onPressed: () => _generateSinglePasswordDirectly(schoolId, s),
-                      icon: const Icon(Icons.vpn_key_rounded, size: 12),
-                      label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFF59E0B),
-                        side: const BorderSide(color: Color(0xFFF59E0B)),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      ),
-                    )),
-              DataCell(
-                Tooltip(
-                  message: 'Klik untuk ubah status',
-                  child: InkWell(
-                    onTap: () => _toggleStudentStatus(schoolId, s),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: s.isInactive ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        s.isInactive ? 'Nonaktif' : 'Aktif',
-                        style: TextStyle(
-                          color: s.isInactive ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.vertical,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: DataTable(
+                  headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                  columns: const [
+                    DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('NIS', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Kelas', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Agama', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Angkatan', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
+                  ],
+                  rows: students.map((s) {
+                    return DataRow(cells: [
+                      DataCell(Text(s.displayName)),
+                      DataCell(Text(s.nis)),
+                      DataCell(Text(studentClassMap[s.id] ?? '-')),
+                      DataCell(Text(s.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
+                      DataCell(Text(s.religion)),
+                      DataCell(Text(s.angkatan)),
+                       DataCell(s.tempPassword != null && s.tempPassword!.isNotEmpty
+                          ? SelectableText(
+                              s.tempPassword!,
+                              style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: () => _generateSinglePasswordDirectly(schoolId, s),
+                              icon: const Icon(Icons.vpn_key_rounded, size: 12),
+                              label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFFF59E0B),
+                                side: const BorderSide(color: Color(0xFFF59E0B)),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                            )),
+                      DataCell(
+                        Tooltip(
+                          message: 'Klik untuk ubah status',
+                          child: InkWell(
+                            onTap: () => _toggleStudentStatus(schoolId, s),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: s.isInactive ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                s.isInactive ? 'Nonaktif' : 'Aktif',
+                                style: TextStyle(
+                                  color: s.isInactive ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
+                      DataCell(Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 20),
+                            tooltip: s.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
+                            onPressed: () => _resetPassword(schoolId, 'students', s.id, s.displayName),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 20),
+                            tooltip: 'Ubah Data',
+                            onPressed: () => _showStudentForm(schoolId, student: s),
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              s.isInactive ? Icons.toggle_off_rounded : Icons.toggle_on_rounded,
+                              color: s.isInactive ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
+                              size: 26,
+                            ),
+                            tooltip: s.isInactive ? 'Aktifkan Akun Murid' : 'Nonaktifkan Akun Murid',
+                            onPressed: () => _toggleStudentStatus(schoolId, s),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
+                            tooltip: 'Hapus Permanen',
+                            onPressed: () => _deleteUser(schoolId, 'students', s.id, s.displayName, s.nis),
+                          ),
+                        ],
+                      )),
+                    ]);
+                  }).toList(),
                 ),
               ),
-              DataCell(Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 20),
-                    tooltip: s.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
-                    onPressed: () => _resetPassword(schoolId, 'students', s.id, s.displayName),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 20),
-                    tooltip: 'Ubah Data',
-                    onPressed: () => _showStudentForm(schoolId, student: s),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      s.isInactive ? Icons.toggle_off_rounded : Icons.toggle_on_rounded,
-                      color: s.isInactive ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
-                      size: 26,
-                    ),
-                    tooltip: s.isInactive ? 'Aktifkan Akun Murid' : 'Nonaktifkan Akun Murid',
-                    onPressed: () => _toggleStudentStatus(schoolId, s),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
-                    tooltip: 'Hapus Permanen',
-                    onPressed: () => _deleteUser(schoolId, 'students', s.id, s.displayName, s.nis),
-                  ),
-                ],
-              )),
-            ]);
-          }).toList(),
-        ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }

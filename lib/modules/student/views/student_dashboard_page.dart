@@ -518,7 +518,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Selamat Datang 👋',
+                              'Selamat Datang',
                               style: GoogleFonts.inter(
                                 color: const Color(0xFFA7F3D0),
                                 fontSize: 13,
