@@ -490,9 +490,19 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     final seatNumber = _allocatedSeat?['seatNumber']?.toString() ?? '-';
     final participantNumber = _allocatedSeat?['participantNumber']?.toString() ?? _student?.nis ?? '-';
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: PreferredSize(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/student');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: PreferredSize(
         preferredSize: const Size.fromHeight(72),
         child: AppBar(
           backgroundColor: const Color(0xFF0F172A),
@@ -610,6 +620,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           ),
         ),
       ),
+    ),
     ),
   );
 }

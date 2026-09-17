@@ -351,64 +351,75 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/teacher');
-            }
-          },
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/teacher');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF0F172A),
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/teacher');
+              }
+            },
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.eventName,
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              Text(
+                'Detail Tugas & Event Ujian Semester',
+                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF34D399)),
+              ),
+            ],
+          ),
+          bottom: TabBar(
+            controller: _tabController,
+            labelColor: const Color(0xFF34D399),
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: const Color(0xFF10B981),
+            tabs: const [
+              Tab(icon: Icon(Icons.edit_note_rounded), text: 'Buat Soal'),
+              Tab(icon: Icon(Icons.visibility_rounded), text: 'Pengawas Ruangan'),
+              Tab(icon: Icon(Icons.assignment_turned_in_rounded), text: 'Koreksi Ujian'),
+            ],
+          ),
         ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.eventName,
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            Text(
-              'Detail Tugas & Event Ujian Semester',
-              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF34D399)),
-            ),
-          ],
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: const Color(0xFF34D399),
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: const Color(0xFF10B981),
-          tabs: const [
-            Tab(icon: Icon(Icons.edit_note_rounded), text: 'Buat Soal'),
-            Tab(icon: Icon(Icons.visibility_rounded), text: 'Pengawas Ruangan'),
-            Tab(icon: Icon(Icons.assignment_turned_in_rounded), text: 'Koreksi Ujian'),
-          ],
-        ),
+        body: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: Color(0xFF10B981)),
+              )
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  _isPembuatSoal
+                      ? _buildBuatSoalTab()
+                      : _buildLockedTab('Buat Soal', 'Anda tidak ditugaskan sebagai pembuat soal pada event ujian ini.'),
+                  _isPengawas
+                      ? _buildPengawasTab()
+                      : _buildLockedTab('Pengawas Ruangan', 'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.'),
+                  _isPembuatSoal
+                      ? _buildKoreksiTab()
+                      : _buildLockedTab('Koreksi Ujian', 'Anda tidak ditugaskan sebagai penilai/korektor soal pada event ujian ini.'),
+                ],
+              ),
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF10B981)),
-            )
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _isPembuatSoal
-                    ? _buildBuatSoalTab()
-                    : _buildLockedTab('Buat Soal', 'Anda tidak ditugaskan sebagai pembuat soal pada event ujian ini.'),
-                _isPengawas
-                    ? _buildPengawasTab()
-                    : _buildLockedTab('Pengawas Ruangan', 'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.'),
-                _isPembuatSoal
-                    ? _buildKoreksiTab()
-                    : _buildLockedTab('Koreksi Ujian', 'Anda tidak ditugaskan sebagai penilai/korektor soal pada event ujian ini.'),
-              ],
-            ),
     );
   }
 

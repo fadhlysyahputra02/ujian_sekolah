@@ -173,27 +173,17 @@ class _DashboardPageState extends State<DashboardPage>
         if (_lastBackPressTime == null ||
             now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
           _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.exit_to_app_rounded, color: Colors.white, size: 18),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Tekan kembali satu kali lagi untuk keluar aplikasi',
-                    style: GoogleFonts.inter(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
+              content: Text(
+                'Tekan kembali lagi untuk keluar aplikasi',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white),
               ),
-              backgroundColor: const Color(0xFF0F172A),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
               margin: const EdgeInsets.all(16),
+              backgroundColor: const Color(0xFF1E293B),
             ),
           );
         } else {

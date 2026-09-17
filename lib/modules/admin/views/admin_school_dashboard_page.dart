@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -34,6 +35,7 @@ class AdminSchoolDashboardPage extends StatefulWidget {
 
 class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   int _currentTab = 0; // 0: Overview, 1: Guru, 2: Murid, 3: Mapel, 4: Kelas, 5: Event, 6: Pengaturan
+  DateTime? _lastBackPressTime;
   
   @override
   void initState() {
@@ -1214,7 +1216,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       ),
     );
 
-    return StreamBuilder<DocumentSnapshot>(
+    final mainWidget = StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
       builder: (context, schoolSnapshot) {
         if (isDesktop) {
@@ -1447,6 +1449,39 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     }
   },
 );
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (_currentTab != 0) {
+          _clearFilters();
+          _navigateToTab(0);
+          return;
+        }
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Tekan kembali lagi untuk keluar aplikasi',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white),
+              ),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(16),
+              backgroundColor: const Color(0xFF1E293B),
+            ),
+          );
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: mainWidget,
+    );
 }
 
   Widget _buildSidebarItem(int tabIndex, IconData outlineIcon, IconData solidIcon, String label, bool isExtended) {

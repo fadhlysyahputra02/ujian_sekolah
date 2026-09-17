@@ -476,24 +476,36 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
 
     final double avgScore = numScored > 0 ? (totalSum / numScored) : 0.0;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              context.pop();
-            } else {
-              context.go(
-                '/admin/event/${widget.eventId}/rekap/${widget.subjectId}?eventName=${Uri.encodeComponent(widget.eventName)}&subjectName=${Uri.encodeComponent(widget.subjectName)}',
-              );
-            }
-          },
-        ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go(
+            '/admin/event/${widget.eventId}/rekap/${widget.subjectId}?eventName=${Uri.encodeComponent(widget.eventName)}&subjectName=${Uri.encodeComponent(widget.subjectName)}',
+          );
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go(
+                  '/admin/event/${widget.eventId}/rekap/${widget.subjectId}?eventName=${Uri.encodeComponent(widget.eventName)}&subjectName=${Uri.encodeComponent(widget.subjectName)}',
+                );
+              }
+            },
+          ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -858,6 +870,7 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
                     ),
                   ),
                 ),
+    ),
     );
   }
 

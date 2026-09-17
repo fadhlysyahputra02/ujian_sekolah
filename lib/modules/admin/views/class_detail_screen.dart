@@ -406,9 +406,19 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
         final enrolledIds = _enrolledIds(classDoc);
         final currentName = classDoc['name'] as String? ?? '-';
 
-        return Scaffold(
-          backgroundColor: _background,
-          body: StreamBuilder<List<Student>>(
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (bool didPop, dynamic result) {
+            if (didPop) return;
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/admin/kelas');
+            }
+          },
+          child: Scaffold(
+            backgroundColor: _background,
+            body: StreamBuilder<List<Student>>(
             stream: _service.streamStudents(activeSchoolId),
             builder: (context, studentsSnap) {
               if (studentsSnap.hasError) {
@@ -797,6 +807,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
               );
             },
           ),
+        ),
         );
       },
     );

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/constants/app_version.dart';
@@ -20,6 +21,7 @@ class TeacherDashboardPage extends StatefulWidget {
 class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
+  DateTime? _lastBackPressTime;
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnim;
 
@@ -376,7 +378,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       ),
     );
 
-    return StreamBuilder<DocumentSnapshot>(
+    final mainWidget = StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
       builder: (context, schoolSnapshot) {
         final schoolData = schoolSnapshot.data?.data() as Map<String, dynamic>? ?? {};
@@ -415,6 +417,38 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           bottomNavigationBar: _buildBottomNav(),
         );
       },
+    );
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (_selectedIndex != 0) {
+          _onItemTapped(0);
+          return;
+        }
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Tekan kembali lagi untuk keluar aplikasi',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white),
+              ),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(16),
+              backgroundColor: const Color(0xFF1E293B),
+            ),
+          );
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: mainWidget,
     );
   }
 

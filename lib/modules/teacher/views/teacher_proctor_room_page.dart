@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:sys_exam_school/core/services/auth_service.dart';
@@ -368,9 +369,37 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
       return _buildProctorLoadingView('Menyiapkan Data Denah Ruangan...');
     }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: StreamBuilder<DocumentSnapshot>(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/teacher/event/${widget.eventId}/pengawas');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF0F172A),
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/teacher/event/${widget.eventId}/pengawas');
+              }
+            },
+          ),
+          title: Text(
+            'Ruang Pengawas Ujian',
+            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+        ),
+        body: StreamBuilder<DocumentSnapshot>(
         stream: _eventStream ??
             FirebaseFirestore.instance
                 .collection('schools')
@@ -1622,12 +1651,13 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
       );
     },
   );
-  },
-);
-},
-);
-},
-),
-);
+        },
+      );
+    },
+  );
+        },
+      ),
+    ),
+    );
   }
 }
