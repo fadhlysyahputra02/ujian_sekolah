@@ -571,38 +571,38 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // ── SUMMARY STATS CARDS ──
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildStatCard(
-                                  'Total Murid',
-                                  '$totalCount',
-                                  Icons.people_alt_rounded,
-                                  const Color(0xFF4F46E5),
-                                  const Color(0xFFEEF2FF),
+                          if (isDesktop)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildStatCard(
+                                    'Total Murid',
+                                    '$totalCount',
+                                    Icons.people_alt_rounded,
+                                    const Color(0xFF4F46E5),
+                                    const Color(0xFFEEF2FF),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildStatCard(
-                                  'Sudah Dikoreksi',
-                                  '$gradedCount',
-                                  Icons.check_circle_rounded,
-                                  const Color(0xFF059669),
-                                  const Color(0xFFECFDF5),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildStatCard(
+                                    'Sudah Dikoreksi',
+                                    '$gradedCount',
+                                    Icons.check_circle_rounded,
+                                    const Color(0xFF059669),
+                                    const Color(0xFFECFDF5),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildStatCard(
-                                  'Menunggu',
-                                  '$pendingCount',
-                                  Icons.pending_actions_rounded,
-                                  const Color(0xFFD97706),
-                                  const Color(0xFFFEF3C7),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildStatCard(
+                                    'Menunggu',
+                                    '$pendingCount',
+                                    Icons.pending_actions_rounded,
+                                    const Color(0xFFD97706),
+                                    const Color(0xFFFEF3C7),
+                                  ),
                                 ),
-                              ),
-                              if (isDesktop) ...[
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: _buildStatCard(
@@ -614,8 +614,63 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
                                   ),
                                 ),
                               ],
-                            ],
-                          ),
+                            )
+                          else
+                            Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildStatCard(
+                                        'Total Murid',
+                                        '$totalCount',
+                                        Icons.people_alt_rounded,
+                                        const Color(0xFF4F46E5),
+                                        const Color(0xFFEEF2FF),
+                                        isMobile: true,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _buildStatCard(
+                                        'Sudah Dikoreksi',
+                                        '$gradedCount',
+                                        Icons.check_circle_rounded,
+                                        const Color(0xFF059669),
+                                        const Color(0xFFECFDF5),
+                                        isMobile: true,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildStatCard(
+                                        'Menunggu',
+                                        '$pendingCount',
+                                        Icons.pending_actions_rounded,
+                                        const Color(0xFFD97706),
+                                        const Color(0xFFFEF3C7),
+                                        isMobile: true,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _buildStatCard(
+                                        'Rata-Rata',
+                                        avgScore.toStringAsFixed(1),
+                                        Icons.analytics_rounded,
+                                        const Color(0xFF2563EB),
+                                        const Color(0xFFEFF6FF),
+                                        isMobile: true,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           const SizedBox(height: 24),
 
                           // ── SEARCH & FILTER CONTROLS ──
@@ -639,8 +694,8 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
                                   child: TextField(
                                     onChanged: (val) => setState(() => _searchQuery = val),
                                     decoration: InputDecoration(
-                                      hintText: 'Cari murid berdasarkan NIS atau Nama...',
-                                      hintStyle: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF94A3B8)),
+                                      hintText: isDesktop ? 'Cari murid berdasarkan NIS atau Nama...' : 'Cari NIS atau Nama...',
+                                      hintStyle: GoogleFonts.inter(fontSize: isDesktop ? 14 : 13, color: const Color(0xFF94A3B8)),
                                       prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B)),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(12),
@@ -733,23 +788,49 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
                                 child: Column(
                                   children: [
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                       color: const Color(0xFFF8FAFC),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.groups_rounded, size: 20, color: Color(0xFF4F46E5)),
-                                          const SizedBox(width: 10),
-                                          Text(
-                                            'Daftar Murid Kelas ${widget.className}',
-                                            style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                                          ),
-                                          const Spacer(),
-                                          Text(
-                                            'Menampilkan ${filtered.length} dari ${totalCount} murid',
-                                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
-                                          ),
-                                        ],
-                                      ),
+                                      child: isDesktop
+                                          ? Row(
+                                              children: [
+                                                const Icon(Icons.groups_rounded, size: 20, color: Color(0xFF4F46E5)),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Text(
+                                                    'Daftar Murid Kelas ${widget.className}',
+                                                    style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  'Menampilkan ${filtered.length} dari $totalCount murid',
+                                                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                                ),
+                                              ],
+                                            )
+                                          : Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    const Icon(Icons.groups_rounded, size: 18, color: Color(0xFF4F46E5)),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: Text(
+                                                        'Daftar Murid Kelas ${widget.className}',
+                                                        style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  'Menampilkan ${filtered.length} dari $totalCount murid',
+                                                  style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                                ),
+                                              ],
+                                            ),
                                     ),
                                     const Divider(height: 1, color: Color(0xFFE2E8F0)),
                                     LayoutBuilder(
@@ -874,12 +955,12 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color, Color bg) {
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, Color bg, {bool isMobile = false}) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(isMobile ? 16 : 20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
@@ -892,25 +973,38 @@ class _RekapStudentGradesViewState extends State<RekapStudentGradesView> {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: EdgeInsets.all(isMobile ? 8 : 10),
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(isMobile ? 10 : 14),
             ),
-            child: Icon(icon, color: color, size: 22),
+            child: Icon(icon, color: color, size: isMobile ? 18 : 22),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: isMobile ? 8 : 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   value,
-                  style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
+                  style: GoogleFonts.inter(
+                    fontSize: isMobile ? 16 : 18,
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFF0F172A),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 Text(
                   title,
-                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w500, color: const Color(0xFF64748B)),
+                  style: GoogleFonts.inter(
+                    fontSize: isMobile ? 10.5 : 11,
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFF64748B),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
