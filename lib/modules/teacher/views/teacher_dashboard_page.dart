@@ -963,82 +963,66 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
               ),
             ],
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.25),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF34D399).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF34D399).withValues(alpha: 0.3)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.school_rounded, color: Color(0xFF6EE7B7), size: 12),
-                              const SizedBox(width: 4),
-                              Text(
-                                'GURU / PENGAWAS',
-                                style: GoogleFonts.inter(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFFA7F3D0),
-                                  letterSpacing: 0.4,
-                                ),
-                              ),
-                            ],
+                        const Icon(Icons.school_rounded, color: Color(0xFF6EE7B7), size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          'GURU / PENGAWAS',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFFA7F3D0),
+                            letterSpacing: 0.4,
                           ),
                         ),
                       ],
                     ),
-                    SizedBox(height: isMobile ? 6 : 8),
-                    Text(
-                      'Selamat Datang Kembali,',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFA7F3D0),
-                        fontSize: isMobile ? 11 : 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '$honorific ${teacher.displayName}',
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: isMobile ? 18 : 22,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    SizedBox(height: isMobile ? 4 : 8),
-                    Text(
-                      'NIP: ${teacher.nip.isNotEmpty ? teacher.nip : "-"} • Mapel: ${teacher.subjects.join(", ")}',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFD1FAE5),
-                        fontSize: isMobile ? 11 : 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                  ),
+                ],
+              ),
+              SizedBox(height: isMobile ? 6 : 8),
+              Text(
+                'Selamat Datang Kembali,',
+                style: GoogleFonts.inter(
+                  color: const Color(0xFFA7F3D0),
+                  fontSize: isMobile ? 11 : 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(width: 12),
-              CircleAvatar(
-                radius: isMobile ? 22 : 28,
-                backgroundColor: Colors.white.withValues(alpha: 0.15),
-                child: Icon(
-                  isMale ? Icons.face_rounded : Icons.face_3_rounded,
+              const SizedBox(height: 2),
+              Text(
+                '$honorific ${teacher.displayName}',
+                style: GoogleFonts.inter(
                   color: Colors.white,
-                  size: isMobile ? 26 : 36,
+                  fontSize: isMobile ? 18 : 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
                 ),
+              ),
+              SizedBox(height: isMobile ? 4 : 8),
+              Text(
+                'NIP: ${teacher.nip.isNotEmpty ? teacher.nip : "-"} • Mapel: ${teacher.subjects.join(", ")}',
+                style: GoogleFonts.inter(
+                  color: const Color(0xFFD1FAE5),
+                  fontSize: isMobile ? 11 : 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),

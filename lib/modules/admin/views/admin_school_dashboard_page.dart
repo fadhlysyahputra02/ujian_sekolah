@@ -493,14 +493,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Future<void> _generateAllPasswords(String schoolId, List<Student> students) async {
-    final targets = students.where((s) => s.tempPassword == null || s.tempPassword!.isEmpty).toList();
-
-    if (targets.isEmpty) {
+    if (students.isEmpty) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Informasi'),
-          content: const Text('Semua murid dalam list ini sudah memiliki kata sandi.'),
+          content: const Text('Tidak ada data murid.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
@@ -511,6 +509,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       );
       return;
     }
+
+    final missingPasswords = students.where((s) => s.tempPassword == null || s.tempPassword!.trim().isEmpty).toList();
+    final bool isAllHavePassword = missingPasswords.isEmpty;
+    final List<Student> targets = isAllHavePassword ? students : missingPasswords;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -520,30 +523,87 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
+                color: isAllHavePassword ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 24),
+              child: Icon(
+                isAllHavePassword ? Icons.warning_amber_rounded : Icons.key_rounded,
+                color: isAllHavePassword ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                size: 24,
+              ),
             ),
             const SizedBox(width: 14),
-            Text(
-              'Generate Sandi Massal',
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF0F172A),
+            Expanded(
+              child: Text(
+                isAllHavePassword ? 'Reset Semua Sandi Murid' : 'Generate Sandi Massal',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF0F172A),
+                ),
               ),
             ),
           ],
         ),
-        content: Text(
-          'Apakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} murid yang belum memilikinya?',
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            color: const Color(0xFF475569),
-            height: 1.5,
-          ),
-        ),
+        content: isAllHavePassword
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Semua murid (${students.length} murid) sudah memiliki kata sandi.',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      color: const Color(0xFF475569),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFECACA)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline_rounded, color: Color(0xFFDC2626), size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Peringatan: Tindakan ini akan menimpa dan mengganti kata sandi SEMUA (${students.length}) murid dengan kata sandi baru. Kata sandi sebelumnya tidak akan bisa digunakan lagi.',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: const Color(0xFF991B1B),
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Apakah Anda yakin ingin melanjutkan reset kata sandi massal untuk semua murid?',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      color: const Color(0xFF334155),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              )
+            : Text(
+                'Ditemukan ${targets.length} murid yang belum memiliki kata sandi.\n\nApakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} murid tersebut?',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: const Color(0xFF475569),
+                  height: 1.5,
+                ),
+              ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -555,14 +615,14 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD97706),
+              backgroundColor: isAllHavePassword ? const Color(0xFFDC2626) : const Color(0xFFD97706),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
             child: Text(
-              'Mulai Generate',
+              isAllHavePassword ? 'Ya, Reset Semua (${targets.length})' : 'Mulai Generate (${targets.length})',
               style: GoogleFonts.inter(fontWeight: FontWeight.w700),
             ),
           ),
@@ -777,14 +837,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   }
 
   Future<void> _generateAllTeacherPasswords(String schoolId, List<Teacher> teachers) async {
-    final targets = teachers.where((t) => t.tempPassword == null || t.tempPassword!.isEmpty).toList();
-
-    if (targets.isEmpty) {
+    if (teachers.isEmpty) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Informasi'),
-          content: const Text('Semua guru dalam list ini sudah memiliki kata sandi.'),
+          content: const Text('Tidak ada data guru.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
@@ -796,6 +854,10 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       return;
     }
 
+    final missingPasswords = teachers.where((t) => t.tempPassword == null || t.tempPassword!.trim().isEmpty).toList();
+    final bool isAllHavePassword = missingPasswords.isEmpty;
+    final List<Teacher> targets = isAllHavePassword ? teachers : missingPasswords;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -805,30 +867,87 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
+                color: isAllHavePassword ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.key_rounded, color: Color(0xFFD97706), size: 24),
+              child: Icon(
+                isAllHavePassword ? Icons.warning_amber_rounded : Icons.key_rounded,
+                color: isAllHavePassword ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                size: 24,
+              ),
             ),
             const SizedBox(width: 14),
-            Text(
-              'Generate Sandi Massal',
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF0F172A),
+            Expanded(
+              child: Text(
+                isAllHavePassword ? 'Reset Semua Sandi Guru' : 'Generate Sandi Massal',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF0F172A),
+                ),
               ),
             ),
           ],
         ),
-        content: Text(
-          'Apakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} guru yang belum memilikinya?',
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            color: const Color(0xFF475569),
-            height: 1.5,
-          ),
-        ),
+        content: isAllHavePassword
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Semua guru (${teachers.length} guru) sudah memiliki kata sandi.',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      color: const Color(0xFF475569),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFECACA)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline_rounded, color: Color(0xFFDC2626), size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Peringatan: Tindakan ini akan menimpa dan mengganti kata sandi SEMUA (${teachers.length}) guru dengan kata sandi baru. Kata sandi sebelumnya tidak akan bisa digunakan lagi.',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: const Color(0xFF991B1B),
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Apakah Anda yakin ingin melanjutkan reset kata sandi massal untuk semua guru?',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      color: const Color(0xFF334155),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              )
+            : Text(
+                'Ditemukan ${targets.length} guru yang belum memiliki kata sandi.\n\nApakah Anda yakin ingin membuat kata sandi sementara untuk ${targets.length} guru tersebut?',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: const Color(0xFF475569),
+                  height: 1.5,
+                ),
+              ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -840,14 +959,14 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD97706),
+              backgroundColor: isAllHavePassword ? const Color(0xFFDC2626) : const Color(0xFFD97706),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
             child: Text(
-              'Mulai Generate',
+              isAllHavePassword ? 'Ya, Reset Semua (${targets.length})' : 'Mulai Generate (${targets.length})',
               style: GoogleFonts.inter(fontWeight: FontWeight.w700),
             ),
           ),
