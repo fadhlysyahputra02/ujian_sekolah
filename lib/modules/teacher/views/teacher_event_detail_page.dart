@@ -15,11 +15,15 @@ import '../../../core/models/teacher.dart';
 import '../../../core/utils/url_history_helper.dart';
 
 String _getQuestionType(Map<String, dynamic> data) {
-  final rawType = (data['type'] ?? '').toString().toLowerCase().trim();
-  if (rawType == 'essay' || rawType == 'uraian') return 'essay';
-  if (rawType == 'pilihan_ganda' || rawType == 'pg' || rawType == 'multiple_choice' || rawType == 'mc') return 'pilihan_ganda';
+  final rawType = (data['type'] ?? data['questionType'] ?? '').toString().toLowerCase().trim();
+  if (rawType == 'essay' || rawType == 'esai' || rawType == 'uraian' || rawType == 'tertulis' || rawType == 'isian' || rawType == 'short_answer') {
+    return 'essay';
+  }
+  if (rawType == 'pilihan_ganda' || rawType == 'pg' || rawType == 'multiple_choice' || rawType == 'mc') {
+    return 'pilihan_ganda';
+  }
 
-  final correctOpt = (data['correctOption'] ?? data['correctAnswer'] ?? '').toString().trim();
+  final correctOpt = (data['correctOption'] ?? data['correctAnswer'] ?? data['kunciJawaban'] ?? '').toString().trim();
   if (correctOpt.isNotEmpty) return 'pilihan_ganda';
 
   final opts = data['options'];
@@ -34,7 +38,103 @@ String _getQuestionType(Map<String, dynamic> data) {
     if (optImgs is List && optImgs.isNotEmpty) return 'pilihan_ganda';
   }
 
+  // If there are no options and no correct option, it's an essay
+  if (rawType.isEmpty && (opts == null || (opts is List && opts.isEmpty) || (opts is Map && opts.isEmpty))) {
+    return 'essay';
+  }
+
   return 'pilihan_ganda';
+}
+
+bool _isPgAnswerCorrect(dynamic rawStudentAns, Map<String, dynamic> qData) {
+  if (rawStudentAns == null) return false;
+  final correctOptRaw = (qData['correctOption'] ?? qData['correctAnswer'] ?? qData['kunciJawaban'] ?? qData['key'] ?? '').toString().trim();
+  if (correctOptRaw.isEmpty) return false;
+
+  final studentAnsStr = rawStudentAns.toString().trim();
+  if (studentAnsStr.isEmpty) return false;
+
+  // 1. Direct case-insensitive match
+  if (studentAnsStr.toLowerCase() == correctOptRaw.toLowerCase()) return true;
+
+  // 2. Letter conversion (e.g. index 0 -> 'A', 1 -> 'B' or '0' -> 'A')
+  String studentLetter = studentAnsStr.toUpperCase();
+  if (RegExp(r'^\d+$').hasMatch(studentAnsStr)) {
+    final idx = int.tryParse(studentAnsStr);
+    if (idx != null && idx >= 0 && idx < 26) {
+      studentLetter = String.fromCharCode(65 + idx);
+    }
+  }
+
+  String correctLetter = correctOptRaw.toUpperCase();
+  if (RegExp(r'^\d+$').hasMatch(correctOptRaw)) {
+    final idx = int.tryParse(correctOptRaw);
+    if (idx != null && idx >= 0 && idx < 26) {
+      correctLetter = String.fromCharCode(65 + idx);
+    }
+  }
+
+  if (studentLetter == correctLetter) return true;
+
+  // 3. Option value/text matching
+  final opts = qData['options'];
+  if (opts is List) {
+    for (int i = 0; i < opts.length; i++) {
+      final opt = opts[i];
+      final optText = (opt is Map ? (opt['text'] ?? opt['label'] ?? '') : opt).toString().trim();
+      final optLetter = String.fromCharCode(65 + i);
+      if (optLetter == correctLetter && optText.toLowerCase() == studentAnsStr.toLowerCase()) {
+        return true;
+      }
+      if (optLetter == studentLetter && optText.toLowerCase() == correctOptRaw.toLowerCase()) {
+        return true;
+      }
+    }
+  } else if (opts is Map) {
+    for (var entry in opts.entries) {
+      final optKey = entry.key.toString().trim().toUpperCase();
+      final optVal = entry.value.toString().trim();
+      if (optKey == correctLetter && optVal.toLowerCase() == studentAnsStr.toLowerCase()) {
+        return true;
+      }
+      if (optKey == studentLetter && optVal.toLowerCase() == correctOptRaw.toLowerCase()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+bool _isQuestionMatchingStudent(String qAngkatan, String studentAngkatan, String studentClass) {
+  final qClean = qAngkatan.trim().toLowerCase();
+  if (qClean.isEmpty || qClean == 'semua' || qClean == 'all' || qClean == '-') {
+    return true;
+  }
+
+  final sAngClean = studentAngkatan.trim().toLowerCase();
+  final sClassClean = studentClass.trim().toLowerCase();
+
+  // Exact match
+  if (sAngClean.isNotEmpty && qClean == sAngClean) return true;
+  if (sClassClean.isNotEmpty && qClean == sClassClean) return true;
+
+  // Substring match
+  if (sAngClean.isNotEmpty && (qClean.contains(sAngClean) || sAngClean.contains(qClean))) return true;
+  if (sClassClean.isNotEmpty && (qClean.contains(sClassClean) || sClassClean.contains(qClean))) return true;
+
+  // Extract numbers
+  final RegExp numReg = RegExp(r'\d+');
+  final qNum = numReg.firstMatch(qClean)?.group(0);
+  final sAngNum = numReg.firstMatch(sAngClean)?.group(0);
+  final sClassNum = numReg.firstMatch(sClassClean)?.group(0);
+
+  if (qNum != null && qNum.isNotEmpty) {
+    if (sAngNum != null && sAngNum == qNum) return true;
+    if (sClassNum != null && sClassNum == qNum) return true;
+  }
+
+  return false;
 }
 
 class TeacherEventDetailPage extends StatefulWidget {
@@ -4341,17 +4441,64 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
                       }
 
-                      final questionDocs = qSnap.data?.docs ?? [];
+                      final directDocs = qSnap.data?.docs ?? [];
 
-                      return StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('schools')
-                            .doc(_schoolId)
-                            .collection('events')
-                            .doc(widget.eventId)
-                            .collection('submissions')
-                            .snapshots(),
-                        builder: (context, subSnap) {
+                      // If questions are not in direct subcollection and doc id differs from name, also check by subject name
+                      if (directDocs.isEmpty && _selectedCorrSubjectId != selectedSubjectName) {
+                        return StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('schools')
+                              .doc(_schoolId)
+                              .collection('events')
+                              .doc(widget.eventId)
+                              .collection('subjects')
+                              .doc(selectedSubjectName)
+                              .collection('questions')
+                              .snapshots(),
+                          builder: (context, altSnap) {
+                            if (altSnap.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
+                            }
+                            final altDocs = altSnap.data?.docs ?? [];
+                            return _buildKoreksiSubmissionsView(
+                              questionDocs: altDocs.isNotEmpty ? altDocs : directDocs,
+                              selectedSubjectName: selectedSubjectName,
+                              selectedSubjectClassesList: selectedSubjectClassesList,
+                            );
+                          },
+                        );
+                      }
+
+                      return _buildKoreksiSubmissionsView(
+                        questionDocs: directDocs,
+                        selectedSubjectName: selectedSubjectName,
+                        selectedSubjectClassesList: selectedSubjectClassesList,
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildKoreksiSubmissionsView({
+    required List<DocumentSnapshot> questionDocs,
+    required String selectedSubjectName,
+    required List<String> selectedSubjectClassesList,
+  }) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('events')
+          .doc(widget.eventId)
+          .collection('submissions')
+          .snapshots(),
+      builder: (context, subSnap) {
                           if (subSnap.connectionState == ConnectionState.waiting) {
                             return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
                           }
@@ -4564,32 +4711,37 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                           final isCompleted = subData['isCompleted'] == true;
                                           final isGraded = subData['isGraded'] == true;
 
-                                          // Filter questionDocs for student's angkatan
-                                          String studentAngkatan = (subData['angkatan'] ?? subData['studentAngkatan'] ?? '').toString().trim();
+                                          // Filter questionDocs for student
                                           final answers = Map<String, dynamic>.from(subData['answers'] ?? {});
                                           final essayAnswers = Map<String, dynamic>.from(subData['essayAnswers'] ?? {});
+                                          final studentAnsweredQIds = {...answers.keys, ...essayAnswers.keys};
 
-                                          if (studentAngkatan.isEmpty) {
-                                            final allAnsweredQIds = {...answers.keys, ...essayAnswers.keys};
-                                            for (var qDoc in questionDocs) {
-                                              if (allAnsweredQIds.contains(qDoc.id)) {
-                                                final qData = qDoc.data() as Map<String, dynamic>;
-                                                final qAng = qData['angkatan']?.toString().trim();
-                                                if (qAng != null && qAng.isNotEmpty) {
-                                                  studentAngkatan = qAng;
-                                                  break;
-                                                }
-                                              }
-                                            }
+                                          // 1. Prioritize direct question ID match with what student answered
+                                          List<DocumentSnapshot> targetQuestionDocs = questionDocs.where((qDoc) => studentAnsweredQIds.contains(qDoc.id)).toList();
+
+                                          // 2. If no direct ID match, match by student's angkatan / className
+                                          if (targetQuestionDocs.isEmpty) {
+                                            String studentAngkatan = (subData['angkatan'] ?? subData['studentAngkatan'] ?? '').toString().trim();
+                                            targetQuestionDocs = questionDocs.where((qDoc) {
+                                              final qData = qDoc.data() as Map<String, dynamic>;
+                                              final qAng = (qData['angkatan'] ?? qData['grade'] ?? qData['targetAngkatan'] ?? '').toString().trim();
+                                              return _isQuestionMatchingStudent(qAng, studentAngkatan, studentClass);
+                                            }).toList();
                                           }
 
-                                          final targetQuestionDocs = questionDocs.where((qDoc) {
-                                            final qData = qDoc.data() as Map<String, dynamic>;
-                                            final qAng = qData['angkatan']?.toString().trim();
-                                            if (qAng == null || qAng.isEmpty) return true;
-                                            if (studentAngkatan.isNotEmpty) return qAng == studentAngkatan;
-                                            return true;
-                                          }).toList();
+                                          // 3. Fallback to all questionDocs so questions are never lost
+                                          if (targetQuestionDocs.isEmpty) {
+                                            targetQuestionDocs = List.from(questionDocs);
+                                          }
+
+                                          // Sort questions in natural order
+                                          targetQuestionDocs.sort((a, b) {
+                                            final aData = a.data() as Map<String, dynamic>? ?? {};
+                                            final bData = b.data() as Map<String, dynamic>? ?? {};
+                                            final aUrutan = (aData['urutan'] as num?) ?? (aData['order'] as num?) ?? (aData['index'] as num?) ?? 999;
+                                            final bUrutan = (bData['urutan'] as num?) ?? (bData['order'] as num?) ?? (bData['index'] as num?) ?? 999;
+                                            return aUrutan.compareTo(bUrutan);
+                                          });
 
                                           // Auto PG Calculation
                                           double autoPgScore = 0;
@@ -4607,9 +4759,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                             if (type == 'pilihan_ganda') {
                                               totalPgCount++;
                                               totalPgMax += score;
-                                              final studentAns = answers[qId]?.toString().trim().toUpperCase();
-                                              final correctAns = (qData['correctOption'] ?? '').toString().trim().toUpperCase();
-                                              if (studentAns != null && studentAns == correctAns) {
+                                              final studentAns = answers[qId];
+                                              if (_isPgAnswerCorrect(studentAns, qData)) {
                                                 correctPgCount++;
                                                 autoPgScore += score;
                                               }
@@ -4861,15 +5012,6 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                             ],
                           );
                         },
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
@@ -4892,7 +5034,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       return _getQuestionType(qData) == 'essay';
     }).toList();
 
-    final essayAnswers = Map<String, dynamic>.from(subData['essayAnswers'] ?? subData['answers'] ?? {});
+    final essayAnswers = Map<String, dynamic>.from(subData['essayAnswers'] ?? {});
+    final allAnswers = Map<String, dynamic>.from(subData['answers'] ?? {});
     final existingEssayScores = Map<String, dynamic>.from(subData['essayScores'] ?? {});
 
     final Map<String, TextEditingController> scoreControllers = {};
@@ -4900,7 +5043,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       final qId = eDoc.id;
       final maxScore = ((eDoc.data() as Map<String, dynamic>)['score'] as num?)?.toDouble() ?? 10.0;
       final savedScore = (existingEssayScores[qId] as num?)?.toDouble();
-      final studentEssayAns = (essayAnswers[qId] ?? '').toString().trim();
+      final studentEssayAns = (essayAnswers[qId] ?? allAnswers[qId] ?? '').toString().trim();
       final defaultScore = studentEssayAns.isEmpty ? 0.0 : maxScore;
       final initVal = savedScore ?? defaultScore;
       final str = initVal % 1 == 0 ? initVal.toInt().toString() : initVal.toString();
@@ -4935,9 +5078,10 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              actionsPadding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              actionsPadding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
               title: Row(
                 children: [
                   Container(
@@ -4956,11 +5100,13 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                       children: [
                         Text(
                           'Form Koreksi Ujian',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18, color: const Color(0xFF0F172A)),
+                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 17, color: const Color(0xFF0F172A)),
                         ),
                         Text(
                           'Murid: $studentName',
                           style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -4968,328 +5114,349 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                 ],
               ),
               content: SizedBox(
-                width: 580,
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Banner Ringkasan Pilihan Ganda
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFBFDBFE)),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(Icons.task_alt_rounded, color: Color(0xFF2563EB), size: 20),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Pilihan Ganda (Koreksi Otomatis)',
-                                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF1E40AF)),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '$correctPgCount dari $totalPgCount Soal Benar',
-                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF3B82F6)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFDBEAFE),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '${autoPgScore.toInt()} / ${totalPgMax.toInt()} pt',
-                                style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFF1E40AF)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-
-                      Row(
-                        children: [
-                          Text(
-                            'Koreksi Soal Essay',
-                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14, color: const Color(0xFF0F172A)),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${essayDocs.length} Soal',
-                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF64748B)),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-
-                      if (essayDocs.isEmpty)
+                width: double.maxFinite,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 580),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Banner Ringkasan Pilihan Ganda
                         Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFF94A3B8)),
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.task_alt_rounded, color: Color(0xFF2563EB), size: 20),
+                              ),
                               const SizedBox(width: 10),
-                              Text(
-                                'Tidak ada soal essay pada ujian ini.',
-                                style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontStyle: FontStyle.italic),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Pilihan Ganda (Koreksi Otomatis)',
+                                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF1E40AF)),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '$correctPgCount dari $totalPgCount Soal Benar',
+                                      style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF3B82F6)),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFDBEAFE),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  '${autoPgScore.toInt()} / ${totalPgMax.toInt()} pt',
+                                  style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12, color: const Color(0xFF1E40AF)),
+                                ),
                               ),
                             ],
                           ),
-                        )
-                      else
-                        ...essayDocs.asMap().entries.map((entry) {
-                          final idx = entry.key;
-                          final eDoc = entry.value;
-                          final qData = eDoc.data() as Map<String, dynamic>;
-                          final qId = eDoc.id;
-                          final qText = qData['text'] ?? '';
-                          final maxScore = (qData['score'] as num?)?.toDouble() ?? 10.0;
-                          final rawAns = essayAnswers[qId]?.toString().trim() ?? '';
-                          final isAnsEmpty = rawAns.isEmpty || rawAns == '(Murid tidak mengisi)';
-                          final studentAns = isAnsEmpty ? '(Murid tidak mengisi jawaban)' : rawAns;
-                          final ctrl = scoreControllers[qId]!;
-
-                          final typedVal = double.tryParse(ctrl.text.trim());
-                          final bool isExceeded = typedVal != null && (typedVal > maxScore || typedVal < 0);
-
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 14),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: isExceeded ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0),
-                                width: isExceeded ? 1.5 : 1.0,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.02),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFDF2F8),
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: const Color(0xFFFBCFE8)),
-                                      ),
-                                      child: Text(
-                                        'Essay #${idx + 1}',
-                                        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFFDB2777)),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        qText,
-                                        style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13, color: const Color(0xFF1E293B)),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: isAnsEmpty ? const Color(0xFFFFFBEB) : const Color(0xFFF8FAFC),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: isAnsEmpty ? const Color(0xFFFDE68A) : const Color(0xFFE2E8F0)),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Jawaban Murid:',
-                                        style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: isAnsEmpty ? const Color(0xFFB45309) : const Color(0xFF64748B)),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        studentAns,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12,
-                                          color: isAnsEmpty ? const Color(0xFF92400E) : const Color(0xFF334155),
-                                          fontStyle: isAnsEmpty ? FontStyle.italic : FontStyle.normal,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Text(
-                                      'Nilai Diberikan:',
-                                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: isExceeded ? const Color(0xFFFEF2F2) : const Color(0xFFF1F5F9),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        'Max ${maxScore % 1 == 0 ? maxScore.toInt() : maxScore} pt',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF64748B),
-                                        ),
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    SizedBox(
-                                      width: 120,
-                                      child: TextField(
-                                        controller: ctrl,
-                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                        textAlign: TextAlign.center,
-                                        style: GoogleFonts.inter(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF0F172A),
-                                        ),
-                                        onChanged: (_) => setDialogState(() {}),
-                                        decoration: InputDecoration(
-                                          suffixText: 'pt',
-                                          suffixStyle: GoogleFonts.inter(
-                                            fontSize: 12,
-                                            color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF64748B),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          filled: true,
-                                          fillColor: isExceeded ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(10),
-                                            borderSide: BorderSide(
-                                              color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFFCBD5E1),
-                                              width: isExceeded ? 2.0 : 1.0,
-                                            ),
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(10),
-                                            borderSide: BorderSide(
-                                              color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF10B981),
-                                              width: 2.0,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (isExceeded) ...[
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      const Icon(Icons.error_outline_rounded, size: 14, color: Color(0xFFDC2626)),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Nilai melebihi batas maksimal (Max ${maxScore % 1 == 0 ? maxScore.toInt() : maxScore} pt)',
-                                        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFFDC2626)),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ],
-                            ),
-                          );
-                        }),
-                      const SizedBox(height: 12),
-
-                      // Live Final Score Banner
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: hasAnyExceeded ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: hasAnyExceeded ? const Color(0xFFFCA5A5) : const Color(0xFFA7F3D0), width: 1.5),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        const SizedBox(height: 16),
+
+                        Row(
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  hasAnyExceeded ? '⚠️ Peringatan Nilai Melebihi Batas' : 'Kalkulasi Total Nilai Akhir',
-                                  style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: hasAnyExceeded ? const Color(0xFF991B1B) : const Color(0xFF065F46)),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  hasAnyExceeded
-                                      ? 'Perbaiki nilai essay bernilai merah sebelum menyimpan.'
-                                      : 'Raw: ${grandEarned.toStringAsFixed(grandEarned % 1 == 0 ? 0 : 1)} / ${grandMax.toStringAsFixed(grandMax % 1 == 0 ? 0 : 1)} Poin (Skala 100)',
-                                  style: GoogleFonts.inter(fontSize: 12, color: hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF047857), fontWeight: FontWeight.w500),
-                                ),
-                              ],
+                            Text(
+                              'Koreksi Soal Essay',
+                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14, color: const Color(0xFF0F172A)),
                             ),
+                            const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF059669),
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: (hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF059669)).withOpacity(0.3),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                '$finalScale100 / 100',
-                                style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.white),
+                                '${essayDocs.length} Soal',
+                                style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF64748B)),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 10),
+
+                        if (essayDocs.isEmpty)
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFF94A3B8)),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Tidak ada soal essay pada ujian ini.',
+                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B), fontStyle: FontStyle.italic),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          ...essayDocs.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final eDoc = entry.value;
+                            final qData = eDoc.data() as Map<String, dynamic>;
+                            final qId = eDoc.id;
+                            final qText = qData['text'] ?? '';
+                            final maxScore = (qData['score'] as num?)?.toDouble() ?? 10.0;
+                            final rawAns = (essayAnswers[qId] ?? allAnswers[qId] ?? '').toString().trim();
+                            final isAnsEmpty = rawAns.isEmpty || rawAns == '(Murid tidak mengisi)';
+                            final studentAns = isAnsEmpty ? '(Murid tidak mengisi jawaban)' : rawAns;
+                            final ctrl = scoreControllers[qId]!;
+
+                            final typedVal = double.tryParse(ctrl.text.trim());
+                            final bool isExceeded = typedVal != null && (typedVal > maxScore || typedVal < 0);
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isExceeded ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0),
+                                  width: isExceeded ? 1.5 : 1.0,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.02),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFDF2F8),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFFFBCFE8)),
+                                        ),
+                                        child: Text(
+                                          'Essay #${idx + 1}',
+                                          style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFFDB2777)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          qText,
+                                          style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13, color: const Color(0xFF1E293B)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isAnsEmpty ? const Color(0xFFFFFBEB) : const Color(0xFFF8FAFC),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: isAnsEmpty ? const Color(0xFFFDE68A) : const Color(0xFFE2E8F0)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Jawaban Murid:',
+                                          style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: isAnsEmpty ? const Color(0xFFB45309) : const Color(0xFF64748B)),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          studentAns,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: isAnsEmpty ? const Color(0xFF92400E) : const Color(0xFF334155),
+                                            fontStyle: isAnsEmpty ? FontStyle.italic : FontStyle.normal,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: Wrap(
+                                          crossAxisAlignment: WrapCrossAlignment.center,
+                                          spacing: 6,
+                                          runSpacing: 4,
+                                          children: [
+                                            Text(
+                                              'Nilai Diberikan:',
+                                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF475569)),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: isExceeded ? const Color(0xFFFEF2F2) : const Color(0xFFF1F5F9),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                'Max ${maxScore % 1 == 0 ? maxScore.toInt() : maxScore} pt',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF64748B),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      SizedBox(
+                                        width: 90,
+                                        child: TextField(
+                                          controller: ctrl,
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.inter(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF0F172A),
+                                          ),
+                                          onChanged: (_) => setDialogState(() {}),
+                                          decoration: InputDecoration(
+                                            isDense: true,
+                                            suffixText: 'pt',
+                                            suffixStyle: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF64748B),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                            filled: true,
+                                            fillColor: isExceeded ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8),
+                                              borderSide: BorderSide(
+                                                color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFFCBD5E1),
+                                                width: isExceeded ? 2.0 : 1.0,
+                                              ),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8),
+                                              borderSide: BorderSide(
+                                                color: isExceeded ? const Color(0xFFDC2626) : const Color(0xFF10B981),
+                                                width: 2.0,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (isExceeded) ...[
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Icon(Icons.error_outline_rounded, size: 14, color: Color(0xFFDC2626)),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            'Nilai melebihi batas maksimal (Max ${maxScore % 1 == 0 ? maxScore.toInt() : maxScore} pt)',
+                                            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFFDC2626)),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          }),
+                        const SizedBox(height: 12),
+
+                        // Live Final Score Banner
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: hasAnyExceeded ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: hasAnyExceeded ? const Color(0xFFFCA5A5) : const Color(0xFFA7F3D0), width: 1.5),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      hasAnyExceeded ? '⚠️ Nilai Melebihi Batas' : 'Kalkulasi Total Nilai Akhir',
+                                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: hasAnyExceeded ? const Color(0xFF991B1B) : const Color(0xFF065F46)),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      hasAnyExceeded
+                                          ? 'Perbaiki nilai essay bernilai merah sebelum menyimpan.'
+                                          : 'Raw: ${grandEarned.toStringAsFixed(grandEarned % 1 == 0 ? 0 : 1)} / ${grandMax.toStringAsFixed(grandMax % 1 == 0 ? 0 : 1)} Poin (Skala 100)',
+                                      style: GoogleFonts.inter(fontSize: 11, color: hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF047857), fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: (hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF059669)).withValues(alpha: 0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  '$finalScale100 / 100',
+                                  style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

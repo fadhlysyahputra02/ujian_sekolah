@@ -1031,6 +1031,10 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                   const SizedBox(height: 12),
                   TabBar(
                     controller: _tabController,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    padding: EdgeInsets.zero,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 10),
                     indicatorColor: Colors.white,
                     labelColor: Colors.white,
                     unselectedLabelColor: Colors.white54,
