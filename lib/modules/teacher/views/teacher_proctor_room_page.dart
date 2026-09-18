@@ -841,9 +841,36 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
         builder: (context, attendanceSnap) {
           _localAttendedMap.clear();
 
+          final proctorNotesMap = <String, String>{};
           final attDocs = attendanceSnap.data?.docs ?? [];
           for (var aDoc in attDocs) {
             final aData = aDoc.data() as Map<String, dynamic>;
+            final pNote = (aData['proctorNote'] ?? '').toString().trim();
+            if (pNote.isNotEmpty) {
+              final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
+              final sNis = (aData['nis'] ?? '').toString().toLowerCase();
+              final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
+              final sSubj = (aData['subjectId'] ?? aData['subjectName'] ?? '').toString().toLowerCase();
+              final seatNum = (aData['seatNumber'] as num?)?.toInt();
+              if (sId.isNotEmpty) {
+                proctorNotesMap[sId] = pNote;
+                if (sSubj.isNotEmpty) proctorNotesMap['${sId}_$sSubj'] = pNote;
+              }
+              if (sNis.isNotEmpty) {
+                proctorNotesMap[sNis] = pNote;
+                if (sSubj.isNotEmpty) proctorNotesMap['${sNis}_$sSubj'] = pNote;
+              }
+              if (sName.isNotEmpty) {
+                proctorNotesMap[sName] = pNote;
+                if (sSubj.isNotEmpty) proctorNotesMap['${sName}_$sSubj'] = pNote;
+              }
+              if (seatNum != null && seatNum > 0) {
+                proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
+                proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
+                if (sSubj.isNotEmpty) proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
+              }
+            }
+
             final isAtt = aData['isAttended'] == true || aData['attended'] == true;
             if (isAtt) {
               final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
@@ -1296,6 +1323,16 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 sData['isLeftApp'] = isLeftApp;
                                 sData['isWorking'] = isWorking;
                                 sData['status'] = rtData?['status'] ?? (isCompleted ? 'completed' : (isLeftApp ? 'left_app' : (isWorking ? 'in_progress' : 'normal')));
+                                sData['proctorNote'] = (sId.isNotEmpty && sSubjId.isNotEmpty ? proctorNotesMap['${sId}_$sSubjId'] : null) ??
+                                    (sId.isNotEmpty && sSubjName.isNotEmpty ? proctorNotesMap['${sId}_$sSubjName'] : null) ??
+                                    (sId.isNotEmpty ? proctorNotesMap[sId] : null) ??
+                                    (sNis.isNotEmpty && sSubjId.isNotEmpty ? proctorNotesMap['${sNis}_$sSubjId'] : null) ??
+                                    (sNis.isNotEmpty && sSubjName.isNotEmpty ? proctorNotesMap['${sNis}_$sSubjName'] : null) ??
+                                    (sNis.isNotEmpty ? proctorNotesMap[sNis] : null) ??
+                                    (sName.isNotEmpty && sSubjName.isNotEmpty ? proctorNotesMap['${sName}_$sSubjName'] : null) ??
+                                    (sName.isNotEmpty ? proctorNotesMap[sName] : null) ??
+                                    proctorNotesMap['${widget.roomId}_seat_$seatNum'] ??
+                                    proctorNotesMap['seat_${widget.roomId}_$seatNum'] ?? '';
                               });
 
                               final filledSeatsCount = seatMap.values.where((s) => (s['displayName'] ?? s['studentName'] ?? s['name'] ?? '').toString().isNotEmpty).length;

@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:ota_update/ota_update.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/app_update_model.dart';
 
@@ -41,13 +42,25 @@ class AppUpdateDialog extends StatefulWidget {
 
 class _AppUpdateDialogState extends State<AppUpdateDialog>
     with SingleTickerProviderStateMixin {
+  static const MethodChannel _installerChannel =
+      MethodChannel('com.sesicermat.sys_exam_school/app_installer');
+
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
   String _statusText = '';
   String? _errorMessage;
   bool _copied = false;
+  StreamSubscription? _downloadSubscription;
+  HttpClient? _httpClient;
 
-  void _startDownloadAndInstall() {
+  @override
+  void dispose() {
+    _downloadSubscription?.cancel();
+    _httpClient?.close(force: true);
+    super.dispose();
+  }
+
+  Future<void> _startDownloadAndInstall() async {
     if (kIsWeb || !Platform.isAndroid) {
       if (widget.updateInfo.apkUrl.isNotEmpty) {
         Clipboard.setData(ClipboardData(text: widget.updateInfo.apkUrl));
@@ -83,57 +96,98 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
     });
 
     try {
-      OtaUpdate().execute(
-        widget.updateInfo.apkUrl,
-        destinationFilename:
-            'SesiCermat_v${widget.updateInfo.latestVersion}.apk',
-      ).listen(
-        (OtaEvent event) {
-          if (!mounted) return;
-          setState(() {
-            switch (event.status) {
-              case OtaStatus.DOWNLOADING:
-                _downloadProgress =
-                    (double.tryParse(event.value ?? '0') ?? 0.0) / 100.0;
-                _statusText =
-                    'Mengunduh file pembaruan... ${(_downloadProgress * 100).toInt()}%';
-                break;
-              case OtaStatus.INSTALLING:
-                _statusText = 'Membuka pemasang aplikasi Android...';
-                break;
-              case OtaStatus.ALREADY_RUNNING_ERROR:
-                _errorMessage = 'Proses unduhan sedang berjalan di latar belakang.';
-                _isDownloading = false;
-                break;
-              case OtaStatus.PERMISSION_NOT_GRANTED_ERROR:
-                _errorMessage =
-                    'Izin pemasangan aplikasi tidak diberikan. Mohon berikan izin install APK.';
-                _isDownloading = false;
-                break;
-              case OtaStatus.INTERNAL_ERROR:
-              case OtaStatus.DOWNLOAD_ERROR:
-              case OtaStatus.CHECKSUM_ERROR:
-                _errorMessage =
-                    'Gagal mengunduh file update. Pastikan koneksi internet stabil lalu coba lagi.';
-                _isDownloading = false;
-                break;
-              default:
-                break;
-            }
-          });
+      final uri = Uri.parse(widget.updateInfo.apkUrl);
+      _httpClient = HttpClient();
+      _httpClient!.autoUncompress = true;
+      _httpClient!.connectionTimeout = const Duration(seconds: 20);
+
+      final request = await _httpClient!.getUrl(uri);
+      request.headers.set('User-Agent', 'Mozilla/5.0 (Android; Mobile; rv:109.0)');
+      
+      final response = await request.close();
+
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+            'Server mengembalikan kode status ${response.statusCode} (${response.reasonPhrase})');
+      }
+
+      final contentLength = response.contentLength;
+      final tempDir = await getTemporaryDirectory();
+      final sanitizedVersion = widget.updateInfo.latestVersion.replaceAll(RegExp(r'[^a-zA-Z0-9_\.]'), '_');
+      final apkFile = File('${tempDir.path}/SesiCermat_v$sanitizedVersion.apk');
+
+      if (await apkFile.exists()) {
+        try {
+          await apkFile.delete();
+        } catch (_) {}
+      }
+
+      final fileSink = apkFile.openWrite();
+      int receivedBytes = 0;
+
+      final completer = Completer<void>();
+
+      _downloadSubscription = response.listen(
+        (List<int> chunk) {
+          fileSink.add(chunk);
+          receivedBytes += chunk.length;
+
+          if (mounted) {
+            setState(() {
+              if (contentLength > 0) {
+                _downloadProgress = (receivedBytes / contentLength).clamp(0.0, 1.0);
+                final receivedMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+                final totalMb = (contentLength / (1024 * 1024)).toStringAsFixed(1);
+                _statusText = 'Mengunduh: $receivedMb MB / $totalMb MB (${(_downloadProgress * 100).toInt()}%)';
+              } else {
+                final receivedMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+                _statusText = 'Mengunduh: $receivedMb MB...';
+              }
+            });
+          }
         },
-        onError: (error) {
-          if (!mounted) return;
-          setState(() {
-            _errorMessage = 'Terjadi kendala saat mengunduh: $error';
-            _isDownloading = false;
-          });
+        onDone: () async {
+          await fileSink.flush();
+          await fileSink.close();
+          completer.complete();
         },
+        onError: (e) async {
+          await fileSink.close();
+          completer.completeError(e);
+        },
+        cancelOnError: true,
       );
+
+      await completer.future;
+
+      if (!mounted) return;
+
+      // Verifikasi ukuran file APK (harus > 1MB)
+      final fileSize = await apkFile.length();
+      if (fileSize < 1024 * 1024) {
+        throw Exception('File APK yang diunduh tidak lengkap (${(fileSize / 1024).toStringAsFixed(1)} KB). Pastikan link APK valid.');
+      }
+
+      setState(() {
+        _statusText = 'Membuka pemasang aplikasi Android...';
+        _downloadProgress = 1.0;
+      });
+
+      // Jalankan pemasangan melalui native FileProvider
+      final result = await _installerChannel.invokeMethod('installApk', {
+        'filePath': apkFile.path,
+      });
+
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _statusText = 'Pemasangan dimulai. Silakan konfirmasi di layar.';
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Gagal memulai proses unduhan: $e';
+        _errorMessage = 'Gagal mengunduh atau memasang update: $e';
         _isDownloading = false;
       });
     }

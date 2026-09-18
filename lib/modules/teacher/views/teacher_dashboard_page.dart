@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -33,6 +34,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
   static int _makingQuestionsCount = 0;
   static int _proctoringSessionsCount = 0;
   static bool _statsLoaded = false;
+
+  // ── Teacher & School data via StreamSubscription (avoid rebuild on every Firestore update) ──
+  Teacher? _currentTeacher;
+  String _schoolName = 'SesiCermat';
+  StreamSubscription<QuerySnapshot>? _teacherSub;
+  StreamSubscription<DocumentSnapshot>? _schoolSub;
+  // Last-known fingerprint of teacher doc to detect real changes
+  String? _lastTeacherDocFingerprint;
 
   bool _isEventFinished(Map<String, dynamic> evData) {
     final status = (evData['status'] as String? ?? '').toLowerCase().trim();
@@ -245,6 +254,91 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         AppUpdateService().checkAndShowUpdateDialog(context);
+        _initStreams();
+      }
+    });
+  }
+
+  void _initStreams() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final schoolId = authService.schoolId ?? '';
+    final uid = authService.user?.uid ?? '';
+    final email = authService.user?.email ?? '';
+    final displayName = authService.user?.displayName ?? '';
+
+    if (schoolId.isEmpty) return;
+
+    // ── Subscribe to teachers collection ──
+    // Only call setState when the teacher data relevant to THIS user truly changes
+    _teacherSub = FirebaseFirestore.instance
+        .collection('schools')
+        .doc(schoolId)
+        .collection('teachers')
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+
+      QueryDocumentSnapshot? matchDoc;
+      for (final doc in snap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        if ((data['uid']?.toString() ?? '').isNotEmpty &&
+            data['uid'].toString() == uid) {
+          matchDoc = doc;
+          break;
+        }
+      }
+      if (matchDoc == null && email.isNotEmpty) {
+        for (final doc in snap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          if ((data['email']?.toString() ?? '').toLowerCase() ==
+              email.toLowerCase()) {
+            matchDoc = doc;
+            break;
+          }
+        }
+      }
+      if (matchDoc == null && displayName.isNotEmpty) {
+        for (final doc in snap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          if ((data['displayName']?.toString() ?? '').toLowerCase() ==
+              displayName.toLowerCase()) {
+            matchDoc = doc;
+            break;
+          }
+        }
+      }
+
+      Teacher? newTeacher;
+      String newFingerprint = '';
+      if (matchDoc != null) {
+        final d = matchDoc.data() as Map<String, dynamic>;
+        // Build a lightweight fingerprint of fields that matter to UI
+        newFingerprint =
+            '${matchDoc.id}|${d['displayName']}|${d['nip']}|${d['subjects']}|${d['gender']}|${d['disabled']}|${d['archived']}';
+        if (newFingerprint == _lastTeacherDocFingerprint) return; // No UI-relevant change
+        newTeacher = Teacher.fromFirestore(matchDoc);
+      } else {
+        newFingerprint = 'fallback';
+        if (newFingerprint == _lastTeacherDocFingerprint) return;
+      }
+
+      _lastTeacherDocFingerprint = newFingerprint;
+      setState(() {
+        _currentTeacher = newTeacher;
+      });
+    });
+
+    // ── Subscribe to school document (only for school name in AppBar) ──
+    _schoolSub = FirebaseFirestore.instance
+        .collection('schools')
+        .doc(schoolId)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final data = snap.data() as Map<String, dynamic>? ?? {};
+      final name = data['name'] as String? ?? 'SesiCermat';
+      if (name != _schoolName) {
+        setState(() => _schoolName = name);
       }
     });
   }
@@ -262,13 +356,15 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
 
   @override
   void dispose() {
+    _teacherSub?.cancel();
+    _schoolSub?.cancel();
     _fadeController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final schoolId = authService.schoolId ?? '';
     final uid = authService.user?.uid ?? '';
     final email = authService.user?.email ?? '';
@@ -281,62 +377,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       );
     }
 
-    final displayName = authService.user?.displayName ?? '';
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('schools')
-          .doc(schoolId)
-          .collection('teachers')
-          .snapshots(),
-      builder: (context, teacherSnapshot) {
-        Teacher? currentTeacher;
-
-        if (teacherSnapshot.hasData && teacherSnapshot.data!.docs.isNotEmpty) {
-          final docs = teacherSnapshot.data!.docs;
-
-          // 1. Match by UID
-          QueryDocumentSnapshot? matchDoc;
-          for (final doc in docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final tUid = data['uid']?.toString();
-            if (tUid != null && tUid.isNotEmpty && tUid == uid) {
-              matchDoc = doc;
-              break;
-            }
-          }
-
-          // 2. Fallback to Email match
-          if (matchDoc == null && email.isNotEmpty) {
-            for (final doc in docs) {
-              final data = doc.data() as Map<String, dynamic>;
-              final tEmail = data['email']?.toString().toLowerCase();
-              if (tEmail != null && tEmail == email.toLowerCase()) {
-                matchDoc = doc;
-                break;
-              }
-            }
-          }
-
-          // 3. Fallback to Display Name match
-          if (matchDoc == null && displayName.isNotEmpty) {
-            for (final doc in docs) {
-              final data = doc.data() as Map<String, dynamic>;
-              final tName = data['displayName']?.toString();
-              if (tName != null && tName.toLowerCase() == displayName.toLowerCase()) {
-                matchDoc = doc;
-                break;
-              }
-            }
-          }
-
-          if (matchDoc != null) {
-            currentTeacher = Teacher.fromFirestore(matchDoc);
-          }
-        }
-
-        // Fallback default Teacher object if still null
-        currentTeacher ??= Teacher(
+    // Use fallback teacher while subscription is loading
+    final currentTeacher = _currentTeacher ??
+        Teacher(
           id: 'fallback_id',
           uid: uid,
           displayName: authService.user?.displayName ?? 'Guru SesiCermat',
@@ -351,9 +394,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           updatedAt: DateTime.now(),
         );
 
-        return _buildTeacherBody(authService, currentTeacher, schoolId);
-      },
-    );
+    return _buildTeacherBody(authService, currentTeacher, schoolId);
   }
 
   Widget _buildTeacherBody(AuthService authService, Teacher? currentTeacher, String schoolId) {
@@ -384,46 +425,41 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       ),
     );
 
-    final mainWidget = StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
-      builder: (context, schoolSnapshot) {
-        final schoolData = schoolSnapshot.data?.data() as Map<String, dynamic>? ?? {};
-        final schoolName = schoolData['name'] as String? ?? 'SesiCermat';
-
-        if (isDesktop) {
-          return Scaffold(
-            body: Row(
-              children: [
-                _buildSidebar(authService, currentTeacher, size),
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    height: double.infinity,
-                    decoration: backgroundGradient,
-                    child: FadeTransition(
-                      opacity: _fadeAnim,
-                      child: pages[_selectedIndex],
-                    ),
-                  ),
+    // Use _schoolName from StreamSubscription (set in _initStreams) to avoid
+    // rebuilding entire Scaffold every time school document changes.
+    final Widget mainWidget;
+    if (isDesktop) {
+      mainWidget = Scaffold(
+        body: Row(
+          children: [
+            _buildSidebar(authService, currentTeacher, size),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                decoration: backgroundGradient,
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: pages[_selectedIndex],
                 ),
-              ],
+              ),
             ),
-          );
-        }
-
-        return Scaffold(
-          appBar: _buildMobileAppBar(authService, schoolName),
-          body: Container(
-            decoration: backgroundGradient,
-            child: FadeTransition(
-              opacity: _fadeAnim,
-              child: pages[_selectedIndex],
-            ),
+          ],
+        ),
+      );
+    } else {
+      mainWidget = Scaffold(
+        appBar: _buildMobileAppBar(authService, _schoolName),
+        body: Container(
+          decoration: backgroundGradient,
+          child: FadeTransition(
+            opacity: _fadeAnim,
+            child: pages[_selectedIndex],
           ),
-          bottomNavigationBar: _buildBottomNav(),
-        );
-      },
-    );
+        ),
+        bottomNavigationBar: _buildBottomNav(),
+      );
+    }
 
     return PopScope(
       canPop: false,
@@ -1286,7 +1322,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
         if (snapshot.hasError) {
           return Center(child: Text('Terjadi kesalahan: ${snapshot.error}'));
         }
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        // Only show loading on very first load (no data yet)
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(color: Color(0xFF10B981)),
           );
@@ -1691,7 +1728,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
           .collection('events')
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        // Only show loading on very first load (no data yet)
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(color: Color(0xFF10B981)),
           );

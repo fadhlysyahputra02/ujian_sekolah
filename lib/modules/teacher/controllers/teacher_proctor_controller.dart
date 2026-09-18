@@ -536,15 +536,23 @@ class TeacherProctorController {
     final bool isCompleted = seatData['isCompleted'] == true || seatData['status'] == 'completed';
     final bool isLeftApp = !isCompleted && (seatData['isLeftApp'] == true || seatData['status'] == 'left_app');
 
+    final noteController = TextEditingController(
+      text: (seatData['proctorNote'] ?? '').toString(),
+    );
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) => Container(
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.only(
+          left: 24, right: 24, top: 24,
+          bottom: 24 + MediaQuery.of(ctx).viewInsets.bottom,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -743,10 +751,97 @@ class TeacherProctorController {
                 ],
               ),
             ],
+            // ── CATATAN PENGAWAS ─────────────────────────────────────
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            const SizedBox(height: 16),
+            Text(
+              'Catatan Pengawas',
+              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Buat catatan untuk kejadian yang perlu dilaporkan',
+              style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: noteController,
+              maxLines: 3,
+              minLines: 2,
+              textInputAction: TextInputAction.newline,
+              decoration: InputDecoration(
+                hintText: 'Contoh: Kedapatan mencontek, membawa catatan, dll.',
+                hintStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFD97706), width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final noteText = noteController.text.trim();
+                  try {
+                    await saveProctorNote(
+                      schoolId: schoolId,
+                      eventId: eventId,
+                      roomId: roomId,
+                      seatData: seatData,
+                      note: noteText,
+                      dayIndex: dayIndex,
+                      sessionIndex: sessionIndex,
+                    );
+                    seatData['proctorNote'] = noteText;
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            noteText.isEmpty
+                                ? 'Catatan berhasil dihapus.'
+                                : 'Catatan pengawas berhasil disimpan.',
+                          ),
+                          backgroundColor: const Color(0xFF059669),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(
+                          content: Text('Gagal menyimpan catatan: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.save_rounded, size: 16),
+                label: Text('Simpan Catatan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD97706),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
-    );
+    ),
+  ).whenComplete(() => noteController.dispose());
   }
 
   static void showExitAppLogsModal({
@@ -1198,5 +1293,43 @@ class TeacherProctorController {
         ),
       ),
     );
+  }
+
+  /// Menyimpan catatan pengawas ke dokumen attendance murid di Firestore.
+  /// Menggunakan docKey yang sama dengan [markStudentAttendance] agar konsisten.
+  static Future<void> saveProctorNote({
+    required String schoolId,
+    required String eventId,
+    required String roomId,
+    required Map<String, dynamic> seatData,
+    required String note,
+    int dayIndex = 0,
+    int sessionIndex = 0,
+  }) async {
+    final studentId = (seatData['studentId'] ?? '').toString();
+    final nis = (seatData['nis'] ?? '').toString();
+    final seatNum = (seatData['seatNumber'] as num?)?.toInt() ?? 0;
+    final subjectId = (seatData['subjectId'] ?? '').toString().trim();
+
+    final docKeySuffix = subjectId.isNotEmpty ? '_$subjectId' : '';
+    final docKey = studentId.isNotEmpty
+        ? '${roomId}_${dayIndex}_${sessionIndex}_$studentId$docKeySuffix'
+        : (nis.isNotEmpty
+            ? '${roomId}_${dayIndex}_${sessionIndex}_$nis$docKeySuffix'
+            : '${roomId}_${dayIndex}_${sessionIndex}_seat_$seatNum$docKeySuffix');
+
+    final attRef = FirebaseFirestore.instance
+        .collection('schools')
+        .doc(schoolId)
+        .collection('events')
+        .doc(eventId)
+        .collection('attendances')
+        .doc(docKey);
+
+    if (note.trim().isEmpty) {
+      await attRef.set({'proctorNote': FieldValue.delete()}, SetOptions(merge: true));
+    } else {
+      await attRef.set({'proctorNote': note.trim()}, SetOptions(merge: true));
+    }
   }
 }

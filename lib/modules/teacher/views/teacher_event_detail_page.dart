@@ -599,7 +599,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           .doc(widget.eventId)
           .snapshots(),
       builder: (context, evSnap) {
-        if (evSnap.connectionState == ConnectionState.waiting) {
+        if (evSnap.connectionState == ConnectionState.waiting && !evSnap.hasData) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
         }
 
@@ -906,7 +906,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           .collection('students')
           .snapshots(),
       builder: (context, studentSnap) {
-        if (studentSnap.connectionState == ConnectionState.waiting) {
+        if (studentSnap.connectionState == ConnectionState.waiting && !studentSnap.hasData) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
         }
 
@@ -1069,7 +1069,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           .collection('questions')
           .snapshots(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
         }
 
@@ -2965,7 +2965,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           .doc(widget.eventId)
           .snapshots(),
       builder: (context, evSnap) {
-        if (evSnap.connectionState == ConnectionState.waiting) {
+        if (evSnap.connectionState == ConnectionState.waiting && !evSnap.hasData) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
         }
 
@@ -4201,7 +4201,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           .doc(widget.eventId)
           .snapshots(),
       builder: (context, evSnap) {
-        if (evSnap.connectionState == ConnectionState.waiting) {
+        if (evSnap.connectionState == ConnectionState.waiting && !evSnap.hasData) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
         }
 
@@ -4437,7 +4437,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         .collection('questions')
                         .snapshots(),
                     builder: (context, qSnap) {
-                      if (qSnap.connectionState == ConnectionState.waiting) {
+                      if (qSnap.connectionState == ConnectionState.waiting && !qSnap.hasData) {
                         return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
                       }
 
@@ -4456,7 +4456,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                               .collection('questions')
                               .snapshots(),
                           builder: (context, altSnap) {
-                            if (altSnap.connectionState == ConnectionState.waiting) {
+                            if (altSnap.connectionState == ConnectionState.waiting && !altSnap.hasData) {
                               return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
                             }
                             final altDocs = altSnap.data?.docs ?? [];
@@ -4499,7 +4499,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
           .collection('submissions')
           .snapshots(),
       builder: (context, subSnap) {
-                          if (subSnap.connectionState == ConnectionState.waiting) {
+                          if (subSnap.connectionState == ConnectionState.waiting && !subSnap.hasData) {
                             return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
                           }
 
