@@ -6,9 +6,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/auth_service.dart';
-import '../../../core/services/network_service.dart';
 import '../../../core/models/student.dart';
 import '../../../core/constants/app_version.dart';
+import '../../../core/services/app_update_service.dart';
 import '../../../core/widgets/app_refresh_indicator.dart';
 
 class StudentDashboardPage extends StatefulWidget {
@@ -50,6 +50,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
     )..forward();
     _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOutCubic);
     _loadStudentProfile();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        AppUpdateService().checkAndShowUpdateDialog(context);
+      }
+    });
   }
 
   @override

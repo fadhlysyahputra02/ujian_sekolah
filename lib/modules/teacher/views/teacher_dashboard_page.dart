@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/constants/app_version.dart';
+import '../../../core/services/app_update_service.dart';
 import '../../admin/views/rekap_nilai_view.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
@@ -241,6 +242,11 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       duration: const Duration(milliseconds: 500),
     )..forward();
     _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        AppUpdateService().checkAndShowUpdateDialog(context);
+      }
+    });
   }
 
   @override

@@ -65,30 +65,30 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     required String className,
     required Set<String> targetClasses,
   }) {
-    final sNameLower = studentName.toLowerCase();
     final cNameLower = className.toLowerCase();
     final subNameLower = subjectName.toLowerCase();
     final targetLower = targetClasses.join(' ').toLowerCase();
 
-    final bool isIpsStudent = sNameLower.contains('ips') || cNameLower.contains('ips');
-    final bool isIpaStudent = sNameLower.contains('ipa') || cNameLower.contains('ipa');
+    // Check class name or target class track using regex boundaries
+    final bool isIpsClass = RegExp(r'\bips\b|\bsosial\b').hasMatch(cNameLower);
+    final bool isIpaClass = RegExp(r'\bipa\b|\bmipa\b|\bsains\b').hasMatch(cNameLower);
 
     final bool isIpaSubject = subNameLower.contains('fisika') ||
         subNameLower.contains('kimia') ||
         subNameLower.contains('biologi') ||
-        targetLower.contains('ipa');
+        RegExp(r'\bipa\b|\bmipa\b').hasMatch(targetLower);
 
     final bool isIpsSubject = subNameLower.contains('geografi') ||
         subNameLower.contains('sosiologi') ||
         subNameLower.contains('ekonomi') ||
-        targetLower.contains('ips');
+        RegExp(r'\bips\b').hasMatch(targetLower);
 
-    // If student is explicitly IPS and subject is IPA-only -> incompatible
-    if (isIpsStudent && !isIpaStudent && isIpaSubject && !isIpsSubject) {
+    // If student's class is explicitly IPS and subject is IPA-only -> incompatible
+    if (isIpsClass && !isIpaClass && isIpaSubject && !isIpsSubject) {
       return false;
     }
-    // If student is explicitly IPA and subject is IPS-only -> incompatible
-    if (isIpaStudent && !isIpsStudent && isIpsSubject && !isIpaSubject) {
+    // If student's class is explicitly IPA and subject is IPS-only -> incompatible
+    if (isIpaClass && !isIpsClass && isIpsSubject && !isIpaSubject) {
       return false;
     }
 
@@ -190,7 +190,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         studentMap[doc.id] = doc.data() as Map<String, dynamic>;
       }
 
-      // Submitted keys (match ANY document in submissionsSnap)
+      // Submitted keys (match per student + subject)
       final Set<String> submittedKeys = {};
       for (var doc in submissionsSnap.docs) {
         final sData = doc.data() as Map<String, dynamic>;
@@ -203,12 +203,10 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         final subName = (sData['subjectName'] ?? '').toString().trim().toLowerCase();
 
         if (stId.isNotEmpty) {
-          submittedKeys.add('st_$stId');
           if (subId.isNotEmpty) submittedKeys.add('${stId}_$subId');
           if (subName.isNotEmpty) submittedKeys.add('${stId}_$subName');
         }
         if (nis.isNotEmpty) {
-          submittedKeys.add('nis_$nis');
           if (subId.isNotEmpty) submittedKeys.add('${nis}_$subId');
           if (subName.isNotEmpty) submittedKeys.add('${nis}_$subName');
         }
@@ -241,29 +239,29 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         }
       }
 
-      // Attendance tracking: store attended student+session combos
+      // Attendance tracking: ONLY use subject-specific keys (studentId_subjectId / studentId_subjectName).
+      // Keys based solely on dayIndex+sessionIndex are NOT subject-specific: a student who attended
+      // "Bahasa Indonesia" on day=1 sess=1 would incorrectly be flagged as attended for every other
+      // subject also scheduled on day=1 sess=1. We rely on subjectId/subjectName stored in the
+      // attendance document (written by teacher_proctor_controller when subjectId is present on the seat).
       final Set<String> attendedKeys = {};
       for (var doc in attendancesSnap.docs) {
         final aData = doc.data() as Map<String, dynamic>;
-        final stId = (aData['studentId'] ?? '').toString();
-        final nis = (aData['nis'] ?? '').toString();
-        final dayIdx = aData['dayIndex']?.toString() ?? '';
-        final sessIdx = aData['sessionIndex']?.toString() ?? '';
-        final isAttended = aData['isAttended'] == true || aData['attendedAt'] != null;
+        final stId = (aData['studentId'] ?? '').toString().trim().toLowerCase();
+        final nis = (aData['nis'] ?? '').toString().trim().toLowerCase();
+        final subId = (aData['subjectId'] ?? '').toString().trim().toLowerCase();
+        final subName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
+        final isAttended = aData['isAttended'] == true || aData['attended'] == true || aData['attendedAt'] != null;
 
-        if (isAttended && (stId.isNotEmpty || nis.isNotEmpty)) {
-          if (stId.isNotEmpty) {
-            attendedKeys.add('${dayIdx}_${sessIdx}_$stId');
-            attendedKeys.add('attended_$stId');
+        if (isAttended) {
+          // Only add subject-specific keys — must have both a student identifier and a subject identifier
+          if (subId.isNotEmpty) {
+            if (stId.isNotEmpty) attendedKeys.add('${stId}_$subId');
+            if (nis.isNotEmpty) attendedKeys.add('${nis}_$subId');
           }
-          if (nis.isNotEmpty) {
-            attendedKeys.add('${dayIdx}_${sessIdx}_$nis');
-            attendedKeys.add('attended_$nis');
-          }
-          final sessId = (aData['sessionId'] ?? '').toString();
-          if (sessId.isNotEmpty) {
-            if (stId.isNotEmpty) attendedKeys.add('${dayIdx}_${sessId}_$stId');
-            if (nis.isNotEmpty) attendedKeys.add('${dayIdx}_${sessId}_$nis');
+          if (subName.isNotEmpty) {
+            if (stId.isNotEmpty) attendedKeys.add('${stId}_$subName');
+            if (nis.isNotEmpty) attendedKeys.add('${nis}_$subName');
           }
         }
       }
@@ -276,11 +274,10 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         activeSessions.add(mData);
       }
 
-      // Build missed list from timetable
+      // Build student list across all scheduled timetable items
       final List<Map<String, dynamic>> missed = [];
       final Set<String> processedKeys = {};
       final Map<String, int> studentSessionSlotIndexMap = {};
-      final now = DateTime.now();
 
       for (var tDoc in timetableSnap.docs) {
         final tData = tDoc.data() as Map<String, dynamic>;
@@ -291,25 +288,6 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             (tData['sessionName'] ?? 'Sesi').toString();
         final dayIdx = ((tData['dayIndex'] ?? 0) as num).toInt();
         final sessIdx = ((tData['sessionIndex'] ?? tData['session'] ?? 0) as num).toInt();
-
-        // Try to determine if session has ended
-        final endTimeStr = (tData['endTime'] ?? '').toString();
-        bool sessionExpired = true; // default: show all missed
-        if (endTimeStr.isNotEmpty) {
-          final parts = endTimeStr.split(':');
-          if (parts.length >= 2) {
-            final rawDate = tData['eventDate'] ?? tData['date'];
-            if (rawDate is Timestamp) {
-              final baseDate = rawDate.toDate().add(Duration(days: dayIdx));
-              final sessionEnd = DateTime(
-                baseDate.year, baseDate.month, baseDate.day,
-                int.tryParse(parts[0]) ?? 0, int.tryParse(parts[1]) ?? 0,
-              );
-              sessionExpired = sessionEnd.isBefore(now);
-            }
-          }
-        }
-        if (!sessionExpired) continue;
 
         // Gather target classes for this timetable item
         final Set<String> targetClasses = {};
@@ -344,16 +322,12 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
               final ids = classStudentsMap[cName.toLowerCase()] ?? [];
               candidateStudentIds.addAll(ids);
             }
+          } else {
+            candidateStudentIds.addAll(studentMap.keys);
           }
         }
 
-        // Filter: Restrict candidate students
-        final List<String> studentIds = candidateStudentIds.where((stId) {
-          if (eventAllocatedStudentIds.isNotEmpty) {
-            return eventAllocatedStudentIds.contains(stId);
-          }
-          return true;
-        }).toList();
+        final List<String> studentIds = candidateStudentIds.toList();
 
         for (final stId in studentIds) {
           final stData = studentMap[stId];
@@ -434,13 +408,14 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
 
           final isAlreadyApproved = alreadyApprovedKeys.contains(submitKey) || alreadyApprovedKeys.contains('${cleanStId}_$cleanSubName');
 
-          // Check attendance status
-          final attended = attendedKeys.contains('${dayIdx}_${sessIdx}_$stId') ||
-              attendedKeys.contains('${dayIdx}_${sessIdx}_$stNis') ||
-              attendedKeys.contains('${dayIdx}_${sessionId}_$stId') ||
-              attendedKeys.contains('${dayIdx}_${sessionId}_$stNis') ||
-              attendedKeys.contains('attended_$stId') ||
-              attendedKeys.contains('attended_$stNis');
+          // Check attendance status for this SPECIFIC subject only.
+          // attendedKeys only contains subject-specific keys (stId_subjectId / stId_subjectName),
+          // so this check is accurate per-subject and will not bleed across subjects.
+          final attended =
+              (cleanSubId.isNotEmpty && attendedKeys.contains('${cleanStId}_$cleanSubId')) ||
+              (cleanSubName.isNotEmpty && attendedKeys.contains('${cleanStId}_$cleanSubName')) ||
+              (cleanSubId.isNotEmpty && cleanStNis.isNotEmpty && attendedKeys.contains('${cleanStNis}_$cleanSubId')) ||
+              (cleanSubName.isNotEmpty && cleanStNis.isNotEmpty && attendedKeys.contains('${cleanStNis}_$cleanSubName'));
 
           Map<String, dynamic>? pendingDoc = pendingRequestsMap['${cleanStId}_$cleanSubId'] ??
               pendingRequestsMap['${cleanStId}_$cleanSubName'] ??
@@ -459,7 +434,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           } else if (isAlreadyApproved) {
             statusLabel = 'Sudah Dijadwalkan';
           } else if (studentHasSubmitted) {
-            statusLabel = 'Sudah Ujian';
+            statusLabel = 'Hadir • Sudah Ujian';
           } else if (attended) {
             statusLabel = 'Hadir';
           }
@@ -1146,6 +1121,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     final noShowCount = _missedStudents.where((s) => s['hasPendingRequest'] != true && s['attended'] != true && s['studentHasSubmitted'] != true && s['isAlreadyApproved'] != true).length;
     final requestCount = _missedStudents.where((s) => s['hasPendingRequest'] == true).length;
     final attendedOrSubmittedCount = _missedStudents.where((s) => s['attended'] == true || s['studentHasSubmitted'] == true).length;
+    final alreadyApprovedCount = _missedStudents.where((s) => s['isAlreadyApproved'] == true).length;
 
     final Set<String> availableSubjectNames = {};
     for (final s in _missedStudents) {
@@ -1154,9 +1130,10 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     }
 
     final filteredStudents = _missedStudents.where((s) {
-      if (_tab1Filter == 1 && (s['hasPendingRequest'] == true || s['attended'] == true || s['studentHasSubmitted'] == true)) return false;
+      if (_tab1Filter == 1 && (s['hasPendingRequest'] == true || s['attended'] == true || s['studentHasSubmitted'] == true || s['isAlreadyApproved'] == true)) return false;
       if (_tab1Filter == 2 && s['hasPendingRequest'] != true) return false;
       if (_tab1Filter == 3 && s['attended'] != true && s['studentHasSubmitted'] != true) return false;
+      if (_tab1Filter == 4 && s['isAlreadyApproved'] != true) return false;
       if (_selectedSubjectFilter != null && (s['subjectName'] ?? '').toString().trim() != _selectedSubjectFilter) return false;
       return true;
     }).toList();
@@ -1181,9 +1158,10 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           child: Row(
             children: [
               _buildTab1FilterChip(0, 'Semua (${_missedStudents.length})', Icons.format_list_bulleted_rounded),
+              _buildTab1FilterChip(3, 'Hadir / Remedial ($attendedOrSubmittedCount)', Icons.fact_check_rounded),
               _buildTab1FilterChip(1, 'Tidak Hadir ($noShowCount)', Icons.person_off_rounded),
               _buildTab1FilterChip(2, 'Request Susulan ($requestCount)', Icons.mark_email_unread_rounded),
-              _buildTab1FilterChip(3, 'Hadir / Sudah Ujian ($attendedOrSubmittedCount)', Icons.fact_check_rounded),
+              _buildTab1FilterChip(4, 'Sudah Dijadwalkan ($alreadyApprovedCount)', Icons.event_available_rounded),
             ],
           ),
         ),
@@ -1403,6 +1381,10 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
   Widget _buildStudentTile(Map<String, dynamic> s) {
     final key = s['key'] as String;
     final isSelected = _selectedStudentSubjectKeys.contains(key);
+    final hasReq = s['hasPendingRequest'] == true;
+    final isAttended = s['attended'] == true;
+    final isSubmitted = s['studentHasSubmitted'] == true;
+    final isAlreadyApproved = s['isAlreadyApproved'] == true;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -1437,16 +1419,49 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             const SizedBox(width: 4),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(s['studentName'] as String? ?? '-',
-                    style: GoogleFonts.inter(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                        color: const Color(0xFF0F172A))),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(s['studentName'] as String? ?? '-',
+                          style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: const Color(0xFF0F172A)),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    if (isAttended || isSubmitted) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle_rounded, size: 10, color: Color(0xFF059669)),
+                            const SizedBox(width: 3),
+                            Text(
+                              isSubmitted ? 'Hadir (Sudah Ujian)' : 'Hadir',
+                              style: GoogleFonts.inter(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF047857),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 2),
                 Text('${s['subjectName']}  •  ${s['sessionName']}',
                     style: GoogleFonts.inter(
                         fontSize: 11, color: const Color(0xFF64748B))),
-                if (s['hasPendingRequest'] == true) ...[
+                if (hasReq) ...[
                   const SizedBox(height: 3),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1479,10 +1494,6 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             ),
             Builder(builder: (context) {
               final statusLabel = s['statusLabel'] as String? ?? 'Tidak Hadir';
-              final hasReq = s['hasPendingRequest'] == true;
-              final isAttended = s['attended'] == true;
-              final isSubmitted = s['studentHasSubmitted'] == true;
-              final isAlreadyApproved = s['isAlreadyApproved'] == true;
 
               Color color;
               Color bg;
@@ -2325,7 +2336,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                   border: Border.all(color: const Color(0xFFFCA5A5)),
                 ),
                 child: Text(
-                  'Catatan: Sesi susulan yang dihapus akan membatalkan persetujuan susulan siswa di ruangan ini.',
+                  'Catatan: Sesi susulan yang dihapus akan membatalkan persetujuan susulan bagi semua siswa di ruangan ini, sehingga siswa dapat dijadwalkan ulang.',
                   style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF991B1B)),
                 ),
               ),
@@ -2366,9 +2377,14 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           final st = stRaw as Map<String, dynamic>? ?? {};
           final stId = (st['studentId'] ?? '').toString().trim();
           final subId = (st['subjectId'] ?? '').toString().trim();
-          if (stId.isNotEmpty && subId.isNotEmpty) {
-            final approvalDocId = '${stId}_$subId';
-            await eventRef.collection('makeup_approvals').doc(approvalDocId).delete();
+          final subName = (st['subjectName'] ?? '').toString().trim();
+          if (stId.isNotEmpty) {
+            if (subId.isNotEmpty) {
+              await eventRef.collection('makeup_approvals').doc('${stId}_$subId').delete();
+            }
+            if (subName.isNotEmpty) {
+              await eventRef.collection('makeup_approvals').doc('${stId}_$subName').delete();
+            }
           }
         }
 
@@ -2415,6 +2431,11 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
 
     String editStatus = (sess['status'] ?? 'active').toString();
 
+    final List<Map<String, dynamic>> editStudents = List<Map<String, dynamic>>.from(
+      (sess['approvedStudents'] as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)),
+    );
+    final Set<String> removedApprovalDocIds = {};
+
     await showDialog(
       context: context,
       builder: (dialogCtx) {
@@ -2446,7 +2467,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                 ],
               ),
               content: SizedBox(
-                width: 440,
+                width: 460,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -2639,7 +2660,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                           style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF334155))),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        value: editStatus,
+                        initialValue: editStatus,
                         decoration: InputDecoration(
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -2652,6 +2673,87 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                         onChanged: (val) {
                           if (val != null) setDialogState(() => editStatus = val);
                         },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Daftar Siswa dalam Sesi
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Daftar Siswa Dijadwalkan (${editStudents.length}):',
+                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF334155))),
+                          if (editStudents.isNotEmpty)
+                            Text('Hapus siswa untuk membatalkan',
+                                style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF94A3B8))),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 180),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: editStudents.isEmpty
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Text('Semua siswa telah dikeluarkan dari sesi ini.',
+                                      style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8))),
+                                ),
+                              )
+                            : Scrollbar(
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  padding: const EdgeInsets.all(8),
+                                  itemCount: editStudents.length,
+                                  separatorBuilder: (_, __) => const Divider(height: 8, color: Color(0xFFE2E8F0)),
+                                  itemBuilder: (_, idx) {
+                                    final st = editStudents[idx];
+                                    final sName = (st['studentName'] ?? '-').toString();
+                                    final cName = (st['className'] ?? '-').toString();
+                                    final subName = (st['subjectName'] ?? '-').toString();
+
+                                    return Row(
+                                      children: [
+                                        const Icon(Icons.person_outline_rounded, size: 14, color: Color(0xFF7C3AED)),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(sName,
+                                                  style: GoogleFonts.inter(
+                                                      fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A))),
+                                              Text('$cName • $subName',
+                                                  style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF64748B))),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.remove_circle_outline_rounded, color: Color(0xFFEF4444), size: 18),
+                                          tooltip: 'Keluarkan dari sesi',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                          onPressed: () {
+                                            final stId = (st['studentId'] ?? '').toString().trim();
+                                            final subId = (st['subjectId'] ?? '').toString().trim();
+                                            final sSubName = (st['subjectName'] ?? '').toString().trim();
+                                            if (stId.isNotEmpty) {
+                                              if (subId.isNotEmpty) removedApprovalDocIds.add('${stId}_$subId');
+                                              if (sSubName.isNotEmpty) removedApprovalDocIds.add('${stId}_$sSubName');
+                                            }
+                                            setDialogState(() {
+                                              editStudents.removeAt(idx);
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -2693,16 +2795,16 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                         'proctorIds': editProctorIds,
                         'proctorNames': editProctorNames,
                         'status': editStatus,
+                        'approvedStudents': editStudents,
                         'updatedAt': FieldValue.serverTimestamp(),
                       });
 
-                      final approvedList = sess['approvedStudents'] as List<dynamic>? ?? [];
-                      for (final stRaw in approvedList) {
-                        final st = stRaw as Map<String, dynamic>? ?? {};
+                      for (final st in editStudents) {
                         final stId = (st['studentId'] ?? '').toString().trim();
                         final subId = (st['subjectId'] ?? '').toString().trim();
-                        if (stId.isNotEmpty && subId.isNotEmpty) {
-                          final approvalDocId = '${stId}_$subId';
+                        final subName = (st['subjectName'] ?? '').toString().trim();
+                        if (stId.isNotEmpty) {
+                          final approvalDocId = '${stId}_${subId.isNotEmpty ? subId : subName}';
                           await eventRef.collection('makeup_approvals').doc(approvalDocId).set({
                             'makeupRoom': editRoomCtrl.text.trim(),
                             'makeupDate': dateStr,
@@ -2710,9 +2812,16 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                             'makeupEndTime': endStr,
                             'proctorIds': editProctorIds,
                             'proctorNames': editProctorNames,
+                            'status': 'approved',
                             'updatedAt': FieldValue.serverTimestamp(),
                           }, SetOptions(merge: true));
                         }
+                      }
+
+                      for (final removedDocId in removedApprovalDocIds) {
+                        try {
+                          await eventRef.collection('makeup_approvals').doc(removedDocId).delete();
+                        } catch (_) {}
                       }
 
                       if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();

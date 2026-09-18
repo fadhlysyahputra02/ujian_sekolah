@@ -164,6 +164,16 @@ service cloud.firestore {
       );
     }
 
+    match /system_config/{configId} {
+      allow read: if true;
+      allow write: if request.auth != null && (
+        isSuperAdmin() || 
+        request.auth.token.email == 'sadmin@sesicermat.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin')
+      );
+    }
+
     // Rules for archives collection
     match /archives/{schoolId} {
       allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);

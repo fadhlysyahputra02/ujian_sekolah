@@ -8,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import 'package:sys_exam_school/core/services/auth_service.dart';
 import 'package:sys_exam_school/core/services/school_service.dart';
 import 'package:sys_exam_school/core/constants/app_version.dart';
+import 'package:sys_exam_school/core/services/app_update_service.dart';
+import 'package:sys_exam_school/core/widgets/app_release_manager_dialog.dart';
 import 'package:sys_exam_school/core/widgets/app_splash_loader.dart';
 import 'package:sys_exam_school/modules/super_admin/views/school_list_page.dart';
 
@@ -40,6 +42,11 @@ class _DashboardPageState extends State<DashboardPage>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     )..forward();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        AppUpdateService().checkAndShowUpdateDialog(context);
+      }
+    });
   }
 
   @override
@@ -1831,12 +1838,99 @@ class _SuperAdminSettingsWidgetState extends State<_SuperAdminSettingsWidget> {
       ),
     );
 
+    // App Update Card
+    final appUpdateManagementCard = Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x05000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.system_update_rounded, color: Colors.indigo.shade700, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pembaruan & Rilis Aplikasi',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Kelola rilis APK baru & cek pembaruan aplikasi secara instan',
+                      style: GoogleFonts.inter(
+                        fontSize: 12.5,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => AppUpdateService().checkAndShowUpdateDialog(context, silentIfLatest: false),
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: Text('Cek Pembaruan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => AppReleaseManagerDialog.show(context),
+                icon: const Icon(Icons.cloud_upload_rounded, size: 18, color: Colors.white),
+                label: Text('Kelola Rilis APK Baru', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo.shade600,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  elevation: 0,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           headerBanner,
+          const SizedBox(height: 24),
+          appUpdateManagementCard,
           const SizedBox(height: 24),
           LayoutBuilder(
             builder: (context, constraints) {

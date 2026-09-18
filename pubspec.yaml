@@ -52,6 +52,8 @@ dependencies:
   mobile_scanner: ^6.0.4
   firebase_storage: ^12.4.10
   image: ^4.3.0
+  package_info_plus: ^9.0.1
+  ota_update: ^7.1.0
 
 dev_dependencies:
   flutter_test:

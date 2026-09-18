@@ -14,6 +14,7 @@ import '../../../core/models/teacher.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/constants/app_version.dart';
+import '../../../core/services/app_update_service.dart';
 import '../../../core/widgets/app_splash_loader.dart';
 import '../../../core/utils/file_saver.dart';
 import '../widgets/teacher_form_dialog.dart';
@@ -41,6 +42,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   void initState() {
     super.initState();
     _updateTabFromWidget();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        AppUpdateService().checkAndShowUpdateDialog(context);
+      }
+    });
   }
 
   @override
