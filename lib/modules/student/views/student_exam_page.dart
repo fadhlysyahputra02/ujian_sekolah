@@ -97,6 +97,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     _timer?.cancel();
     _draftDebounceTimer?.cancel();
     _periodicSyncTimer?.cancel();
+    _progressSyncDebounce?.cancel();
     _remainingSecondsNotifier.dispose();
     _mainScrollController.dispose();
     for (var controller in _essayControllers.values) {
@@ -175,6 +176,8 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         'sessionName': widget.sessionName,
         'isMakeup': widget.isMakeup,
         'status': status,
+        'answeredCount': _answeredCount,
+        'totalQuestions': _questions.length,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -221,9 +224,69 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           .collection('realtime_control');
 
       await realtimeColl.doc(sessionDocId).set(data, SetOptions(merge: true));
+      if (sessionDocId != studentDocId) {
+        await realtimeColl.doc(studentDocId).set(data, SetOptions(merge: true));
+      }
       debugPrint('⚡ Realtime control updated: $status for docId=$sessionDocId');
     } catch (e) {
       debugPrint('❌ Error updating realtime control: $e');
+    }
+  }
+
+  Timer? _progressSyncDebounce;
+
+  /// Syncs current answered progress (e.g. 10/20) to Firestore realtime_control for proctors
+  void _syncRealtimeProgress({bool immediate = false}) {
+    if (widget.schoolId.isEmpty || widget.eventId.isEmpty) return;
+    _progressSyncDebounce?.cancel();
+
+    Future<void> performSync() async {
+      String studentDocId = widget.studentId.trim();
+      if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
+      if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
+      if (studentDocId.isEmpty) return;
+
+      try {
+        final cleanSubjId = widget.subjectId.trim().toLowerCase();
+        final sessionDocId = cleanSubjId.isNotEmpty
+            ? '${studentDocId}_$cleanSubjId'
+            : '${studentDocId}_${widget.sessionName.trim().toLowerCase()}';
+
+        final payload = <String, dynamic>{
+          'studentId': widget.studentId,
+          'studentName': widget.studentName,
+          'nis': widget.nis,
+          'className': widget.className,
+          'subjectId': widget.subjectId,
+          'subjectName': widget.subjectName,
+          'answeredCount': _answeredCount,
+          'totalQuestions': _questions.length,
+          'status': _currentRealtimeStatus.isNotEmpty ? _currentRealtimeStatus : 'in_progress',
+          'isWorking': _currentRealtimeStatus != 'completed' && _currentRealtimeStatus != 'left_app',
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+
+        final realtimeColl = FirebaseFirestore.instance
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('events')
+            .doc(widget.eventId)
+            .collection('realtime_control');
+
+        await realtimeColl.doc(sessionDocId).set(payload, SetOptions(merge: true));
+        if (sessionDocId != studentDocId) {
+          await realtimeColl.doc(studentDocId).set(payload, SetOptions(merge: true));
+        }
+        debugPrint('📊 Realtime progress synced: $_answeredCount / ${_questions.length} (doc: $sessionDocId)');
+      } catch (e) {
+        debugPrint('⚠️ Error syncing realtime progress: $e');
+      }
+    }
+
+    if (immediate) {
+      performSync();
+    } else {
+      _progressSyncDebounce = Timer(const Duration(milliseconds: 500), performSync);
     }
   }
 
@@ -263,8 +326,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     );
   }
 
-
-
   TextEditingController _getEssayController(String qId) {
     if (!_essayControllers.containsKey(qId)) {
       final initialText = _essayAnswers[qId] ?? '';
@@ -276,6 +337,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           final isNowEmpty = text.trim().isEmpty;
           _essayAnswers[qId] = text;
           _saveDraftLocally();
+          _syncRealtimeProgress();
 
           // Only trigger setState if answered state (empty vs non-empty) changed
           // This eliminates full-page rebuilds and scroll jumps on every keystroke!
@@ -684,6 +746,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
       // Ensure local state is updated
       _saveDraftLocally();
+      _syncRealtimeProgress(immediate: true);
       debugPrint('✅ Loaded ${_questions.length} questions successfully!');
     } catch (e) {
       debugPrint('❌ Error loading questions from Firestore, attempting local offline fallback: $e');
@@ -703,6 +766,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           _essayAnswers.addAll(localDraft['essayAnswers'] as Map<String, String>? ?? {});
           _doubts.addAll(localDraft['doubts'] as Map<String, bool>? ?? {});
         }
+        _syncRealtimeProgress(immediate: true);
       }
     } finally {
       if (mounted) {
@@ -1918,6 +1982,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                                 _answers[qId] = optIdx;
                               });
                               _saveDraftLocally();
+                              _syncRealtimeProgress(immediate: true);
                             },
                             borderRadius: BorderRadius.circular(16),
                             child: AnimatedContainer(

@@ -4821,6 +4821,28 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                                                     ),
                                                                   ),
                                                                 ],
+                                                                if ((subData['proctorNote'] ?? '').toString().trim().isNotEmpty) ...[
+                                                                  const SizedBox(width: 6),
+                                                                  Container(
+                                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                                    decoration: BoxDecoration(
+                                                                      color: const Color(0xFFFEF3C7),
+                                                                      borderRadius: BorderRadius.circular(6),
+                                                                      border: Border.all(color: const Color(0xFFFDE68A)),
+                                                                    ),
+                                                                    child: Row(
+                                                                      mainAxisSize: MainAxisSize.min,
+                                                                      children: [
+                                                                        const Icon(Icons.assignment_late_rounded, size: 10, color: Color(0xFFD97706)),
+                                                                        const SizedBox(width: 3),
+                                                                        Text(
+                                                                          'Catatan Pengawas',
+                                                                          style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.bold, color: const Color(0xFFD97706)),
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                  ),
+                                                                ],
                                                               ],
                                                             ),
                                                           ),
@@ -5055,7 +5077,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     return result;
   }
 
-  void _gradeStudentDialog({
+  Future<void> _gradeStudentDialog({
     required String subDocId,
     required String studentName,
     required Map<String, dynamic> subData,
@@ -5064,7 +5086,59 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     required double totalPgMax,
     required int correctPgCount,
     required int totalPgCount,
-  }) {
+  }) async {
+    // ── Catatan Pengawas & Pengurangan Skor ─────────────────────
+    String proctorNote = (subData['proctorNote'] ?? '').toString().trim();
+    final studentId = (subData['studentId'] ?? '').toString().trim();
+    final nis = (subData['nis'] ?? '').toString().trim();
+
+    if (proctorNote.isEmpty && (studentId.isNotEmpty || nis.isNotEmpty)) {
+      try {
+        final attQuery = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(_schoolId)
+            .collection('events')
+            .doc(widget.eventId)
+            .collection('attendances')
+            .where('studentId', isEqualTo: studentId.isNotEmpty ? studentId : '__none__')
+            .get();
+
+        for (var d in attQuery.docs) {
+          final note = (d.data()['proctorNote'] ?? '').toString().trim();
+          if (note.isNotEmpty) {
+            proctorNote = note;
+            break;
+          }
+        }
+
+        if (proctorNote.isEmpty && nis.isNotEmpty) {
+          final attNisQuery = await FirebaseFirestore.instance
+              .collection('schools')
+              .doc(_schoolId)
+              .collection('events')
+              .doc(widget.eventId)
+              .collection('attendances')
+              .where('nis', isEqualTo: nis)
+              .get();
+          for (var d in attNisQuery.docs) {
+            final note = (d.data()['proctorNote'] ?? '').toString().trim();
+            if (note.isNotEmpty) {
+              proctorNote = note;
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error fetching proctor note: $e');
+      }
+    }
+
+    final initialDeduction = (subData['scoreDeduction'] as num?)?.toDouble() ?? 0.0;
+    final deductionStr = initialDeduction > 0
+        ? (initialDeduction % 1 == 0 ? initialDeduction.toInt().toString() : initialDeduction.toString())
+        : '';
+    final deductionController = TextEditingController(text: deductionStr);
+
     final pgDocs = questionDocs.where((qDoc) {
       final qData = qDoc.data() as Map<String, dynamic>;
       return _getQuestionType(qData) == 'pilihan_ganda';
@@ -5109,7 +5183,9 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
     int currentTab = (pgDocs.isEmpty && essayDocs.isNotEmpty) ? 1 : 0;
 
-    showDialog(
+    if (!mounted) return;
+
+    await showDialog(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
@@ -5131,9 +5207,25 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
               currentEssayTotal += val;
             }
 
+            // Hitung deduction jika ada catatan pengawas
+            double deductionVal = 0.0;
+            bool isDeductionInvalid = false;
+            if (proctorNote.isNotEmpty) {
+              final dText = deductionController.text.trim();
+              if (dText.isNotEmpty) {
+                final parsed = double.tryParse(dText);
+                if (parsed == null || parsed < 0 || parsed > 100) {
+                  isDeductionInvalid = true;
+                } else {
+                  deductionVal = parsed;
+                }
+              }
+            }
+
             final grandEarned = autoPgScore + currentEssayTotal;
             final grandMax = totalPgMax + essayMaxTotal;
-            final finalScale100 = grandMax > 0 ? ((grandEarned / grandMax) * 100).round().clamp(0, 100) : 0;
+            final baseScale100 = grandMax > 0 ? ((grandEarned / grandMax) * 100).round().clamp(0, 100) : 0;
+            final finalScale100 = (baseScale100 - deductionVal.round()).clamp(0, 100);
 
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -5452,28 +5544,18 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                         ),
                                         const SizedBox(width: 8),
                                         Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                           decoration: BoxDecoration(
-                                            color: isCorrect
-                                                ? const Color(0xFFECFDF5)
-                                                : (isAnswered ? const Color(0xFFFEF2F2) : const Color(0xFFF1F5F9)),
+                                            color: isCorrect ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
                                             borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(
-                                              color: isCorrect
-                                                  ? const Color(0xFFA7F3D0)
-                                                  : (isAnswered ? const Color(0xFFFECACA) : const Color(0xFFCBD5E1)),
-                                            ),
+                                            border: Border.all(color: isCorrect ? const Color(0xFFA7F3D0) : const Color(0xFFFCA5A5)),
                                           ),
                                           child: Text(
-                                            isCorrect
-                                                ? '✅ Benar (+${score % 1 == 0 ? score.toInt() : score} pt)'
-                                                : (isAnswered ? '❌ Salah (0 pt)' : '⚪ Kosong (0 pt)'),
+                                            isCorrect ? '+${score.toInt()} pt' : '0 pt',
                                             style: GoogleFonts.inter(
                                               fontSize: 11,
                                               fontWeight: FontWeight.bold,
-                                              color: isCorrect
-                                                  ? const Color(0xFF059669)
-                                                  : (isAnswered ? const Color(0xFFDC2626) : const Color(0xFF64748B)),
+                                              color: isCorrect ? const Color(0xFF059669) : const Color(0xFFDC2626),
                                             ),
                                           ),
                                         ),
@@ -5905,15 +5987,137 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                             }),
                         ],
 
+                        // ── CATATAN PENGAWAS & PENGURANGAN SKOR (HANYA JIKA ADA CATATAN) ──
+                        if (proctorNote.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFFBEB),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFEF3C7),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(Icons.assignment_late_rounded, color: Color(0xFFD97706), size: 18),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Catatan Pengawas Ruangan',
+                                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF92400E)),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFFDE68A)),
+                                  ),
+                                  child: Text(
+                                    proctorNote,
+                                    style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF78350F), height: 1.3),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Pengurangan Skor:',
+                                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF92400E)),
+                                          ),
+                                          Text(
+                                            'Kurangi poin jika terdapat pelanggaran',
+                                            style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFFB45309)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    SizedBox(
+                                      width: 100,
+                                      child: TextField(
+                                        controller: deductionController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        textAlign: TextAlign.center,
+                                        style: GoogleFonts.inter(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: isDeductionInvalid ? const Color(0xFFDC2626) : const Color(0xFFB45309),
+                                        ),
+                                        onChanged: (_) => setDialogState(() {}),
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          prefixText: '- ',
+                                          prefixStyle: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFFDC2626)),
+                                          suffixText: 'pt',
+                                          suffixStyle: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                                          filled: true,
+                                          fillColor: isDeductionInvalid ? const Color(0xFFFEF2F2) : Colors.white,
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                              color: isDeductionInvalid ? const Color(0xFFDC2626) : const Color(0xFFFCA5A5),
+                                              width: isDeductionInvalid ? 2.0 : 1.0,
+                                            ),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (isDeductionInvalid) ...[
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.error_outline_rounded, size: 14, color: Color(0xFFDC2626)),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Pengurangan skor harus antara 0 - 100',
+                                        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFFDC2626)),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+
                         const SizedBox(height: 12),
 
                         // Live Final Score Banner
                         Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: hasAnyExceeded ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5),
+                            color: (hasAnyExceeded || isDeductionInvalid) ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: hasAnyExceeded ? const Color(0xFFFCA5A5) : const Color(0xFFA7F3D0), width: 1.5),
+                            border: Border.all(
+                              color: (hasAnyExceeded || isDeductionInvalid) ? const Color(0xFFFCA5A5) : const Color(0xFFA7F3D0),
+                              width: 1.5,
+                            ),
                           ),
                           child: Row(
                             children: [
@@ -5922,15 +6126,25 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      hasAnyExceeded ? '⚠️ Nilai Melebihi Batas' : 'Kalkulasi Total Nilai Akhir',
-                                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: hasAnyExceeded ? const Color(0xFF991B1B) : const Color(0xFF065F46)),
+                                      (hasAnyExceeded || isDeductionInvalid) ? '⚠️ Input Nilai Tidak Valid' : 'Kalkulasi Total Nilai Akhir',
+                                      style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: (hasAnyExceeded || isDeductionInvalid) ? const Color(0xFF991B1B) : const Color(0xFF065F46),
+                                      ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      hasAnyExceeded
-                                          ? 'Perbaiki nilai essay bernilai merah sebelum menyimpan.'
-                                          : 'Raw: ${grandEarned.toStringAsFixed(grandEarned % 1 == 0 ? 0 : 1)} / ${grandMax.toStringAsFixed(grandMax % 1 == 0 ? 0 : 1)} Poin (Skala 100)',
-                                      style: GoogleFonts.inter(fontSize: 11, color: hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF047857), fontWeight: FontWeight.w500),
+                                      (hasAnyExceeded || isDeductionInvalid)
+                                          ? 'Perbaiki input yang ditandai merah sebelum menyimpan.'
+                                          : (deductionVal > 0
+                                              ? 'Skala 100: $baseScale100 - Pengurangan ${deductionVal % 1 == 0 ? deductionVal.toInt() : deductionVal} pt'
+                                              : 'Raw: ${grandEarned.toStringAsFixed(grandEarned % 1 == 0 ? 0 : 1)} / ${grandMax.toStringAsFixed(grandMax % 1 == 0 ? 0 : 1)} Poin (Skala 100)'),
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: (hasAnyExceeded || isDeductionInvalid) ? const Color(0xFFDC2626) : const Color(0xFF047857),
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -5939,11 +6153,11 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                                  color: (hasAnyExceeded || isDeductionInvalid) ? const Color(0xFFDC2626) : const Color(0xFF059669),
                                   borderRadius: BorderRadius.circular(12),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: (hasAnyExceeded ? const Color(0xFFDC2626) : const Color(0xFF059669)).withValues(alpha: 0.3),
+                                      color: ((hasAnyExceeded || isDeductionInvalid) ? const Color(0xFFDC2626) : const Color(0xFF059669)).withValues(alpha: 0.3),
                                       blurRadius: 8,
                                       offset: const Offset(0, 3),
                                     ),
@@ -5971,7 +6185,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                   icon: const Icon(Icons.save_rounded, size: 16, color: Colors.white),
                   label: Text('Simpan Nilai', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: hasAnyExceeded ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
+                    backgroundColor: (hasAnyExceeded || isDeductionInvalid) ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     elevation: 0,
@@ -5986,6 +6200,15 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                       );
                       return;
                     }
+                    if (isDeductionInvalid) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('⚠️ Gagal menyimpan! Pengurangan skor harus bernilai 0 - 100.'),
+                          backgroundColor: Color(0xFFDC2626),
+                        ),
+                      );
+                      return;
+                    }
 
                     final Map<String, double> essayScoresMap = {};
                     for (var eDoc in essayDocs) {
@@ -5995,14 +6218,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     }
 
                     try {
-                      await FirebaseFirestore.instance
-                          .collection('schools')
-                          .doc(_schoolId)
-                          .collection('events')
-                          .doc(widget.eventId)
-                          .collection('submissions')
-                          .doc(subDocId)
-                          .set({
+                      final updatePayload = <String, dynamic>{
                         'score': finalScale100,
                         'pgScore': autoPgScore,
                         'essayScore': currentEssayTotal,
@@ -6010,7 +6226,20 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         'isGraded': true,
                         'gradedAt': FieldValue.serverTimestamp(),
                         'gradedByName': _teacher?.displayName ?? 'Guru',
-                      }, SetOptions(merge: true));
+                      };
+                      if (proctorNote.isNotEmpty) {
+                        updatePayload['proctorNote'] = proctorNote;
+                        updatePayload['scoreDeduction'] = deductionVal;
+                      }
+
+                      await FirebaseFirestore.instance
+                          .collection('schools')
+                          .doc(_schoolId)
+                          .collection('events')
+                          .doc(widget.eventId)
+                          .collection('submissions')
+                          .doc(subDocId)
+                          .set(updatePayload, SetOptions(merge: true));
 
                       if (mounted) {
                         Navigator.pop(ctx);

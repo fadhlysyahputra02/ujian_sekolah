@@ -205,6 +205,8 @@ class StudentExamCacheService {
         'answers': answersForStorage,
         'essayAnswers': essayAnswersForStorage,
         'doubts': Map<String, dynamic>.from(doubtsMap),
+        'answeredCount': answersForStorage.length,
+        'totalQuestions': questions.length,
         'lastSavedAt': FieldValue.serverTimestamp(),
         'isCompleted': false,
       }, SetOptions(merge: true));
@@ -294,6 +296,8 @@ class StudentExamCacheService {
         'answers': answersForStorage,
         'essayAnswers': essayAnswersForStorage,
         'doubts': Map<String, dynamic>.from(doubts),
+        'answeredCount': answersForStorage.length,
+        'totalQuestions': questions.length,
         'submittedAt': FieldValue.serverTimestamp(),
         'isCompleted': true,
         'autoSubmitted': autoSubmitted,

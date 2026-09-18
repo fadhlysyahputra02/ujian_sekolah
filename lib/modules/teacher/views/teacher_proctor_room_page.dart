@@ -56,6 +56,89 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   Stream<QuerySnapshot>? _seatsStream;
   String? _seatsAllocDocId;
 
+  int? _eventQuestionsCount;
+  final Map<String, int> _queriedSubjectQuestionCounts = {};
+  bool _hasQueriedQuestions = false;
+
+  void _triggerQuestionCountsQuery(String schoolId, List<String> subjectIds, List<String> subjectNames) {
+    if (_hasQueriedQuestions || schoolId.isEmpty || widget.eventId.isEmpty) return;
+    _hasQueriedQuestions = true;
+
+    Future.microtask(() async {
+      try {
+        final eventRef = FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('events')
+            .doc(widget.eventId);
+
+        for (var sId in subjectIds) {
+          if (sId.isEmpty) continue;
+          try {
+            final countSnap = await eventRef.collection('subjects').doc(sId).collection('questions').count().get();
+            if ((countSnap.count ?? 0) > 0) {
+              _queriedSubjectQuestionCounts[sId.toLowerCase()] = countSnap.count!;
+            }
+          } catch (_) {}
+        }
+
+        for (var sName in subjectNames) {
+          if (sName.isEmpty) continue;
+          try {
+            final countSnap = await eventRef.collection('subjects').doc(sName).collection('questions').count().get();
+            if ((countSnap.count ?? 0) > 0) {
+              _queriedSubjectQuestionCounts[sName.toLowerCase()] = countSnap.count!;
+            }
+          } catch (_) {}
+        }
+
+        try {
+          final countSnap = await eventRef.collection('questions').count().get();
+          if ((countSnap.count ?? 0) > 0) {
+            _eventQuestionsCount = countSnap.count;
+          }
+        } catch (_) {}
+
+        // 3. Try checking question_banks from event doc subjects
+        try {
+          final evDoc = await eventRef.get();
+          final evData = evDoc.data() ?? {};
+          final subjectsList = evData['subjects'] as List? ?? [];
+          for (var sItem in subjectsList) {
+            if (sItem is Map) {
+              final bankId = (sItem['questionBankId'] ?? sItem['bankId'] ?? '').toString().trim();
+              final sId = (sItem['id'] ?? '').toString().toLowerCase().trim();
+              final sName = (sItem['name'] ?? '').toString().toLowerCase().trim();
+              if (bankId.isNotEmpty) {
+                try {
+                  final countSnap = await FirebaseFirestore.instance
+                      .collection('schools')
+                      .doc(schoolId)
+                      .collection('question_banks')
+                      .doc(bankId)
+                      .collection('items')
+                      .count()
+                      .get();
+                  if ((countSnap.count ?? 0) > 0) {
+                    if (sId.isNotEmpty) _queriedSubjectQuestionCounts[sId] = countSnap.count!;
+                    if (sName.isNotEmpty) _queriedSubjectQuestionCounts[sName] = countSnap.count!;
+                    _eventQuestionsCount ??= countSnap.count;
+                  }
+                } catch (_) {}
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (mounted) {
+          setState(() {});
+        }
+      } catch (e) {
+        debugPrint('Error querying event questions count: $e');
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -751,6 +834,28 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 }
               }
 
+              final allSubjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+              final subjectQuestionCounts = <String, int>{};
+              for (var sItem in allSubjectsList) {
+                if (sItem is Map) {
+                  final qCount = (sItem['questionCount'] as num?)?.toInt() ??
+                      (sItem['totalQuestions'] as num?)?.toInt() ??
+                      (sItem['questionsCount'] as num?)?.toInt();
+                  if (qCount != null && qCount > 0) {
+                    final sId = (sItem['id'] ?? '').toString().toLowerCase().trim();
+                    final sCode = (sItem['code'] ?? '').toString().toLowerCase().trim();
+                    final sName = (sItem['name'] ?? '').toString().toLowerCase().trim();
+                    if (sId.isNotEmpty) subjectQuestionCounts[sId] = qCount;
+                    if (sCode.isNotEmpty) subjectQuestionCounts[sCode] = qCount;
+                    if (sName.isNotEmpty) subjectQuestionCounts[sName] = qCount;
+                  }
+                }
+              }
+
+              if (!_hasQueriedQuestions && schoolId.isNotEmpty) {
+                _triggerQuestionCountsQuery(schoolId, matchedSubjectIds.toList(), matchedSubjects);
+              }
+
               final matchedSubjectsStr = matchedSubjects.isNotEmpty ? matchedSubjects.join(' • ') : 'Sosiologi • Fisika';
 
               // Date & Session Time Labels
@@ -941,9 +1046,12 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 final data = doc.data() as Map<String, dynamic>;
                 final rtSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
                 final rtSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
-                final rtStudentId = (data['studentId'] ?? doc.id).toString().toLowerCase().trim();
+                final rtStudentId = (data['studentId'] ?? '').toString().toLowerCase().trim();
                 final rtNis = (data['nis'] ?? '').toString().toLowerCase().trim();
                 final rtStudentName = (data['studentName'] ?? '').toString().toLowerCase().trim();
+
+                final docId = doc.id.toLowerCase().trim();
+                final docPrefix = docId.contains('_') ? docId.substring(0, docId.lastIndexOf('_')) : docId;
 
                 bool subjectMatches = false;
                 if (matchedSubjects.isEmpty) {
@@ -954,7 +1062,9 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                   // not "Ujian Susulan"
                   subjectMatches = makeupStudentIds.contains(rtStudentId) ||
                       makeupStudentIds.contains(rtNis) ||
-                      makeupStudentIds.contains(rtStudentName);
+                      makeupStudentIds.contains(rtStudentName) ||
+                      makeupStudentIds.contains(docPrefix) ||
+                      makeupStudentIds.contains(docId);
                 } else {
                   if (cleanActiveSubjectNames.contains(rtSubjName) ||
                       matchedSubjectIds.contains(rtSubjId) ||
@@ -967,22 +1077,26 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                   continue; // Skip realtime states for other subjects/rooms!
                 }
 
-                final sId = rtStudentId;
+                final sId = rtStudentId.isNotEmpty ? rtStudentId : docPrefix;
                 final sNis = rtNis;
                 final sName = rtStudentName;
                 if (sId.isNotEmpty) realtimeMap[sId] = data;
                 if (sNis.isNotEmpty) realtimeMap[sNis] = data;
                 if (sName.isNotEmpty) realtimeMap[sName] = data;
+                if (docPrefix.isNotEmpty) realtimeMap[docPrefix] = data;
+                if (docId.isNotEmpty) realtimeMap[docId] = data;
 
                 if (rtSubjId.isNotEmpty) {
                   if (sId.isNotEmpty) realtimeMap['${sId}_$rtSubjId'] = data;
                   if (sNis.isNotEmpty) realtimeMap['${sNis}_$rtSubjId'] = data;
                   if (sName.isNotEmpty) realtimeMap['${sName}_$rtSubjId'] = data;
+                  if (docPrefix.isNotEmpty) realtimeMap['${docPrefix}_$rtSubjId'] = data;
                 }
                 if (rtSubjName.isNotEmpty) {
                   if (sId.isNotEmpty) realtimeMap['${sId}_$rtSubjName'] = data;
                   if (sNis.isNotEmpty) realtimeMap['${sNis}_$rtSubjName'] = data;
                   if (sName.isNotEmpty) realtimeMap['${sName}_$rtSubjName'] = data;
+                  if (docPrefix.isNotEmpty) realtimeMap['${docPrefix}_$rtSubjName'] = data;
                 }
               }
 
@@ -1295,12 +1409,24 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                       (sName.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${sName}_$sSubjName'] : null) ??
                                       (cleanName.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${cleanName}_$sSubjName'] : null);
                                 } else {
-                                  rtData = (sId.isNotEmpty ? realtimeMap[sId] : null) ??
+                                  rtData = (sId.isNotEmpty && sSubjId.isNotEmpty ? realtimeMap['${sId}_$sSubjId'] : null) ??
+                                      (sId.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${sId}_$sSubjName'] : null) ??
+                                      (sNis.isNotEmpty && sSubjId.isNotEmpty ? realtimeMap['${sNis}_$sSubjId'] : null) ??
+                                      (sNis.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${sNis}_$sSubjName'] : null) ??
+                                      (sName.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${sName}_$sSubjName'] : null) ??
+                                      (cleanName.isNotEmpty && sSubjName.isNotEmpty ? realtimeMap['${cleanName}_$sSubjName'] : null) ??
+                                      (sId.isNotEmpty ? realtimeMap[sId] : null) ??
                                       (sNis.isNotEmpty ? realtimeMap[sNis] : null) ??
                                       (sName.isNotEmpty ? realtimeMap[sName] : null) ??
                                       (cleanName.isNotEmpty ? realtimeMap[cleanName] : null);
 
-                                  subData = (sId.isNotEmpty ? submissionsMap[sId] : null) ??
+                                  subData = (sId.isNotEmpty && sSubjId.isNotEmpty ? submissionsMap['${sId}_$sSubjId'] : null) ??
+                                      (sId.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${sId}_$sSubjName'] : null) ??
+                                      (sNis.isNotEmpty && sSubjId.isNotEmpty ? submissionsMap['${sNis}_$sSubjId'] : null) ??
+                                      (sNis.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${sNis}_$sSubjName'] : null) ??
+                                      (sName.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${sName}_$sSubjName'] : null) ??
+                                      (cleanName.isNotEmpty && sSubjName.isNotEmpty ? submissionsMap['${cleanName}_$sSubjName'] : null) ??
+                                      (sId.isNotEmpty ? submissionsMap[sId] : null) ??
                                       (sNis.isNotEmpty ? submissionsMap[sNis] : null) ??
                                       (sName.isNotEmpty ? submissionsMap[sName] : null) ??
                                       (cleanName.isNotEmpty ? submissionsMap[cleanName] : null);
@@ -1316,6 +1442,40 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 bool isWorking = (rtData?['isWorking'] == true) ||
                                     (rtData?['status'] == 'in_progress') ||
                                     (rtData?['status'] == 'working');
+
+                                int? answeredCount = (rtData?['answeredCount'] as num?)?.toInt() ?? (subData?['answeredCount'] as num?)?.toInt();
+                                int? totalQuestions = (rtData?['totalQuestions'] as num?)?.toInt() ??
+                                    (subData?['totalQuestions'] as num?)?.toInt() ??
+                                    (sSubjId.isNotEmpty ? subjectQuestionCounts[sSubjId.toLowerCase()] : null) ??
+                                    (sSubjName.isNotEmpty ? subjectQuestionCounts[sSubjName.toLowerCase()] : null) ??
+                                    (sSubjId.isNotEmpty ? _queriedSubjectQuestionCounts[sSubjId.toLowerCase()] : null) ??
+                                    (sSubjName.isNotEmpty ? _queriedSubjectQuestionCounts[sSubjName.toLowerCase()] : null) ??
+                                    _eventQuestionsCount;
+
+                                if (answeredCount == null && subData != null) {
+                                  final ansMap = subData['answers'] as Map? ?? {};
+                                  final essayMap = subData['essayAnswers'] as Map? ?? {};
+                                  final allKeys = {...ansMap.keys, ...essayMap.keys};
+                                  if (allKeys.isNotEmpty) {
+                                    answeredCount = allKeys.length;
+                                  }
+                                }
+
+                                if (isCompleted) {
+                                  if (totalQuestions == null || totalQuestions <= 0) {
+                                    totalQuestions = answeredCount;
+                                  }
+                                  if (answeredCount == null || answeredCount <= 0) {
+                                    answeredCount = totalQuestions;
+                                  }
+                                }
+
+                                if ((isWorking || isLeftApp) && totalQuestions != null && totalQuestions > 0) {
+                                  answeredCount ??= 0;
+                                }
+
+                                sData['answeredCount'] = answeredCount;
+                                sData['totalQuestions'] = totalQuestions;
 
                                 sData['isAttended'] = isAttended || isCompleted || isLeftApp || isWorking;
                                 sData['attended'] = isAttended || isCompleted || isLeftApp || isWorking;
@@ -1591,7 +1751,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                     ? roomCapacity
                                                     : filteredSeatIndices.length;
 
-                                                const double minDeskWidth = 140.0;
+                                                const double minDeskWidth = 175.0;
                                                 const double deskSpacing = 12.0;
                                                 final double naturalGridWidth = (gridColumns * minDeskWidth) + ((gridColumns - 1) * deskSpacing);
                                                 final bool needsHorizontalScroll = naturalGridWidth > constraints.maxWidth;
@@ -1640,7 +1800,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                             crossAxisCount: gridColumns,
                                                             crossAxisSpacing: deskSpacing,
                                                             mainAxisSpacing: deskSpacing,
-                                                            childAspectRatio: 1.18,
+                                                            childAspectRatio: 1.15,
                                                           ),
                                                           itemCount: totalDisplayItems,
                                                           itemBuilder: (context, idx) {

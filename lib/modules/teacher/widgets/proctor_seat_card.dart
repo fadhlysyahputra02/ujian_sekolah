@@ -142,6 +142,8 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
     final bool isLeftApp = _shouldBlink;
     final status = (seatData['status'] ?? '').toString();
     final bool isWorking = seatData['isWorking'] == true || status == 'in_progress' || status == 'working';
+    final int? answeredCount = (seatData['answeredCount'] as num?)?.toInt();
+    final int? totalQuestions = (seatData['totalQuestions'] as num?)?.toInt();
 
     return AnimatedBuilder(
       animation: _blinkAnimation,
@@ -223,7 +225,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
             borderRadius: BorderRadius.circular(14),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
               decoration: BoxDecoration(
                 color: bgColor,
                 borderRadius: BorderRadius.circular(14),
@@ -242,26 +244,26 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                             decoration: BoxDecoration(
                               color: (isCompleted || isLeftApp || isAttended) ? Colors.black.withValues(alpha: 0.3) : scheme['primary'],
-                              borderRadius: BorderRadius.circular(5),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               'Meja #${widget.seatNum}',
-                              style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.white),
+                              style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
                             ),
                           ),
                           if ((seatData['proctorNote'] ?? '').toString().trim().isNotEmpty) ...[
                             const SizedBox(width: 3),
                             Container(
-                              padding: const EdgeInsets.all(1.5),
+                              padding: const EdgeInsets.all(2),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFFEF3C7),
-                                borderRadius: BorderRadius.circular(4),
+                                borderRadius: BorderRadius.circular(5),
                                 border: Border.all(color: const Color(0xFFF59E0B), width: 1),
                               ),
-                              child: const Icon(Icons.assignment_late_rounded, size: 10, color: Color(0xFFD97706)),
+                              child: const Icon(Icons.assignment_late_rounded, size: 11, color: Color(0xFFD97706)),
                             ),
                           ],
                         ],
@@ -269,7 +271,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                       const SizedBox(width: 4),
                       Flexible(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                           decoration: BoxDecoration(
                             color: (isCompleted || isLeftApp || isAttended) ? Colors.white.withValues(alpha: 0.25) : Colors.white,
                             borderRadius: BorderRadius.circular(6),
@@ -280,7 +282,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.inter(
-                              fontSize: 9.5,
+                              fontSize: 10,
                               fontWeight: FontWeight.w900,
                               color: (isCompleted || isLeftApp || isAttended) ? Colors.white : scheme['text'],
                             ),
@@ -289,7 +291,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
 
                   // Full Student Name
                   Expanded(
@@ -298,17 +300,17 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                       child: Text(
                         fullName,
                         style: GoogleFonts.inter(
-                          fontSize: 12,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w800,
                           color: textColor,
-                          height: 1.2,
+                          height: 1.22,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
 
                   // Bottom Bar: Status Badge
                   Row(
@@ -321,7 +323,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
                           style: GoogleFonts.inter(
-                            fontSize: 9.5,
+                            fontSize: 10,
                             fontWeight: FontWeight.w700,
                             color: (isCompleted || isLeftApp || isWorking || isAttended) ? Colors.white : scheme['primary'],
                           ),
@@ -332,7 +334,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                         FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(8),
@@ -340,12 +342,14 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.check_circle_rounded, size: 10, color: Color(0xFF059669)),
-                                const SizedBox(width: 2),
+                                const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
+                                const SizedBox(width: 3),
                                 Text(
-                                  'SELESAI',
+                                  totalQuestions != null && totalQuestions > 0
+                                      ? 'SELESAI (${answeredCount ?? totalQuestions}/$totalQuestions)'
+                                      : (answeredCount != null && answeredCount > 0 ? 'SELESAI ($answeredCount)' : 'SELESAI'),
                                   style: GoogleFonts.inter(
-                                    fontSize: 8,
+                                    fontSize: 8.5,
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFF059669),
                                   ),
@@ -358,7 +362,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                         FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(8),
@@ -366,12 +370,14 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.warning_amber_rounded, size: 10, color: Color(0xFFDC2626)),
-                                const SizedBox(width: 2),
+                                const Icon(Icons.warning_amber_rounded, size: 11, color: Color(0xFFDC2626)),
+                                const SizedBox(width: 3),
                                 Text(
-                                  'KELUAR APP!',
+                                  totalQuestions != null && totalQuestions > 0
+                                      ? 'KELUAR (${answeredCount ?? 0}/$totalQuestions)'
+                                      : 'KELUAR APP!',
                                   style: GoogleFonts.inter(
-                                    fontSize: 8,
+                                    fontSize: 8.5,
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFFDC2626),
                                   ),
@@ -380,11 +386,11 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             ),
                           ),
                         )
-                      else if (isWorking || isAttended)
+                      else if (isWorking)
                         FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(8),
@@ -392,12 +398,42 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.check_circle_rounded, size: 10, color: Color(0xFF059669)),
-                                const SizedBox(width: 2),
+                                const Icon(Icons.edit_note_rounded, size: 12, color: Color(0xFF2563EB)),
+                                const SizedBox(width: 3),
                                 Text(
-                                  'STANDBY',
+                                  totalQuestions != null && totalQuestions > 0
+                                      ? '${answeredCount ?? 0}/$totalQuestions'
+                                      : (answeredCount != null && answeredCount > 0 ? '$answeredCount Soal' : 'MENGERJAKAN'),
                                   style: GoogleFonts.inter(
-                                    fontSize: 8,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    color: const Color(0xFF2563EB),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else if (isAttended)
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
+                                const SizedBox(width: 3),
+                                Text(
+                                  (answeredCount != null && answeredCount > 0 && totalQuestions != null && totalQuestions > 0)
+                                      ? '$answeredCount/$totalQuestions'
+                                      : 'STANDBY',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 8.5,
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFF059669),
                                   ),
@@ -411,14 +447,14 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                               decoration: BoxDecoration(
                                 color: scheme['primary']!.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 genderSymbol,
-                                style: GoogleFonts.inter(fontSize: 8.5, fontWeight: FontWeight.w900, color: scheme['primary']),
+                                style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w900, color: scheme['primary']),
                               ),
                             ),
                             const SizedBox(width: 4),

@@ -682,6 +682,60 @@ class TeacherProctorController {
                 ],
               ),
             ),
+            if ((seatData['totalQuestions'] as num?) != null && (seatData['totalQuestions'] as num) > 0) ...[
+              const SizedBox(height: 12),
+              Builder(
+                builder: (context) {
+                  final totalQ = (seatData['totalQuestions'] as num).toInt();
+                  final ansQ = (seatData['answeredCount'] as num?)?.toInt() ?? (isCompleted ? totalQ : 0);
+                  final percent = (ansQ / totalQ * 100).clamp(0, 100).round();
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.fact_check_rounded, size: 16, color: Color(0xFF2563EB)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Progress Pengerjaan Soal',
+                                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              '$ansQ / $totalQ Soal ($percent%)',
+                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: const Color(0xFF2563EB)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: LinearProgressIndicator(
+                            value: totalQ > 0 ? (ansQ / totalQ).clamp(0.0, 1.0) : 0.0,
+                            minHeight: 8,
+                            backgroundColor: const Color(0xFFE2E8F0),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              isCompleted ? const Color(0xFF10B981) : const Color(0xFF2563EB),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
             const SizedBox(height: 20),
             const Divider(height: 1, color: Color(0xFFF1F5F9)),
             const SizedBox(height: 20),
@@ -840,8 +894,7 @@ class TeacherProctorController {
           ],
         ),
       ),
-    ),
-  ).whenComplete(() => noteController.dispose());
+    ).whenComplete(() => noteController.dispose());
   }
 
   static void showExitAppLogsModal({
