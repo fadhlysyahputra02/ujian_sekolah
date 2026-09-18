@@ -238,16 +238,33 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: (isCompleted || isLeftApp || isAttended) ? Colors.black.withValues(alpha: 0.3) : scheme['primary'],
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Text(
-                          'Meja #${widget.seatNum}',
-                          style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.white),
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: (isCompleted || isLeftApp || isAttended) ? Colors.black.withValues(alpha: 0.3) : scheme['primary'],
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Text(
+                              'Meja #${widget.seatNum}',
+                              style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.white),
+                            ),
+                          ),
+                          if ((seatData['proctorNote'] ?? '').toString().trim().isNotEmpty) ...[
+                            const SizedBox(width: 3),
+                            Container(
+                              padding: const EdgeInsets.all(1.5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF3C7),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFF59E0B), width: 1),
+                              ),
+                              child: const Icon(Icons.assignment_late_rounded, size: 10, color: Color(0xFFD97706)),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(width: 4),
                       Flexible(
