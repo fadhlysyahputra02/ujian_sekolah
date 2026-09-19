@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/utils/platform_helper.dart';
 import '../../../core/utils/web_reload.dart';
 
 class LoginPage extends StatefulWidget {
@@ -248,8 +249,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       final schoolId = _selectedSchool!['id'] as String;
 
-      // 1. Cek langsung ke Firestore pada Web apakah password terdaftar milik siswa di sekolah ini
-      if (kIsWeb) {
+      // 1. Cek langsung ke Firestore pada Web Mobile apakah password terdaftar milik siswa di sekolah ini
+      if (isWebMobile()) {
         try {
           final studentSnap = await FirebaseFirestore.instance
               .collection('schools')
@@ -283,8 +284,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           final resolvedEmail = resData?['email'] as String?;
           final resolvedRole = resData?['role'] as String?;
 
-          // Penolakan siswa jika masuk dari Web / Browser
-          if (kIsWeb && resolvedRole == 'student') {
+          // Penolakan siswa jika masuk dari Web Mobile
+          if (isWebMobile() && resolvedRole == 'student') {
             if (mounted) {
               setState(() => _isLoggingIn = false);
               await _showStudentWebBlockedDialog();
@@ -319,8 +320,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       // Auth state and GoRouter refreshListenable automatically handle redirect
       // to /blocked if student is inactive, or to /student/ringkasan if active.
 
-      // 2. Pengecekan menyeluruh setelah signIn di Web: Cek apakah user login adalah siswa
-      if (kIsWeb && authService.user != null) {
+      // 2. Pengecekan menyeluruh setelah signIn di Web Mobile: Cek apakah user login adalah siswa
+      if (isWebMobile() && authService.user != null) {
         bool isStudentUser = authService.role == 'student';
         if (!isStudentUser) {
           try {
@@ -393,7 +394,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
-  /// Menampilkan dialog peringatan bahwa akun siswa tidak boleh login via browser.
+  /// Menampilkan dialog peringatan bahwa akun siswa tidak boleh login via browser mobile (smartphone).
   /// Menggunakan [showDialog] (Navigator-level) agar tetap tampil meskipun
   /// GoRouter mencoba menavigasi halaman (dialog muncul di atas route manapun).
   Future<void> _showStudentWebBlockedDialog() async {
@@ -448,7 +449,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Login Siswa via Browser',
+                        'Login Siswa via Web Mobile',
                         style: GoogleFonts.inter(
                           color: Colors.white.withValues(alpha: 0.85),
                           fontSize: 13,
@@ -465,7 +466,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Akun siswa tidak dapat digunakan untuk login melalui Web Browser.',
+                        'Akun siswa tidak dapat digunakan untuk login melalui Web Browser di Smartphone / Tablet.',
                         style: GoogleFonts.inter(
                           fontSize: 14,
                           color: const Color(0xFF0F172A),
@@ -488,7 +489,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Gunakan Aplikasi CBT Exambro yang tersedia di smartphone atau tablet untuk mengikuti ujian.',
+                                'Gunakan Aplikasi CBT Exambro pada smartphone Anda, atau buka Web melalui Komputer / Laptop (PC).',
                                 style: GoogleFonts.inter(
                                   fontSize: 12.5,
                                   color: const Color(0xFF9A3412),

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../core/utils/web_exam_monitor.dart';
 import '../../../core/widgets/app_refresh_indicator.dart';
 import '../services/student_exam_cache_service.dart';
 
@@ -80,11 +81,27 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
   String _currentRealtimeStatus = ''; // Empty so first write always goes through
   DateTime? _lastRealtimeStatusUpdate;
+  late final WebExamMonitor _webExamMonitor;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _webExamMonitor = WebExamMonitor(
+      onLeft: () {
+        if (!_isSubmitting) {
+          debugPrint('⚠️ WebExamMonitor trigger: Student left browser tab/window!');
+          _updateRealtimeControlStatus('left_app');
+        }
+      },
+      onReturned: () {
+        if (!_isSubmitting) {
+          debugPrint('✅ WebExamMonitor trigger: Student focused browser tab/window!');
+          _updateRealtimeControlStatus('in_progress');
+        }
+      },
+    );
+    _webExamMonitor.start();
     _calculateDurationAndStartTimer();
     _loadQuestions();
     _startPeriodicSyncTimer();
@@ -93,6 +110,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
   @override
   void dispose() {
+    _webExamMonitor.stop();
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _draftDebounceTimer?.cancel();
@@ -1686,6 +1704,110 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
               minHeight: 3.5,
             ),
 
+            // Top Action Navigation Bar (Sebelumnya, Ragu-Ragu, Selanjutnya / Selesai)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: const Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // 1. Previous Question Button
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _currentIndex > 0
+                          ? () => _goToQuestion(_currentIndex - 1)
+                          : null,
+                      icon: const Icon(Icons.arrow_back_ios_rounded, size: 14),
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Sebelumnya', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // 2. Ragu-Ragu Toggle Button
+                  Expanded(
+                    child: FilterChip(
+                      selected: _doubts[qId] == true,
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Ragu-Ragu',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF475569),
+                          ),
+                        ),
+                      ),
+                      avatar: Icon(
+                        _doubts[qId] == true ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                        size: 16,
+                        color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF64748B),
+                      ),
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      selectedColor: const Color(0xFFFEF3C7),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: _doubts[qId] == true ? const Color(0xFFFBBF24) : const Color(0xFFCBD5E1),
+                        ),
+                      ),
+                      onSelected: (val) {
+                        setState(() {
+                          _doubts[qId] = val;
+                        });
+                        _saveDraftLocally();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // 3. Next Question Button (or Selesai on last question)
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _currentIndex < _questions.length - 1
+                          ? () => _goToQuestion(_currentIndex + 1)
+                          : _showSubmitConfirmationDialog,
+                      icon: Icon(
+                        _currentIndex < _questions.length - 1 ? Icons.arrow_forward_ios_rounded : Icons.check_circle_outline_rounded,
+                        size: 14,
+                      ),
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _currentIndex < _questions.length - 1 ? 'Selanjutnya' : 'Selesai',
+                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0F172A),
+                        foregroundColor: Colors.white,
+                        elevation: 2,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             // Question Navigation Bar (Scrollable Number Bar)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -2075,113 +2197,9 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
               ),
             ),
           ),
-
-            // Bottom Bar Navigation Dock (Sebelumnya, Ragu-Ragu, Selanjutnya)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  // 1. Previous Question Button
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _currentIndex > 0
-                          ? () => _goToQuestion(_currentIndex - 1)
-                          : null,
-                      icon: const Icon(Icons.arrow_back_ios_rounded, size: 14),
-                      label: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text('Sebelumnya', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13)),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // 2. Ragu-Ragu Toggle Button
-                  Expanded(
-                    child: FilterChip(
-                      selected: _doubts[qId] == true,
-                      label: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          'Ragu-Ragu',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF475569),
-                          ),
-                        ),
-                      ),
-                      avatar: Icon(
-                        _doubts[qId] == true ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                        size: 16,
-                        color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF64748B),
-                      ),
-                      backgroundColor: const Color(0xFFF1F5F9),
-                      selectedColor: const Color(0xFFFEF3C7),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: _doubts[qId] == true ? const Color(0xFFFBBF24) : const Color(0xFFCBD5E1),
-                        ),
-                      ),
-                      onSelected: (val) {
-                        setState(() {
-                          _doubts[qId] = val;
-                        });
-                        _saveDraftLocally();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // 3. Next Question Button (or Selesai on last question)
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _currentIndex < _questions.length - 1
-                          ? () => _goToQuestion(_currentIndex + 1)
-                          : _showSubmitConfirmationDialog,
-                      icon: Icon(
-                        _currentIndex < _questions.length - 1 ? Icons.arrow_forward_ios_rounded : Icons.check_circle_outline_rounded,
-                        size: 14,
-                      ),
-                      label: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          _currentIndex < _questions.length - 1 ? 'Selanjutnya' : 'Selesai',
-                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0F172A),
-                        foregroundColor: Colors.white,
-                        elevation: 2,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

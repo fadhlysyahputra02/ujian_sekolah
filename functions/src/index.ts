@@ -1523,97 +1523,133 @@ async function fetchActiveRooms(db: admin.firestore.Firestore, schoolId: string)
   });
 }
 
-export const createEvent = functions.https.onCall(async (request) => {
-  const { schoolId, eventInfo, sessions, timetable, eventId } = request.data || {};
-  if (!schoolId || !eventInfo) {
-    throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+async function deleteQueryInChunks(db: admin.firestore.Firestore, query: admin.firestore.QuerySnapshot) {
+  if (query.empty) return;
+  let batch = db.batch();
+  let count = 0;
+  for (const doc of query.docs) {
+    batch.delete(doc.ref);
+    count++;
+    if (count === 400) {
+      await batch.commit();
+      batch = db.batch();
+      count = 0;
+    }
   }
-  verifySchoolAdmin(request, schoolId);
-  const db = admin.firestore();
-  
-  const isEditMode = typeof eventId === 'string' && eventId.trim().length > 0;
-  const eventRef = isEditMode
-    ? db.collection('schools').doc(schoolId).collection('events').doc(eventId)
-    : db.collection('schools').doc(schoolId).collection('events').doc();
-  const actualEventId = eventRef.id;
-
-  if (isEditMode) {
-    // Clean up old allocations, proctors, sessions, timetable to rewrite them
-    const sessionsQuery = await eventRef.collection('sessions').get();
-    const timetableQuery = await eventRef.collection('timetable').get();
-    const proctorsQuery = await eventRef.collection('proctors').get();
-    const allocationsQuery = await eventRef.collection('allocations').get();
-    const participantsQuery = await eventRef.collection('participants').get();
-
-    const batch = db.batch();
-    sessionsQuery.forEach(doc => batch.delete(doc.ref));
-    timetableQuery.forEach(doc => batch.delete(doc.ref));
-    proctorsQuery.forEach(doc => batch.delete(doc.ref));
-    allocationsQuery.forEach(doc => batch.delete(doc.ref));
-    participantsQuery.forEach(doc => batch.delete(doc.ref));
+  if (count > 0) {
     await batch.commit();
   }
+}
 
-  await db.runTransaction(async (transaction) => {
-    transaction.set(eventRef, {
-      name: eventInfo.name,
-      academicYear: eventInfo.academicYear,
-      startDate: new Date(eventInfo.startDate),
-      endDate: new Date(eventInfo.endDate),
-      description: eventInfo.description || '',
-      status: 'draft',
-      createdBy: request.auth?.uid,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-      config: {
-        participantNumberFormat: eventInfo.participantNumberFormat || '[angkatan][roomCode][seatNumber]',
-        seatNumberPadding: eventInfo.seatNumberPadding || 3
-      },
-      draftState: eventInfo.draftState || null
-    }, { merge: true });
-
-    const sessionMap = new Map<string, string>();
-    if (sessions && Array.isArray(sessions)) {
-      sessions.forEach((s: any) => {
-        const sRef = eventRef.collection('sessions').doc();
-        transaction.set(sRef, {
-          name: s.name,
-          date: s.date,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          maxDuration: s.maxDuration || 120,
-          order: s.order || 0,
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp()
-        });
-        if (s.tempId) {
-          sessionMap.set(s.tempId, sRef.id);
-        }
-      });
+export const createEvent = functions.https.onCall(async (request) => {
+  try {
+    const { schoolId, eventInfo, sessions, timetable, eventId } = request.data || {};
+    if (!schoolId || !eventInfo) {
+      throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
+    verifySchoolAdmin(request, schoolId);
+    const db = admin.firestore();
+    
+    const isEditMode = typeof eventId === 'string' && eventId.trim().length > 0;
+    const eventRef = isEditMode
+      ? db.collection('schools').doc(schoolId).collection('events').doc(eventId)
+      : db.collection('schools').doc(schoolId).collection('events').doc();
+    const actualEventId = eventRef.id;
 
-    if (timetable && Array.isArray(timetable)) {
-      timetable.forEach((t: any) => {
-        const tRef = eventRef.collection('timetable').doc();
-        const mappedSessionId = t.sessionId ? (sessionMap.get(t.sessionId) || t.sessionId) : null;
-        transaction.set(tRef, {
-          classId: t.classId,
-          className: t.className || '',
-          subjectId: t.subjectId,
-          subjectName: t.subjectName,
-          sessionId: mappedSessionId,
-          teacherId: t.teacherId,
-          teacherName: t.teacherName || '',
-          status: 'scheduled',
-          createdAt: FieldValue.serverTimestamp()
+    // Clean up existing documents in subcollections to avoid accumulation/piling up
+    const [sessionsQuery, timetableQuery, proctorsQuery, allocationsQuery, participantsQuery] = await Promise.all([
+      eventRef.collection('sessions').get(),
+      eventRef.collection('timetable').get(),
+      eventRef.collection('proctors').get(),
+      eventRef.collection('allocations').get(),
+      eventRef.collection('participants').get(),
+    ]);
+
+    await deleteQueryInChunks(db, sessionsQuery);
+    await deleteQueryInChunks(db, timetableQuery);
+    await deleteQueryInChunks(db, proctorsQuery);
+    await deleteQueryInChunks(db, allocationsQuery);
+    await deleteQueryInChunks(db, participantsQuery);
+
+    await db.runTransaction(async (transaction) => {
+      transaction.set(eventRef, {
+        name: eventInfo.name || '',
+        academicYear: eventInfo.academicYear || '',
+        startDate: eventInfo.startDate ? new Date(eventInfo.startDate) : new Date(),
+        endDate: eventInfo.endDate ? new Date(eventInfo.endDate) : new Date(),
+        description: eventInfo.description || '',
+        status: 'draft',
+        createdBy: request.auth?.uid || null,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        config: {
+          participantNumberFormat: eventInfo.participantNumberFormat || '[angkatan][roomCode][seatNumber]',
+          seatNumberPadding: eventInfo.seatNumberPadding || 3
+        },
+        draftState: eventInfo.draftState || null
+      }, { merge: true });
+
+      const sessionMap = new Map<string, string>();
+      if (sessions && Array.isArray(sessions)) {
+        sessions.forEach((s: any, idx: number) => {
+          const orderVal = s.order || (idx + 1);
+          const docId = s.docId || s.tempId || (s.dayIndex != null && s.sessionIndex != null ? `day_${s.dayIndex}_session_${s.sessionIndex}` : `session_${orderVal}`);
+          const sRef = eventRef.collection('sessions').doc(docId);
+          transaction.set(sRef, {
+            name: s.name || `Sesi ${s.sessionIndex != null ? s.sessionIndex + 1 : orderVal}`,
+            date: s.date || null,
+            dayIndex: s.dayIndex != null ? s.dayIndex : 0,
+            sessionIndex: s.sessionIndex != null ? s.sessionIndex : idx,
+            startTime: s.startTime || '',
+            endTime: s.endTime || '',
+            maxDuration: s.maxDuration || 120,
+            order: orderVal,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+          });
+          if (s.tempId) {
+            sessionMap.set(s.tempId, sRef.id);
+          }
+          sessionMap.set(docId, sRef.id);
+          sessionMap.set(`order_${orderVal}`, sRef.id);
         });
-      });
-    }
-  });
+      }
 
-  const actorUid = request.auth?.uid || 'system';
-  await writeAuditLog(db, schoolId, actorUid, 'CREATE_EVENT', `Membuat/memperbarui event ujian "${eventInfo.name}"`);
-  return { eventId: actualEventId };
+      if (timetable && Array.isArray(timetable)) {
+        timetable.forEach((t: any) => {
+          const tRef = eventRef.collection('timetable').doc();
+          const dayIdx = (typeof t.dayIndex === 'number') ? t.dayIndex : (t.day != null ? parseInt(t.day) : 0);
+          const slotIdx = (typeof t.sessionIndex === 'number') ? t.sessionIndex : (t.slotIndex != null ? parseInt(t.slotIndex) : 0);
+          const fallbackKey = `day_${dayIdx}_session_${slotIdx}`;
+          const mappedSessionId = t.sessionId ? (sessionMap.get(t.sessionId) || t.sessionId) : fallbackKey;
+
+          transaction.set(tRef, {
+            classId: t.classId || '',
+            className: t.className || '',
+            subjectId: t.subjectId || '',
+            subjectName: t.subjectName || '',
+            sessionId: mappedSessionId || '',
+            dayIndex: dayIdx,
+            sessionIndex: slotIdx,
+            teacherId: t.teacherId || '',
+            teacherName: t.teacherName || '',
+            status: 'scheduled',
+            createdAt: FieldValue.serverTimestamp()
+          });
+        });
+      }
+    });
+
+    const actorUid = request.auth?.uid || 'system';
+    await writeAuditLog(db, schoolId, actorUid, 'CREATE_EVENT', `Membuat/memperbarui event ujian "${eventInfo.name}"`);
+    return { eventId: actualEventId };
+  } catch (err: any) {
+    console.error('Error in createEvent:', err);
+    if (err instanceof functions.https.HttpsError) {
+      throw err;
+    }
+    throw new functions.https.HttpsError('internal', err.message || 'Gagal membuat/memperbarui event.');
+  }
 });
 
 export const deleteEvent = functions.https.onCall(async (request) => {
@@ -1853,15 +1889,17 @@ export const assignProctors = functions.https.onCall(async (request) => {
 
   const seen = new Set<string>();
   for (const a of assignments) {
-    const key = `${a.teacherId}_${a.sessionId}`;
+    const dIdx = a.dayIndex != null ? a.dayIndex : 0;
+    const sIdx = a.sessionIndex != null ? a.sessionIndex : 0;
+    const key = `${a.teacherId}_day_${dIdx}_sess_${sIdx}`;
     if (seen.has(key)) {
-      throw new functions.https.HttpsError('failed-precondition', `Guru dengan ID ${a.teacherId} ditugaskan ganda pada sesi ${a.sessionId}.`);
+      throw new functions.https.HttpsError('failed-precondition', `Guru dengan ID ${a.teacherId} ditugaskan ganda pada hari ${dIdx + 1} sesi ${sIdx + 1}.`);
     }
     seen.add(key);
 
-    const conflict = existing.some(e => e.teacherId === a.teacherId && e.sessionId === a.sessionId && e.roomId !== a.roomId);
+    const conflict = existing.some(e => e.teacherId === a.teacherId && (e.dayIndex == null || e.dayIndex === dIdx) && (e.sessionIndex == null || e.sessionIndex === sIdx) && e.roomId !== a.roomId);
     if (conflict) {
-      throw new functions.https.HttpsError('failed-precondition', `Guru dengan ID ${a.teacherId} sudah ditugaskan mengawas di ruangan lain pada sesi ${a.sessionId}.`);
+      throw new functions.https.HttpsError('failed-precondition', `Guru dengan ID ${a.teacherId} sudah ditugaskan mengawas di ruangan lain pada hari ${dIdx + 1} sesi ${sIdx + 1}.`);
     }
   }
 
@@ -1870,15 +1908,17 @@ export const assignProctors = functions.https.onCall(async (request) => {
   for (const a of assignments) {
     const docRef = proctorsRef.doc();
     batch.set(docRef, {
-      sessionId: a.sessionId,
-      roomId: a.roomId,
-      teacherId: a.teacherId,
+      sessionId: a.sessionId || '',
+      dayIndex: a.dayIndex != null ? a.dayIndex : 0,
+      sessionIndex: a.sessionIndex != null ? a.sessionIndex : 0,
+      roomId: a.roomId || '',
+      teacherId: a.teacherId || '',
       role: a.role || 'main',
       notes: a.notes || '',
       createdAt: FieldValue.serverTimestamp()
     });
     count++;
-    if (count === 500) {
+    if (count === 400) {
       await batch.commit();
       batch = db.batch();
       count = 0;
@@ -1889,8 +1929,8 @@ export const assignProctors = functions.https.onCall(async (request) => {
   }
 
   const actorUid = request.auth?.uid || 'system';
-  await writeAuditLog(db, schoolId, actorUid, 'ASSIGN_PROCTORS', `Menugaskan ${assignments.length} pengawas ujian.`);
-  return { success: true };
+  await writeAuditLog(db, schoolId, actorUid, 'ASSIGN_PROCTORS', `Menetapkan ${assignments.length} penugasan pengawas untuk event ${eventId}`);
+  return { assignedCount: assignments.length, success: true };
 });
 
 export const rescheduleSession = functions.https.onCall(async (request) => {

@@ -11,6 +11,7 @@ import '../../modules/student/views/student_dashboard_page.dart';
 import '../../modules/student/views/student_event_detail_page.dart';
 import '../../modules/subscription/views/subscription_blocked_page.dart';
 import '../constants/app_version.dart';
+import '../utils/platform_helper.dart';
 import '../widgets/app_splash_loader.dart';
 import '../../modules/admin/views/admin_full_schedule_page.dart';
 import '../../modules/admin/views/class_detail_screen.dart';
@@ -64,6 +65,10 @@ class AppRouter {
             return '/teacher/ringkasan';
           }
         } else if (role == 'student') {
+          // Jika siswa mengakses dari browser mobile, cegah akses
+          if (isWebMobile()) {
+            return '/login';
+          }
           // Student HANYA boleh mengakses rute /student
           if (loc == '/' || loc == '/student' || !loc.startsWith('/student')) {
             return '/student/ringkasan';

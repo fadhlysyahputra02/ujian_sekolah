@@ -1744,24 +1744,51 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     _updateSaveProgress(0.05, 'Inisialisasi dokumen event & jadwal sesi...', 1);
     setState(() => _isLoading = true);
     try {
-      // 1. Create Event
+      // 1. Create Event with expanded sessions (1 document per day & per session)
       final List<Map<String, dynamic>> expandedSessions = [];
-      final days = _examDays();
-      for (int d = 0; d < days.length; d++) {
-        final day = days[d];
+      final int totalDays = _endDate != null && _startDate != null
+          ? _endDate!.difference(_startDate!).inDays + 1
+          : 1;
+
+      for (int d = 0; d < totalDays; d++) {
+        final currentDayDate = _startDate!.add(Duration(days: d));
+        final dateStr = DateFormat('yyyy-MM-dd').format(currentDayDate);
         for (int s = 0; s < _sessions.length; s++) {
           final sess = _sessions[s];
-          
+          final docId = 'day_${d}_session_$s';
           expandedSessions.add({
-            'name': sess['name'],
-            'startTime': sess['startTime'],
-            'endTime': sess['endTime'],
-            'order': d * _sessions.length + s + 1,
-            'date': day.toIso8601String(),
-            'tempId': 'day_${d}_session_${s}',
+            'docId': docId,
+            'tempId': docId,
+            'name': sess['name'] ?? 'Sesi ${s + 1}',
+            'date': dateStr,
+            'dayIndex': d,
+            'sessionIndex': s,
+            'startTime': sess['startTime'] ?? '',
+            'endTime': sess['endTime'] ?? '',
+            'maxDuration': sess['maxDuration'] ?? 90,
+            'order': (d * _sessions.length) + s + 1,
           });
         }
       }
+
+      final List<Map<String, dynamic>> cleanTimetable = _timetable.map((item) {
+        final d = (item['dayIndex'] as num?)?.toInt() ?? (item['day'] != null ? int.tryParse(item['day'].toString()) ?? 0 : 0);
+        final s = (item['sessionIndex'] as num?)?.toInt() ?? (item['slotIndex'] != null ? int.tryParse(item['slotIndex'].toString()) ?? 0 : 0);
+        final sessKey = 'day_${d}_session_$s';
+        final rawSessId = item['sessionId']?.toString();
+        return {
+          'classId': item['classId']?.toString() ?? '',
+          'className': item['className']?.toString() ?? '',
+          'subjectId': item['subjectId']?.toString() ?? '',
+          'subjectName': item['subjectName']?.toString() ?? '',
+          'sessionId': (rawSessId != null && rawSessId.isNotEmpty) ? rawSessId : sessKey,
+          'dayIndex': d,
+          'sessionIndex': s,
+          'teacherId': item['teacherId']?.toString() ?? '',
+          'teacherName': item['teacherName']?.toString() ?? '',
+          'status': 'scheduled',
+        };
+      }).toList();
 
       final name = _nameController.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
       final type = _examType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
@@ -1850,7 +1877,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           'roomLayouts': _addState,
         },
         sessions: expandedSessions,
-        timetable: _timetable,
+        timetable: cleanTimetable,
       );
 
       _updateSaveProgress(0.38, 'Menjalankan algoritma alokasi denah tempat duduk...', 2);
@@ -1890,22 +1917,6 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
       // 3.5. Save Proctor Assignments
       if (_proctorGrid.isNotEmpty) {
-        final sessionsSnap = await FirebaseFirestore.instance
-            .collection('schools')
-            .doc(widget.schoolId)
-            .collection('events')
-            .doc(eventId)
-            .collection('sessions')
-            .get();
-
-        final Map<String, String> orderToSessionId = {};
-        for (final doc in sessionsSnap.docs) {
-          final orderVal = doc.data()['order'];
-          if (orderVal != null) {
-            orderToSessionId[orderVal.toString()] = doc.id;
-          }
-        }
-
         final List<Map<String, dynamic>> proctorAssignments = [];
         _proctorGrid.forEach((key, teacherId) {
           final parts = key.split('_');
@@ -1913,10 +1924,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             final d = int.tryParse(parts[1]) ?? 0;
             final s = int.tryParse(parts[3]) ?? 0;
             final roomId = parts.sublist(5).join('_');
+            final realSessionId = 'day_${d}_session_$s';
             
-            final order = d * _sessions.length + s + 1;
-            final realSessionId = orderToSessionId[order.toString()];
-            if (realSessionId != null && teacherId.isNotEmpty) {
+            if (teacherId.isNotEmpty) {
               proctorAssignments.add({
                 'sessionId': realSessionId,
                 'roomId': roomId,
@@ -2325,6 +2335,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             if (t['subjectId'] == sid) {
               t['sessionId'] = 'day_${d}_session_$s';
               t['sessionName'] = _sessions[s]['name'];
+              t['dayIndex'] = d;
+              t['sessionIndex'] = s;
             }
           }
         }

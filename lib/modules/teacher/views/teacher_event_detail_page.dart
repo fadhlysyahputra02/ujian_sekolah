@@ -3101,7 +3101,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         rawDutyList.add({
                           'docId': 'grid_$k',
                           'roomId': rId,
-                          'sessionId': 'session_$sIdx',
+                          'sessionId': 'day_${dIdx}_session_$sIdx',
                           'dayIndex': dIdx,
                           'sessionIndex': sIdx,
                           'status': 'Belum Dimulai',
@@ -3163,7 +3163,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                       rawDutyList.add({
                         'docId': pDoc.id,
                         'roomId': pData['roomId'] ?? '',
-                        'sessionId': sId,
+                        'sessionId': sId.isNotEmpty ? sId : 'day_${dIdx}_session_$sIdx',
                         'dayIndex': dIdx,
                         'sessionIndex': sIdx,
                         'status': pData['status'] ?? 'Belum Dimulai',
@@ -3281,44 +3281,70 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                         final status = duty['status'] as String;
                         final isMakeup = duty['isMakeup'] == true;
 
+                        final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
                         final targetSId = duty['sessionId']?.toString() ?? '';
                         Map<String, dynamic>? matchedSession;
 
-                        if (targetSId.isNotEmpty) {
+                        // 1. Direct match on targetKeyStr or targetSId
+                        for (var s in sessionsList) {
+                          final sid = (s['id'] ?? s['_docId'] ?? s['tempId'] ?? s['docId'] ?? '').toString();
+                          if (sid == targetKeyStr || (targetSId.isNotEmpty && sid == targetSId)) {
+                            matchedSession = s;
+                            break;
+                          }
+                        }
+
+                        // 2. Match on dayIndex and sessionIndex
+                        if (matchedSession == null) {
                           for (var s in sessionsList) {
-                            if (s['id'] == targetSId || s['_docId'] == targetSId || s['tempId'] == targetSId) {
+                            final sd = (s['dayIndex'] as num?)?.toInt();
+                            final ss = (s['sessionIndex'] as num?)?.toInt();
+                            if (sd != null && ss != null && sd == dayIndex && ss == sessionIndex) {
                               matchedSession = s;
                               break;
                             }
                           }
                         }
+
+                        // 3. Match on calculated order
+                        if (matchedSession == null) {
+                          final numSessionsPerDay = (sessionsList.isNotEmpty ? sessionsList.length : 2);
+                          final targetOrder = (dayIndex * numSessionsPerDay) + sessionIndex + 1;
+                          for (var s in sessionsList) {
+                            if ((s['order'] as num?)?.toInt() == targetOrder) {
+                              matchedSession = s;
+                              break;
+                            }
+                          }
+                        }
+
+                        // 4. Fallback to session slot modulo
                         if (matchedSession == null && sessionsList.length > sessionIndex) {
                           matchedSession = sessionsList[sessionIndex];
                         }
 
-                        // Date Label - Prefer date stored in session document or makeup data
+                        // Date Label - Always strictly calculate based on event startDate + dayIndex
                         DateTime? dutyDate;
                         if (isMakeup && (duty['makeupDate']?.isNotEmpty ?? false)) {
                           dutyDate = DateTime.tryParse(duty['makeupDate']);
-                        } else if (matchedSession != null) {
-                          final rawDate = matchedSession['date'] ?? matchedSession['startDate'];
-                          if (rawDate is String && rawDate.isNotEmpty) {
-                            dutyDate = DateTime.tryParse(rawDate);
-                          } else if (rawDate is Timestamp) {
-                            dutyDate = rawDate.toDate();
+                        } else {
+                          final startDateVal = evData['startDate'] ?? draftState?['startDate'] ?? draftState?['step1']?['startDate'];
+                          DateTime? eventStartDate;
+                          if (startDateVal is Timestamp) {
+                            eventStartDate = startDateVal.toDate();
+                          } else if (startDateVal is String && startDateVal.isNotEmpty) {
+                            eventStartDate = DateTime.tryParse(startDateVal);
                           }
-                        }
 
-                        if (dutyDate == null) {
-                          final startDateStr = evData['startDate'] ?? draftState?['startDate'];
-                          DateTime? startDate;
-                          if (startDateStr is String) {
-                            startDate = DateTime.tryParse(startDateStr);
-                          } else if (startDateStr is Timestamp) {
-                            startDate = startDateStr.toDate();
-                          }
-                          if (startDate != null) {
-                            dutyDate = startDate.add(Duration(days: dayIndex));
+                          if (eventStartDate != null) {
+                            dutyDate = DateTime(eventStartDate.year, eventStartDate.month, eventStartDate.day).add(Duration(days: dayIndex));
+                          } else if (matchedSession != null) {
+                            final rawDate = matchedSession['date'] ?? matchedSession['startDate'];
+                            if (rawDate is String && rawDate.isNotEmpty) {
+                              dutyDate = DateTime.tryParse(rawDate);
+                            } else if (rawDate is Timestamp) {
+                              dutyDate = rawDate.toDate();
+                            }
                           }
                         }
 

@@ -106,7 +106,7 @@ class EventExamService {
             }).toList());
   }
 
-  /// Membuat Event Ujian baru
+  /// Membuat atau memperbarui Event Ujian
   Future<String> createEvent({
     required String schoolId,
     required Map<String, dynamic> eventInfo,
@@ -114,15 +114,120 @@ class EventExamService {
     required List<Map<String, dynamic>> timetable,
     String? eventId,
   }) async {
-    final callable = _functions.httpsCallable('createEvent');
-    final response = await callable.call({
-      'schoolId': schoolId,
-      'eventInfo': eventInfo,
-      'sessions': sessions,
-      'timetable': timetable,
-      'eventId': eventId,
-    });
-    return response.data['eventId'] as String;
+    try {
+      final callable = _functions.httpsCallable('createEvent');
+      final response = await callable.call({
+        'schoolId': schoolId,
+        'eventInfo': eventInfo,
+        'sessions': sessions,
+        'timetable': timetable,
+        'eventId': eventId,
+      });
+      return response.data['eventId'] as String;
+    } catch (cfError) {
+      // Direct Firestore write fallback
+      final eventRef = (eventId != null && eventId.trim().isNotEmpty)
+          ? _firestore.collection('schools').doc(schoolId).collection('events').doc(eventId)
+          : _firestore.collection('schools').doc(schoolId).collection('events').doc();
+      final actualEventId = eventRef.id;
+
+      // Clean old subcollections
+      final subcollections = ['sessions', 'timetable', 'proctors', 'allocations', 'participants'];
+      for (final sub in subcollections) {
+        final snap = await eventRef.collection(sub).get();
+        if (snap.docs.isNotEmpty) {
+          final b = _firestore.batch();
+          for (final d in snap.docs) {
+            b.delete(d.reference);
+          }
+          await b.commit();
+        }
+      }
+
+      final startDt = eventInfo['startDate'] != null
+          ? (DateTime.tryParse(eventInfo['startDate'].toString()) ?? DateTime.now())
+          : DateTime.now();
+      final endDt = eventInfo['endDate'] != null
+          ? (DateTime.tryParse(eventInfo['endDate'].toString()) ?? DateTime.now())
+          : DateTime.now();
+
+      await eventRef.set({
+        'name': eventInfo['name'] ?? '',
+        'type': eventInfo['type'] ?? 'UAS',
+        'academicYear': eventInfo['academicYear'] ?? '',
+        'startDate': Timestamp.fromDate(startDt),
+        'endDate': Timestamp.fromDate(endDt),
+        'description': eventInfo['description'] ?? '',
+        'status': 'draft',
+        'targetClasses': eventInfo['targetClasses'] ?? [],
+        'roomAssignments': eventInfo['roomAssignments'] ?? {},
+        'roomLayouts': eventInfo['roomLayouts'] ?? {},
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'config': {
+          'participantNumberFormat': eventInfo['participantNumberFormat'] ?? '[angkatan][roomCode][seatNumber]',
+          'seatNumberPadding': eventInfo['seatNumberPadding'] ?? 3,
+        },
+        'draftState': eventInfo['draftState'],
+      }, SetOptions(merge: true));
+
+      // Save sessions (per day & per session)
+      final Map<String, String> sessionMap = {};
+      final batch = _firestore.batch();
+      for (int i = 0; i < sessions.length; i++) {
+        final s = sessions[i];
+        final orderVal = (s['order'] as num?)?.toInt() ?? (i + 1);
+        final dIdx = s['dayIndex'] ?? 0;
+        final sIdx = s['sessionIndex'] ?? i;
+        final docId = s['docId']?.toString() ?? s['tempId']?.toString() ?? (s['dayIndex'] != null && s['sessionIndex'] != null ? 'day_${dIdx}_session_$sIdx' : 'session_$orderVal');
+        final sRef = eventRef.collection('sessions').doc(docId);
+        batch.set(sRef, {
+          'name': s['name'] ?? 'Sesi ${sIdx + 1}',
+          'date': s['date'] ?? '',
+          'dayIndex': dIdx,
+          'sessionIndex': sIdx,
+          'startTime': s['startTime'] ?? '',
+          'endTime': s['endTime'] ?? '',
+          'maxDuration': s['maxDuration'] ?? 90,
+          'order': orderVal,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        if (s['tempId'] != null) {
+          sessionMap[s['tempId'].toString()] = docId;
+        }
+        sessionMap[docId] = docId;
+      }
+
+      // Save timetable
+      for (final t in timetable) {
+        final tRef = eventRef.collection('timetable').doc();
+        final rawSessId = t['sessionId']?.toString();
+        final dayIdx = (t['dayIndex'] as num?)?.toInt() ?? (t['day'] != null ? int.tryParse(t['day'].toString()) ?? 0 : 0);
+        final sessIdx = (t['sessionIndex'] as num?)?.toInt() ?? (t['slotIndex'] != null ? int.tryParse(t['slotIndex'].toString()) ?? 0 : 0);
+        final fallbackKey = 'day_${dayIdx}_session_$sessIdx';
+        final mappedSessionId = (rawSessId != null && rawSessId.isNotEmpty)
+            ? (sessionMap[rawSessId] ?? rawSessId)
+            : fallbackKey;
+
+        batch.set(tRef, {
+          'classId': t['classId']?.toString() ?? '',
+          'className': t['className']?.toString() ?? '',
+          'subjectId': t['subjectId']?.toString() ?? '',
+          'subjectName': t['subjectName']?.toString() ?? '',
+          'sessionId': mappedSessionId,
+          'dayIndex': dayIdx,
+          'sessionIndex': sessIdx,
+          'teacherId': t['teacherId']?.toString() ?? '',
+          'teacherName': t['teacherName']?.toString() ?? '',
+          'status': 'scheduled',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+      return actualEventId;
+    }
   }
 
   /// Menghapus Event Ujian beserta seluruh subkoleksinya via Cloud Function
@@ -211,12 +316,46 @@ class EventExamService {
     required String eventId,
     required List<Map<String, dynamic>> assignments,
   }) async {
-    final callable = _functions.httpsCallable('assignProctors');
-    await callable.call({
-      'schoolId': schoolId,
-      'eventId': eventId,
-      'assignments': assignments,
-    });
+    try {
+      final callable = _functions.httpsCallable('assignProctors');
+      await callable.call({
+        'schoolId': schoolId,
+        'eventId': eventId,
+        'assignments': assignments,
+      });
+    } catch (cfError) {
+      final proctorsRef = _firestore
+          .collection('schools')
+          .doc(schoolId)
+          .collection('events')
+          .doc(eventId)
+          .collection('proctors');
+
+      final existingSnap = await proctorsRef.get();
+      if (existingSnap.docs.isNotEmpty) {
+        final b = _firestore.batch();
+        for (final doc in existingSnap.docs) {
+          b.delete(doc.reference);
+        }
+        await b.commit();
+      }
+
+      final batch = _firestore.batch();
+      for (final a in assignments) {
+        final docRef = proctorsRef.doc();
+        batch.set(docRef, {
+          'sessionId': a['sessionId']?.toString() ?? '',
+          'dayIndex': a['dayIndex'] ?? 0,
+          'sessionIndex': a['sessionIndex'] ?? 0,
+          'roomId': a['roomId']?.toString() ?? '',
+          'teacherId': a['teacherId']?.toString() ?? '',
+          'role': a['role']?.toString() ?? 'main',
+          'notes': a['notes']?.toString() ?? '',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
   }
 
   /// Reschedule sesi ujian

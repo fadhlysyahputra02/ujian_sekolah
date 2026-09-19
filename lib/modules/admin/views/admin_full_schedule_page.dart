@@ -161,10 +161,11 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
         return data;
       }).toList();
 
-      if (_timetable.isEmpty && _eventData != null && _eventData!['timetable'] is List) {
-        _timetable = (_eventData!['timetable'] as List)
-            .map((t) => Map<String, dynamic>.from(t as Map))
-            .toList();
+      if (_timetable.isEmpty && _eventData != null) {
+        final rawTt = _eventData!['timetable'] ?? _eventData!['draftState']?['timetable'] ?? _eventData!['draftState']?['step3']?['timetable'];
+        if (rawTt is List) {
+          _timetable = rawTt.map((t) => Map<String, dynamic>.from(t as Map)).toList();
+        }
       }
 
       // 5. Fetch Proctors Subcollection
@@ -212,9 +213,23 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
       }
 
       // Fallback rooms from event doc
-      if (_rooms.isEmpty && _eventData != null && _eventData!['rooms'] is List) {
-        final rList = _eventData!['rooms'] as List;
-        _rooms = rList.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      if (_rooms.isEmpty && _eventData != null) {
+        final rList = _eventData!['rooms'] ?? _eventData!['draftState']?['rooms'] ?? _eventData!['draftState']?['step4']?['rooms'];
+        if (rList is List) {
+          _rooms = rList.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+        }
+      }
+
+      // Fallback rooms from school rooms collection
+      if (_rooms.isEmpty) {
+        try {
+          final roomSnap = await schoolRef.collection('rooms').get();
+          _rooms = roomSnap.docs.map((d) {
+            final data = d.data();
+            data['id'] = d.id;
+            return data;
+          }).toList();
+        } catch (_) {}
       }
 
     } catch (e, stack) {
@@ -264,7 +279,7 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
       if (diff > 0) calculatedDaysCount = diff;
     }
 
-    // 2. Scan max dayIndex in _timetable & _proctorGrid
+    // 2. Scan max dayIndex in _timetable & _proctorGrid & _sessions
     int maxDayIndex = 0;
     for (var t in _timetable) {
       final tsId = (t['sessionId'] ?? '').toString();
@@ -277,6 +292,19 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
       }
       final tDay = (t['dayIndex'] as num?)?.toInt();
       if (tDay != null && tDay > maxDayIndex) maxDayIndex = tDay;
+    }
+
+    for (var s in _sessions) {
+      final sDay = (s['dayIndex'] as num?)?.toInt();
+      if (sDay != null && sDay > maxDayIndex) maxDayIndex = sDay;
+      final sid = (s['id'] ?? s['docId'] ?? '').toString();
+      if (sid.startsWith('day_')) {
+        final parts = sid.split('_');
+        if (parts.length >= 2) {
+          final d = int.tryParse(parts[1]);
+          if (d != null && d > maxDayIndex) maxDayIndex = d;
+        }
+      }
     }
 
     for (var k in _proctorGrid.keys) {
@@ -294,40 +322,67 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
         : calculatedDaysCount;
 
     // 3. Determine sessionsPerDay & Session Resolver
-    int sessionsPerDay = 0;
+    final Set<int> uniqueSessionIndices = {};
     for (var s in _sessions) {
-      final tempId = (s['tempId'] ?? '').toString();
-      if (tempId.startsWith('day_')) {
-        final parts = tempId.split('_');
-        if (parts.length >= 4 && parts[1] == '0') {
-          sessionsPerDay++;
-        }
+      if (s['sessionIndex'] != null) {
+        uniqueSessionIndices.add((s['sessionIndex'] as num).toInt());
       }
     }
+    int sessionsPerDay = uniqueSessionIndices.isNotEmpty
+        ? uniqueSessionIndices.length
+        : (_sessions.length >= totalDays && totalDays > 0 ? (_sessions.length ~/ totalDays) : _sessions.length);
     if (sessionsPerDay == 0) {
-      if (_sessions.isNotEmpty) {
-        sessionsPerDay = _sessions.length;
+      final evSessions = _eventData?['sessions'] as List? ?? _eventData?['draftState']?['step2']?['sessions'] as List?;
+      if (evSessions != null && evSessions.isNotEmpty) {
+        sessionsPerDay = evSessions.length;
       } else {
-        final evSessions = _eventData?['sessions'] as List?;
-        if (evSessions != null && evSessions.isNotEmpty) {
-          sessionsPerDay = evSessions.length;
-        } else {
-          sessionsPerDay = 2;
-        }
+        sessionsPerDay = 2;
+      }
+    }
+
+    // Build mapping from session document IDs/tempIds to {day, slot}
+    final Map<String, Map<String, int>> sessionDocSlotMap = {};
+    for (int idx = 0; idx < _sessions.length; idx++) {
+      final s = _sessions[idx];
+      final sid = (s['id'] ?? s['docId'] ?? '').toString();
+      final tempId = (s['tempId'] ?? '').toString();
+
+      int d = (s['dayIndex'] as num?)?.toInt() ?? (sessionsPerDay > 0 ? idx ~/ sessionsPerDay : 0);
+      int slot = (s['sessionIndex'] as num?)?.toInt() ?? (sessionsPerDay > 0 ? idx % sessionsPerDay : idx);
+
+      if (s['order'] != null && sessionsPerDay > 0) {
+        final orderVal = (s['order'] as num).toInt();
+        d = (orderVal - 1) ~/ sessionsPerDay;
+        slot = (orderVal - 1) % sessionsPerDay;
+      }
+
+      if (sid.isNotEmpty) {
+        sessionDocSlotMap[sid] = {'day': d, 'slot': slot};
+      }
+      if (tempId.isNotEmpty) {
+        sessionDocSlotMap[tempId] = {'day': d, 'slot': slot};
       }
     }
 
     Map<String, dynamic> getSessionForSlot(int dIdx, int sIdx) {
       final targetKey = 'day_${dIdx}_session_$sIdx';
       for (var s in _sessions) {
-        if ((s['tempId'] ?? s['id'] ?? '').toString() == targetKey) return s;
+        final sid = (s['tempId'] ?? s['id'] ?? s['docId'] ?? '').toString();
+        if (sid == targetKey) return s;
       }
-      final targetOrder = dIdx * sessionsPerDay + sIdx + 1;
+      for (var s in _sessions) {
+        final sd = (s['dayIndex'] as num?)?.toInt();
+        final ss = (s['sessionIndex'] as num?)?.toInt();
+        if (sd == dIdx && ss == sIdx) return s;
+      }
+      final arrayIdx = dIdx * sessionsPerDay + sIdx;
+      if (arrayIdx < _sessions.length) {
+        return _sessions[arrayIdx];
+      }
+      final targetOrder = (dIdx * sessionsPerDay) + sIdx + 1;
       for (var s in _sessions) {
         if ((s['order'] as num?)?.toInt() == targetOrder) return s;
       }
-      final idx = dIdx * sessionsPerDay + sIdx;
-      if (idx < _sessions.length) return _sessions[idx];
       if (sIdx < _sessions.length) return _sessions[sIdx];
       return {};
     }
@@ -337,25 +392,25 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
     for (int dayIdx = 0; dayIdx < totalDays; dayIdx++) {
       for (int sessIdx = 0; sessIdx < sessionsPerDay; sessIdx++) {
         final sess = getSessionForSlot(dayIdx, sessIdx);
-        final sId = (sess['id'] ?? 'day_${dayIdx}_session_$sessIdx').toString();
+        final sId = (sess['id'] ?? 'session_${sessIdx + 1}').toString();
         final sName = (sess['name'] ?? sess['sessionName'] ?? 'Sesi ${sessIdx + 1}').toString();
         final sStart = (sess['startTime'] ?? '').toString();
         final sEnd = (sess['endTime'] ?? '').toString();
         final timeLabel = (sStart.isNotEmpty && sEnd.isNotEmpty) ? '$sStart - $sEnd' : (sStart.isNotEmpty ? sStart : 'Jam Sesi');
 
-        // Resolve Date Label for Day dayIdx
+        // Resolve Date Label for Day dayIdx (Always relative to startDt + dayIdx)
         String dateStr = '';
-        final dVal = sess['date'] ?? sess['startDate'];
-        if (dVal is Timestamp) {
-          dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dVal.toDate());
-        } else if (dVal is String && dVal.isNotEmpty) {
-          final dt = DateTime.tryParse(dVal);
-          if (dt != null) dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dt);
-        }
-
-        if (dateStr.isEmpty && startDt != null) {
+        if (startDt != null) {
           final dayDate = startDt.add(Duration(days: dayIdx));
           dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dayDate);
+        } else {
+          final dVal = sess['date'] ?? sess['startDate'];
+          if (dVal is Timestamp) {
+            dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dVal.toDate());
+          } else if (dVal is String && dVal.isNotEmpty) {
+            final dt = DateTime.tryParse(dVal);
+            if (dt != null) dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dt);
+          }
         }
 
         if (dateStr.isEmpty) {
@@ -365,19 +420,25 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
         // Match timetable entries for this (dayIdx, sessIdx)
         final String daySessKey = 'day_${dayIdx}_session_$sessIdx';
         final List<Map<String, dynamic>> matchingTimetable = _timetable.where((t) {
-          final tsId = (t['sessionId'] ?? '').toString();
-          final tDay = (t['dayIndex'] as num?)?.toInt();
-          final tSlot = (t['slotIndex'] as num?)?.toInt();
+          final tsId = (t['sessionId'] ?? '').toString().trim();
+          final tDay = (t['dayIndex'] as num?)?.toInt() ?? (t['day'] != null ? int.tryParse(t['day'].toString()) : null);
+          final tSlot = (t['sessionIndex'] ?? t['slotIndex'] as num?)?.toInt();
 
-          // 1. Exact match on 'day_D_session_S'
-          if (tsId == daySessKey) return true;
-
-          // 2. Match on explicit dayIndex and slotIndex
+          // 1. If explicit dayIndex and slotIndex are present
           if (tDay != null && tSlot != null) {
             return tDay == dayIdx && tSlot == sessIdx;
           }
 
-          // 3. If tsId starts with 'day_', check day index in string
+          // 2. Lookup via sessionDocSlotMap (covers auto-generated Firestore doc IDs)
+          if (sessionDocSlotMap.containsKey(tsId)) {
+            final mapped = sessionDocSlotMap[tsId]!;
+            return mapped['day'] == dayIdx && mapped['slot'] == sessIdx;
+          }
+
+          // 3. Exact match on 'day_D_session_S'
+          if (tsId == daySessKey) return true;
+
+          // 4. If tsId starts with 'day_', check day index and session index in string
           if (tsId.startsWith('day_')) {
             final parts = tsId.split('_');
             if (parts.length >= 4) {
@@ -389,10 +450,20 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
             }
           }
 
-          // 4. Match if tsId equals session ID (sId) or session's tempId
-          if (sId.isNotEmpty && tsId == sId) return true;
-          final tempIdStr = (sess['tempId'] ?? '').toString();
-          if (tempIdStr.isNotEmpty && tsId == tempIdStr) return true;
+          // 5. If tDay is present, match tDay == dayIdx and sessionId matches slot
+          if (tDay != null) {
+            if (tDay == dayIdx) {
+              if (tSlot != null) return tSlot == sessIdx;
+              if (tsId == sId || tsId == 'session_${sessIdx + 1}' || tsId == 'session_$sessIdx') return true;
+              if (tsId.isEmpty) return sessIdx == 0;
+            }
+            return false;
+          }
+
+          // 6. If tDay is null (legacy data without dayIndex), default day 0 or match session ID
+          if (tsId == sId || tsId == 'session_${sessIdx + 1}' || tsId == 'session_$sessIdx') {
+            return dayIdx == 0;
+          }
 
           return false;
         }).toList();
@@ -480,7 +551,16 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
           for (var p in _proctorList) {
             final pSId = (p['sessionId'] ?? '').toString();
             final pRId = (p['roomId'] ?? '').toString();
-            if ((pSId == sId || pSId == daySessKey) && (pRId == rId || pRId == rCode || pRId == rName)) {
+            final pDayIdx = (p['dayIndex'] as num?)?.toInt();
+            final pSessIdx = (p['sessionIndex'] as num?)?.toInt();
+
+            final bool dayMatch = pDayIdx == null || pDayIdx == dayIdx;
+            final bool sessMatch = pSessIdx != null
+                ? pSessIdx == sessIdx
+                : (pSId == sId || pSId == 'session_${sessIdx + 1}' || pSId == daySessKey);
+            final bool roomMatch = (pRId == rId || pRId == rCode || pRId == rName);
+
+            if (dayMatch && sessMatch && roomMatch) {
               final tId = (p['teacherId'] ?? p['teacherName'] ?? '').toString();
               proctorName = p['teacherName'] ?? _teacherMap[tId] ?? tId;
               break;
@@ -570,6 +650,52 @@ class _AdminFullSchedulePageState extends State<AdminFullSchedulePage> {
             'pengawasList': proctorName.isNotEmpty ? proctorName : '-',
           });
         }
+      }
+    }
+
+    // Ultimate fallback: if result is still empty but _timetable has data, present timetable items
+    if (result.isEmpty && _timetable.isNotEmpty) {
+      final activeRooms = _rooms.isNotEmpty ? _rooms : [{'id': 'R1', 'name': 'Ruang 01', 'code': '01'}];
+      final primaryRoom = activeRooms.first;
+      final rName = (primaryRoom['name'] ?? primaryRoom['code'] ?? 'Ruangan').toString();
+
+      for (int i = 0; i < _timetable.length; i++) {
+        final t = _timetable[i];
+        final dIdx = (t['dayIndex'] as num?)?.toInt() ?? 0;
+        final sIdx = (t['sessionIndex'] ?? t['slotIndex'] as num?)?.toInt() ?? 0;
+        final sess = getSessionForSlot(dIdx, sIdx);
+        final sName = (sess['name'] ?? 'Sesi ${sIdx + 1}').toString();
+        final sStart = (sess['startTime'] ?? '').toString();
+        final sEnd = (sess['endTime'] ?? '').toString();
+        final timeLabel = (sStart.isNotEmpty && sEnd.isNotEmpty) ? '$sStart - $sEnd' : (sStart.isNotEmpty ? sStart : 'Jam Sesi');
+
+        String dateStr = '';
+        if (startDt != null) {
+          final dayDate = startDt.add(Duration(days: dIdx));
+          dateStr = DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(dayDate);
+        } else {
+          dateStr = 'Hari ${dIdx + 1}';
+        }
+
+        final cId = (t['classId'] ?? '').toString();
+        final cName = (t['className'] ?? _classMap[cId] ?? cId).toString();
+        final subId = (t['subjectId'] ?? '').toString();
+        final subName = (t['subjectName'] ?? _subjectMap[subId] ?? subId).toString();
+        final teachName = (t['teacherName'] ?? '').toString();
+
+        result.add({
+          'rowIndex': globalRowIdx++,
+          'dayIndex': dIdx,
+          'sessionIndex': sIdx,
+          'dateStr': dateStr,
+          'sessionName': sName,
+          'sessionTime': timeLabel,
+          'roomName': rName,
+          'classesList': cName.isNotEmpty ? cName : '-',
+          'mapelList': subName.isNotEmpty ? subName : '-',
+          'guruSoalList': (teachName.isNotEmpty && subName.isNotEmpty) ? '$teachName ($subName)' : (teachName.isNotEmpty ? teachName : '-'),
+          'pengawasList': '-',
+        });
       }
     }
 

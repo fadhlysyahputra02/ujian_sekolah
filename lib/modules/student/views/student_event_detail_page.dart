@@ -449,7 +449,11 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       final session = _sessionMap[sId];
 
       DateTime itemDate = DateTime(2099, 12, 31); // Default far future
-      if (session != null && session['date'] != null) {
+
+      if (item['dayIndex'] != null && _eventStartDate != null) {
+        final dayIdx = (item['dayIndex'] as num).toInt();
+        itemDate = _eventStartDate!.add(Duration(days: dayIdx));
+      } else if (session != null && session['date'] != null) {
         final dVal = session['date'];
         if (dVal is Timestamp) {
           itemDate = dVal.toDate();

@@ -2659,12 +2659,16 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                                               if (t['classId'] == cid && t['sessionId'] == sessionKey) {
                                                                                 t['sessionId'] = null;
                                                                                 t['sessionName'] = null;
+                                                                                t['dayIndex'] = null;
+                                                                                t['sessionIndex'] = null;
                                                                               }
                                                                             }
                                                                             if (val == religionGroupKey) {
                                                                               for (var t in relSubs) {
                                                                                 t['sessionId'] = sessionKey;
                                                                                 t['sessionName'] = session['name'];
+                                                                                t['dayIndex'] = self._selectedStep6DayIdx;
+                                                                                t['sessionIndex'] = sIdx;
                                                                               }
                                                                             } else if (val != null) {
                                                                               final target = self._timetable.firstWhere(
@@ -2674,6 +2678,8 @@ extension EventEditorWizardMobileExtension on _EventEditorWizardState {
                                                                               if (target.isNotEmpty) {
                                                                                 target['sessionId'] = sessionKey;
                                                                                 target['sessionName'] = session['name'];
+                                                                                target['dayIndex'] = self._selectedStep6DayIdx;
+                                                                                target['sessionIndex'] = sIdx;
                                                                               }
                                                                             }
                                                                           });
