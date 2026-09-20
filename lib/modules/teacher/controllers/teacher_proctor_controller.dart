@@ -451,20 +451,40 @@ class TeacherProctorController {
     required String eventId,
     required String proctorDocId,
     required String newStatus,
+    String? roomId,
   }) async {
-    if (proctorDocId.isEmpty || proctorDocId.startsWith('grid_')) return;
     try {
-      await FirebaseFirestore.instance
+      final db = FirebaseFirestore.instance;
+      final proctorColl = db
           .collection('schools')
           .doc(schoolId)
           .collection('events')
           .doc(eventId)
-          .collection('proctors')
-          .doc(proctorDocId)
-          .update({
-        'status': newStatus,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+          .collection('proctors');
+
+      if (proctorDocId.isNotEmpty && !proctorDocId.startsWith('grid_')) {
+        await proctorColl.doc(proctorDocId).set({
+          'status': newStatus,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else if (roomId != null && roomId.isNotEmpty) {
+        final snap = await proctorColl.where('roomId', isEqualTo: roomId).get();
+        if (snap.docs.isNotEmpty) {
+          for (var doc in snap.docs) {
+            await doc.reference.set({
+              'status': newStatus,
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        } else {
+          await proctorColl.doc(roomId).set({
+            'roomId': roomId,
+            'status': newStatus,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -525,6 +545,7 @@ class TeacherProctorController {
     bool isAttended = false,
     int dayIndex = 0,
     int sessionIndex = 0,
+    bool isAdminView = false,
   }) {
     final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
     final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
@@ -738,64 +759,37 @@ class TeacherProctorController {
             ],
             const SizedBox(height: 20),
             const Divider(height: 1, color: Color(0xFFF1F5F9)),
-            const SizedBox(height: 20),
-            Text(
-              'Aksi Pengawasan Sesi Ujian',
-              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      Navigator.of(ctx).pop();
-                      final newStatus = !isAttended;
-                      triggerScanFeedback(isSuccess: newStatus);
-                      await markStudentAttendance(
-                        schoolId: schoolId,
-                        eventId: eventId,
-                        roomId: roomId,
-                        seatData: seatData,
-                        isAttended: newStatus,
-                        localAttendedMap: localAttendedMap,
-                        seatNotifier: seatNotifier,
-                        dayIndex: dayIndex,
-                        sessionIndex: sessionIndex,
-                      );
-                    },
-                    icon: Icon(isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded),
-                    label: Text(isAttended ? 'Batalkan Status Hadir' : 'Tandai Hadir Manual'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isAttended ? const Color(0xFFDC2626) : const Color(0xFF059669),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (isLeftApp) ...[
-              const SizedBox(height: 10),
+            const SizedBox(height: 16),
+            if (!isAdminView) ...[
+              Text(
+                'Aksi Pengawasan Sesi Ujian',
+                style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () async {
                         Navigator.of(ctx).pop();
-                        await resetRealtimeControlWarning(
+                        final newStatus = !isAttended;
+                        triggerScanFeedback(isSuccess: newStatus);
+                        await markStudentAttendance(
                           schoolId: schoolId,
                           eventId: eventId,
+                          roomId: roomId,
                           seatData: seatData,
+                          isAttended: newStatus,
+                          localAttendedMap: localAttendedMap,
+                          seatNotifier: seatNotifier,
+                          dayIndex: dayIndex,
+                          sessionIndex: sessionIndex,
                         );
-                        seatNotifier.value++;
-                        triggerScanFeedback(isSuccess: true);
                       },
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Reset Peringatan Keluar App'),
+                      icon: Icon(isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded),
+                      label: Text(isAttended ? 'Batalkan Status Hadir' : 'Tandai Hadir Manual'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD97706),
+                        backgroundColor: isAttended ? const Color(0xFFDC2626) : const Color(0xFF059669),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -804,92 +798,155 @@ class TeacherProctorController {
                   ),
                 ],
               ),
+              if (isLeftApp) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          Navigator.of(ctx).pop();
+                          await resetRealtimeControlWarning(
+                            schoolId: schoolId,
+                            eventId: eventId,
+                            seatData: seatData,
+                          );
+                          seatNotifier.value++;
+                          triggerScanFeedback(isSuccess: true);
+                        },
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Reset Peringatan Keluar App'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD97706),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 10),
+              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+              const SizedBox(height: 16),
             ],
             // ── CATATAN PENGAWAS ─────────────────────────────────────
-            const SizedBox(height: 10),
-            const Divider(height: 1, color: Color(0xFFF1F5F9)),
-            const SizedBox(height: 16),
             Text(
               'Catatan Pengawas',
               style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
             ),
             const SizedBox(height: 4),
             Text(
-              'Buat catatan untuk kejadian yang perlu dilaporkan',
+              isAdminView
+                  ? 'Catatan yang diinputkan oleh guru pengawas untuk siswa ini'
+                  : 'Buat catatan untuk kejadian yang perlu dilaporkan',
               style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: noteController,
-              maxLines: 3,
-              minLines: 2,
-              textInputAction: TextInputAction.newline,
-              decoration: InputDecoration(
-                hintText: 'Contoh: Kedapatan mencontek, membawa catatan, dll.',
-                hintStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
-                filled: true,
-                fillColor: const Color(0xFFF8FAFC),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                enabledBorder: OutlineInputBorder(
+            if (isAdminView) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                      ? const Color(0xFFFFFBEB)
+                      : const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  border: Border.all(
+                    color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                        ? const Color(0xFFFDE68A)
+                        : const Color(0xFFE2E8F0),
+                  ),
                 ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFD97706), width: 2),
+                child: Text(
+                  (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                      ? seatData['proctorNote'].toString().trim()
+                      : 'Tidak ada catatan pengawas untuk siswa ini.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12.5,
+                    color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                        ? const Color(0xFF92400E)
+                        : const Color(0xFF64748B),
+                    fontStyle: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                        ? FontStyle.normal
+                        : FontStyle.italic,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  final noteText = noteController.text.trim();
-                  try {
-                    await saveProctorNote(
-                      schoolId: schoolId,
-                      eventId: eventId,
-                      roomId: roomId,
-                      seatData: seatData,
-                      note: noteText,
-                      dayIndex: dayIndex,
-                      sessionIndex: sessionIndex,
-                    );
-                    seatData['proctorNote'] = noteText;
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            noteText.isEmpty
-                                ? 'Catatan berhasil dihapus.'
-                                : 'Catatan pengawas berhasil disimpan.',
+            ] else ...[
+              TextField(
+                controller: noteController,
+                maxLines: 3,
+                minLines: 2,
+                textInputAction: TextInputAction.newline,
+                decoration: InputDecoration(
+                  hintText: 'Contoh: Kedapatan mencontek, membawa catatan, dll.',
+                  hintStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFD97706), width: 2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final noteText = noteController.text.trim();
+                    try {
+                      await saveProctorNote(
+                        schoolId: schoolId,
+                        eventId: eventId,
+                        roomId: roomId,
+                        seatData: seatData,
+                        note: noteText,
+                        dayIndex: dayIndex,
+                        sessionIndex: sessionIndex,
+                      );
+                      seatData['proctorNote'] = noteText;
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              noteText.isEmpty
+                                  ? 'Catatan berhasil dihapus.'
+                                  : 'Catatan pengawas berhasil disimpan.',
+                            ),
+                            backgroundColor: const Color(0xFF059669),
                           ),
-                          backgroundColor: const Color(0xFF059669),
-                        ),
-                      );
+                        );
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Gagal menyimpan catatan: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
                     }
-                  } catch (e) {
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        SnackBar(
-                          content: Text('Gagal menyimpan catatan: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
-                },
-                icon: const Icon(Icons.save_rounded, size: 16),
-                label: Text('Simpan Catatan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD97706),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  },
+                  icon: const Icon(Icons.save_rounded, size: 16),
+                  label: Text('Simpan Catatan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD97706),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
                 ),
               ),
-            ),
+            ],
             const SizedBox(height: 8),
           ],
         ),

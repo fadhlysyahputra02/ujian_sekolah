@@ -23,12 +23,13 @@ class AdminRoomMonitoringPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // School Admin monitoring view delegating to the live proctor room engine
+    // School Admin monitoring view delegating to the live proctor room engine with isAdminView: true
     return TeacherProctorRoomPage(
       eventId: eventId,
       roomId: roomId,
       dayIndex: dayIndex,
       sessionIndex: sessionIndex,
+      isAdminView: true,
     );
   }
 }

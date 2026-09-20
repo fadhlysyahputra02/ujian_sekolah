@@ -14,6 +14,7 @@ class ProctorSeatCard extends StatefulWidget {
 
   final int dayIndex;
   final int sessionIndex;
+  final bool isAdminView;
 
   const ProctorSeatCard({
     super.key,
@@ -27,6 +28,7 @@ class ProctorSeatCard extends StatefulWidget {
     required this.seatNotifier,
     this.dayIndex = 0,
     this.sessionIndex = 0,
+    this.isAdminView = false,
   });
 
   @override
@@ -221,6 +223,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
               isAttended: isAttended,
               dayIndex: widget.dayIndex,
               sessionIndex: widget.sessionIndex,
+              isAdminView: widget.isAdminView,
             ),
             borderRadius: BorderRadius.circular(14),
             child: AnimatedContainer(

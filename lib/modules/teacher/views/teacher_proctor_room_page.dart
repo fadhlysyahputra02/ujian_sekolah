@@ -19,6 +19,7 @@ class TeacherProctorRoomPage extends StatefulWidget {
   final int dayIndex;
   final int sessionIndex;
   final String docId;
+  final bool isAdminView;
 
   const TeacherProctorRoomPage({
     super.key,
@@ -27,6 +28,7 @@ class TeacherProctorRoomPage extends StatefulWidget {
     this.dayIndex = 0,
     this.sessionIndex = 0,
     this.docId = '',
+    this.isAdminView = false,
   });
 
   @override
@@ -51,6 +53,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   Stream<QuerySnapshot>? _allocationsStream;
   Stream<QuerySnapshot>? _classesStream;
   Stream<QuerySnapshot>? _studentsStream;
+  Stream<QuerySnapshot>? _teachersStream;
+  Stream<QuerySnapshot>? _proctorsStream;
   Stream<QuerySnapshot>? _makeupSessionsStream;
 
   Stream<QuerySnapshot>? _seatsStream;
@@ -171,6 +175,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     _allocationsStream = eventRef.collection('allocations').snapshots();
     _classesStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('classes').snapshots();
     _studentsStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('students').snapshots();
+    _teachersStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('teachers').snapshots();
+    _proctorsStream = eventRef.collection('proctors').snapshots();
     _makeupSessionsStream = eventRef.collection('makeup_sessions').snapshots();
   }
 
@@ -710,6 +716,26 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 }
               }
 
+              String? targetRealSessionId;
+              if (_sessionsSubcollection.isNotEmpty) {
+                final dateGroups = <String, List<Map<String, dynamic>>>{};
+                for (var s in _sessionsSubcollection) {
+                  final dStr = (s['date'] ?? s['startDate'] ?? '').toString();
+                  if (dStr.isNotEmpty) {
+                    dateGroups.putIfAbsent(dStr, () => []).add(s);
+                  }
+                }
+                final sortedDates = dateGroups.keys.toList()..sort();
+                if (widget.dayIndex < sortedDates.length) {
+                  final dayDate = sortedDates[widget.dayIndex];
+                  final daySessions = List<Map<String, dynamic>>.from(dateGroups[dayDate]!);
+                  daySessions.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
+                  if (widget.sessionIndex < daySessions.length) {
+                    targetRealSessionId = daySessions[widget.sessionIndex]['id']?.toString();
+                  }
+                }
+              }
+
               final matchedSubjects = <String>[];
               final matchedSubjectIds = <String>{};
               // For makeup rooms: also collect student IDs so realtime docs can be matched by student ID
@@ -739,26 +765,6 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 // Filter Subjects specifically for current session (e.g. Sesi 2)
                 final targetKeyStr = 'day_${widget.dayIndex}_session_${widget.sessionIndex}';
                 final targetSessionIdStr1 = 'session_${widget.sessionIndex}';
-
-                String? targetRealSessionId;
-                if (_sessionsSubcollection.isNotEmpty) {
-                  final dateGroups = <String, List<Map<String, dynamic>>>{};
-                  for (var s in _sessionsSubcollection) {
-                    final dStr = (s['date'] ?? s['startDate'] ?? '').toString();
-                    if (dStr.isNotEmpty) {
-                      dateGroups.putIfAbsent(dStr, () => []).add(s);
-                    }
-                  }
-                  final sortedDates = dateGroups.keys.toList()..sort();
-                  if (widget.dayIndex < sortedDates.length) {
-                    final dayDate = sortedDates[widget.dayIndex];
-                    final daySessions = List<Map<String, dynamic>>.from(dateGroups[dayDate]!);
-                    daySessions.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
-                    if (widget.sessionIndex < daySessions.length) {
-                      targetRealSessionId = daySessions[widget.sessionIndex]['id']?.toString();
-                    }
-                  }
-                }
 
                 for (var tItem in timetableList) {
                   final tSessionId = (tItem['sessionId'] ?? tItem['session_id'] ?? '').toString();
@@ -1326,29 +1332,68 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 }
                               }
 
-                              if (isMakeupRoom) {
-                                seatMap.clear();
-                                for (int i = 0; i < approvedStudents.length; i++) {
-                                  final st = approvedStudents[i];
-                                  final seatNum = i + 1;
-                                  seatMap[seatNum] = {
-                                    'seatNumber': seatNum,
-                                    'studentId': (st['studentId'] ?? st['id'] ?? st['nis'] ?? 'susulan_$seatNum').toString(),
-                                    'displayName': (st['studentName'] ?? st['displayName'] ?? st['name'] ?? 'Murid').toString(),
-                                    'studentName': (st['studentName'] ?? st['displayName'] ?? st['name'] ?? 'Murid').toString(),
-                                    'className': (st['className'] ?? 'Umum').toString(),
-                                    'classId': (st['className'] ?? 'Umum').toString(),
-                                    'nis': (st['nis'] ?? '').toString(),
-                                    'subjectId': (st['subjectId'] ?? '').toString(),
-                                    'subjectName': (st['subjectName'] ?? '').toString(),
-                                  };
-                                }
-                              } else if (seatMap.isEmpty) {
-                                final synthesizedSeats = _buildSeatsFromRoomAssignments(
-                                  assignedClassesInRoom: assignedClassesInRoom.isNotEmpty
-                                      ? assignedClassesInRoom
-                                      : [
-                                          {'className': 'XI IPA 1', 'count': 6},
+                              return StreamBuilder<QuerySnapshot>(
+                                stream: _teachersStream ??
+                                    FirebaseFirestore.instance
+                                        .collection('schools')
+                                        .doc(schoolId)
+                                        .collection('teachers')
+                                        .snapshots(),
+                                builder: (context, teacherSnap) {
+                                  final teacherDocs = teacherSnap.data?.docs ?? [];
+                                  final teachersMap = <String, String>{};
+                                  for (var tDoc in teacherDocs) {
+                                    final tData = tDoc.data() as Map<String, dynamic>;
+                                    final tName = (tData['name'] ?? tData['displayName'] ?? tDoc.id).toString().trim();
+                                    if (tName.isNotEmpty) {
+                                      teachersMap[tDoc.id] = tName;
+                                      teachersMap[tDoc.id.toLowerCase()] = tName;
+                                      if (tData['uid'] != null) {
+                                        final uid = tData['uid'].toString().trim();
+                                        teachersMap[uid] = tName;
+                                        teachersMap[uid.toLowerCase()] = tName;
+                                      }
+                                      if (tData['id'] != null) {
+                                        final id = tData['id'].toString().trim();
+                                        teachersMap[id] = tName;
+                                        teachersMap[id.toLowerCase()] = tName;
+                                      }
+                                      if (tData['teacherId'] != null) {
+                                        final tid = tData['teacherId'].toString().trim();
+                                        teachersMap[tid] = tName;
+                                        teachersMap[tid.toLowerCase()] = tName;
+                                      }
+                                      if (tData['nip'] != null) {
+                                        final nip = tData['nip'].toString().trim();
+                                        teachersMap[nip] = tName;
+                                      }
+                                      teachersMap[tName.toLowerCase()] = tName;
+                                    }
+                                  }
+
+                                  if (isMakeupRoom) {
+                                    seatMap.clear();
+                                    for (int i = 0; i < approvedStudents.length; i++) {
+                                      final st = approvedStudents[i];
+                                      final seatNum = i + 1;
+                                      seatMap[seatNum] = {
+                                        'seatNumber': seatNum,
+                                        'studentId': (st['studentId'] ?? st['id'] ?? st['nis'] ?? 'susulan_$seatNum').toString(),
+                                        'displayName': (st['studentName'] ?? st['displayName'] ?? st['name'] ?? 'Murid').toString(),
+                                        'studentName': (st['studentName'] ?? st['displayName'] ?? st['name'] ?? 'Murid').toString(),
+                                        'className': (st['className'] ?? 'Umum').toString(),
+                                        'classId': (st['className'] ?? 'Umum').toString(),
+                                        'nis': (st['nis'] ?? '').toString(),
+                                        'subjectId': (st['subjectId'] ?? '').toString(),
+                                        'subjectName': (st['subjectName'] ?? '').toString(),
+                                      };
+                                    }
+                                  } else if (seatMap.isEmpty) {
+                                    final synthesizedSeats = _buildSeatsFromRoomAssignments(
+                                      assignedClassesInRoom: assignedClassesInRoom.isNotEmpty
+                                          ? assignedClassesInRoom
+                                          : [
+                                              {'className': 'XI IPA 1', 'count': 6},
                                           {'className': 'XI IPS 1', 'count': 6},
                                         ],
                                   capacity: roomCapacity,
@@ -1558,27 +1603,128 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                               filteredSeatIndices.sort();
 
                               return StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance
-                                    .collection('schools')
-                                    .doc(schoolId)
-                                    .collection('events')
-                                    .doc(widget.eventId)
-                                    .collection('proctors')
-                                    .snapshots(),
+                                stream: _proctorsStream ??
+                                    FirebaseFirestore.instance
+                                        .collection('schools')
+                                        .doc(schoolId)
+                                        .collection('events')
+                                        .doc(widget.eventId)
+                                        .collection('proctors')
+                                        .snapshots(),
                                 builder: (context, proctorSnap) {
                                   final proctors = proctorSnap.data?.docs ?? [];
                                   String currentStatus = 'Belum Dimulai';
                                   String realProctorDocId = widget.docId;
+                                  String resolvedProctorName = '';
+
+                                  String cleanStr(String s) {
+                                    return s
+                                        .toLowerCase()
+                                        .replaceAll('ruangan', '')
+                                        .replaceAll('ruang', '')
+                                        .replaceAll('room', '')
+                                        .replaceAll('r.', '')
+                                        .replaceAll('_', '')
+                                        .replaceAll('-', '')
+                                        .replaceAll(' ', '')
+                                        .trim();
+                                  }
+
+                                  final cleanRId = cleanStr(widget.roomId);
+                                  final cleanRName = cleanStr(roomName);
+
+                                  bool isRoomMatch(String rawRoom) {
+                                    final r = rawRoom.trim();
+                                    if (r.isEmpty) return false;
+                                    if (r == widget.roomId || r == roomName || roomAliases.contains(r)) return true;
+                                    final cr = cleanStr(r);
+                                    if (cr.isEmpty) return false;
+                                    if (cleanRId.isNotEmpty && (cr == cleanRId || cr.contains(cleanRId) || cleanRId.contains(cr))) return true;
+                                    if (cleanRName.isNotEmpty && (cr == cleanRName || cr.contains(cleanRName) || cleanRName.contains(cr))) return true;
+                                    return false;
+                                  }
 
                                   for (var pDoc in proctors) {
                                     final pData = pDoc.data() as Map<String, dynamic>;
-                                    final pRoom = (pData['roomId'] ?? pData['roomCode'] ?? '').toString();
-                                    if (roomAliases.contains(pRoom) || pRoom == widget.roomId) {
+                                    final pRoom = (pData['roomId'] ?? pData['roomCode'] ?? pData['roomName'] ?? '').toString();
+                                    final pSess = (pData['sessionId'] ?? '').toString();
+                                    final pDay = (pData['dayIndex'] as num?)?.toInt();
+                                    final pSessIdx = (pData['sessionIndex'] as num?)?.toInt();
+
+                                    if (isRoomMatch(pRoom) || isRoomMatch(pDoc.id)) {
                                       currentStatus = pData['status'] ?? 'Belum Dimulai';
                                       if (realProctorDocId.isEmpty || realProctorDocId.startsWith('grid_')) {
                                         realProctorDocId = pDoc.id;
                                       }
-                                      break;
+                                    }
+
+                                    final dayMatches = (pDay == null && !pSess.contains('day_'))
+                                        ? true
+                                        : (pDay == widget.dayIndex || pDay == widget.dayIndex + 1 || pSess.contains('day_${widget.dayIndex}'));
+                                    final sessMatches = (pSessIdx == null && pSess.isEmpty)
+                                        ? true
+                                        : (pSessIdx == widget.sessionIndex || pSessIdx == widget.sessionIndex + 1 || pSess == targetRealSessionId || pSess == 'session_${widget.sessionIndex}');
+
+                                    if ((isRoomMatch(pRoom) || isRoomMatch(pDoc.id)) && dayMatches && sessMatches) {
+                                      final tId = (pData['teacherId'] ?? pData['id'] ?? '').toString().trim();
+                                      final tName = (pData['teacherName'] ?? '').toString().trim();
+                                      final res = tName.isNotEmpty ? (teachersMap[tName] ?? tName) : (teachersMap[tId] ?? tId);
+                                      if (res.isNotEmpty && res != '-') {
+                                        resolvedProctorName = res;
+                                      }
+                                    }
+                                  }
+
+                                  if (resolvedProctorName.isEmpty) {
+                                    final rawProctorGrid = <String, String>{};
+                                    void collectProctors(dynamic map) {
+                                      if (map is Map) {
+                                        map.forEach((k, v) {
+                                          if (v != null && v.toString().trim().isNotEmpty) {
+                                            rawProctorGrid[k.toString()] = v.toString().trim();
+                                          }
+                                        });
+                                      }
+                                    }
+
+                                    collectProctors(draftState?['step7']?['proctorGrid']);
+                                    collectProctors(draftState?['proctorGrid']);
+                                    collectProctors(evData['proctorGrid']);
+                                    collectProctors(evData['roomLayouts']?['proctorGrid']);
+                                    collectProctors(evData['draft_state']?['step7']?['proctorGrid']);
+
+                                    final keysToTry = [
+                                      'day_${widget.dayIndex}_session_${widget.sessionIndex}_room_${widget.roomId}',
+                                      'day_${widget.dayIndex}_session_${widget.sessionIndex}_room_$roomName',
+                                      'day_${widget.dayIndex + 1}_session_${widget.sessionIndex + 1}_room_${widget.roomId}',
+                                      'day_${widget.dayIndex + 1}_session_${widget.sessionIndex + 1}_room_$roomName',
+                                      'day_${widget.dayIndex}_session_${widget.sessionIndex + 1}_room_${widget.roomId}',
+                                      'day_${widget.dayIndex}_session_${widget.sessionIndex + 1}_room_$roomName',
+                                      'day_${widget.dayIndex}_session_${widget.sessionIndex}_${widget.roomId}',
+                                      'proctor_d${widget.dayIndex}_s${widget.sessionIndex}_${widget.roomId}',
+                                      'day_${widget.dayIndex}_session_0_room_${widget.roomId}',
+                                    ];
+
+                                    for (var k in keysToTry) {
+                                      if (rawProctorGrid.containsKey(k)) {
+                                        final pVal = rawProctorGrid[k]!.trim();
+                                        if (pVal.isNotEmpty) {
+                                          resolvedProctorName = teachersMap[pVal] ?? pVal;
+                                          break;
+                                        }
+                                      }
+                                    }
+
+                                    if (resolvedProctorName.isEmpty) {
+                                      for (var entry in rawProctorGrid.entries) {
+                                        final k = entry.key.toLowerCase().trim();
+                                        final v = entry.value.trim();
+                                        if (v.isEmpty) continue;
+                                        if (isRoomMatch(k) && (k.contains('session_${widget.sessionIndex}') || k.contains('session_${widget.sessionIndex + 1}') || !k.contains('session'))) {
+                                          resolvedProctorName = teachersMap[v] ?? v;
+                                          break;
+                                        }
+                                      }
                                     }
                                   }
 
@@ -1616,6 +1762,10 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                               sessionIndex: widget.sessionIndex,
                                               allowedSubjectNames: cleanActiveSubjectNames,
                                               allowedSubjectIds: matchedSubjectIds,
+                                              currentStatus: currentStatus,
+                                              proctorDocId: realProctorDocId,
+                                              proctorName: resolvedProctorName,
+                                              isAdminView: widget.isAdminView,
                                             ),
                                             const SizedBox(height: 20),
 
@@ -1796,6 +1946,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                       seatNotifier: _seatNotifier,
                                                       dayIndex: widget.dayIndex,
                                                       sessionIndex: widget.sessionIndex,
+                                                      isAdminView: widget.isAdminView,
                                                     );
                                                   },
                                                 );
@@ -1853,27 +2004,29 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 );
                               },
                             );
-                            },
-                          );
-                        },
-                      );
-                    },
-                  );
-                },
-              );
-            },
-          );
-        },
-      );
-    },
-  );
-        },
-      );
-    },
-  );
-        },
-      ),
-    ),
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
     );
+  },
+);
+        },
+      );
+    },
+  );
+        },
+      );
+    },
+  ),
+    ),
+  );
   }
 }

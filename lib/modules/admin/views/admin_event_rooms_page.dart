@@ -229,10 +229,25 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
 
                   // Proctor Grid
                   final proctorGrid = <String, String>{};
-                  final rLayouts = allocData['roomLayouts'] as Map<String, dynamic>? ?? evData['roomLayouts'] as Map<String, dynamic>? ?? {};
-                  if (rLayouts['proctorGrid'] is Map) {
-                    (rLayouts['proctorGrid'] as Map).forEach((k, v) => proctorGrid[k.toString()] = v.toString());
+                  void collectProctors(dynamic map) {
+                    if (map is Map) {
+                      map.forEach((k, v) {
+                        if (v != null && v.toString().trim().isNotEmpty) {
+                          proctorGrid[k.toString()] = v.toString().trim();
+                        }
+                      });
+                    }
                   }
+
+                  final rLayouts = allocData['roomLayouts'] as Map<String, dynamic>? ?? evData['roomLayouts'] as Map<String, dynamic>? ?? {};
+                  collectProctors(rLayouts['proctorGrid']);
+                  collectProctors(allocData['proctorGrid']);
+                  collectProctors(evData['proctorGrid']);
+                  collectProctors(draftState?['step7']?['proctorGrid']);
+                  collectProctors(draftState?['proctorGrid']);
+                  collectProctors(evData['draft_state']?['step7']?['proctorGrid']);
+                  collectProctors(evData['draft_state']?['proctorGrid']);
+                  collectProctors(allocData['draftState']?['step7']?['proctorGrid']);
 
                   // Stream seats for this allocation
                   return StreamBuilder<QuerySnapshot>(
@@ -341,24 +356,82 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
                                     submissionsMap[docId] = data;
                                   }
 
-                                  return _buildBodyContent(
-                                    context: context,
-                                    sortedDates: sortedDates,
-                                    dateGroups: dateGroups,
-                                    daySessions: daySessions,
-                                    currentDayDate: currentDayDate,
-                                    currentSession: currentSession,
-                                    currentSessionTime: currentSessionTime,
-                                    currentSessionStatus: currentSessionStatus,
-                                    sortedRoomIds: sortedRoomIds,
-                                    roomsInfoMap: roomsInfoMap,
-                                    roomSeatsMap: roomSeatsMap,
-                                    proctorGrid: proctorGrid,
-                                    attendedKeys: attendedKeys,
-                                    realtimeMap: realtimeMap,
-                                    submissionsMap: submissionsMap,
-                                    evData: evData,
-                                    draftState: draftState,
+                                  return StreamBuilder<QuerySnapshot>(
+                                    stream: db.collection('schools').doc(effectiveSchoolId).collection('teachers').snapshots(),
+                                    builder: (context, teacherSnap) {
+                                      return StreamBuilder<QuerySnapshot>(
+                                        stream: db.collection('schools').doc(effectiveSchoolId).collection('users').where('role', isEqualTo: 'teacher').snapshots(),
+                                        builder: (context, userTeacherSnap) {
+                                          final teacherDocs = teacherSnap.data?.docs ?? [];
+                                          final userTeacherDocs = userTeacherSnap.data?.docs ?? [];
+                                          final teachersMap = <String, String>{};
+
+                                          void registerTeacher(String docId, Map<String, dynamic> tData) {
+                                            final tName = (tData['displayName'] ?? tData['name'] ?? tData['fullName'] ?? '').toString().trim();
+                                            if (tName.isNotEmpty) {
+                                              teachersMap[docId] = tName;
+                                              teachersMap[docId.toLowerCase()] = tName;
+                                              if (tData['uid'] != null) {
+                                                final uid = tData['uid'].toString().trim();
+                                                teachersMap[uid] = tName;
+                                                teachersMap[uid.toLowerCase()] = tName;
+                                              }
+                                              if (tData['id'] != null) {
+                                                final id = tData['id'].toString().trim();
+                                                teachersMap[id] = tName;
+                                                teachersMap[id.toLowerCase()] = tName;
+                                              }
+                                              if (tData['teacherId'] != null) {
+                                                final tid = tData['teacherId'].toString().trim();
+                                                teachersMap[tid] = tName;
+                                                teachersMap[tid.toLowerCase()] = tName;
+                                              }
+                                              if (tData['nip'] != null) {
+                                                final nip = tData['nip'].toString().trim();
+                                                teachersMap[nip] = tName;
+                                              }
+                                              teachersMap[tName.toLowerCase()] = tName;
+                                            }
+                                          }
+
+                                          for (var tDoc in teacherDocs) {
+                                            registerTeacher(tDoc.id, tDoc.data() as Map<String, dynamic>);
+                                          }
+                                          for (var uDoc in userTeacherDocs) {
+                                            registerTeacher(uDoc.id, uDoc.data() as Map<String, dynamic>);
+                                          }
+
+                                          return StreamBuilder<QuerySnapshot>(
+                                            stream: eventRef.collection('proctors').snapshots(),
+                                            builder: (context, proctorSnap) {
+                                              final proctorDocs = proctorSnap.data?.docs ?? [];
+
+                                              return _buildBodyContent(
+                                                context: context,
+                                                sortedDates: sortedDates,
+                                                dateGroups: dateGroups,
+                                                daySessions: daySessions,
+                                                currentDayDate: currentDayDate,
+                                                currentSession: currentSession,
+                                                currentSessionTime: currentSessionTime,
+                                                currentSessionStatus: currentSessionStatus,
+                                                sortedRoomIds: sortedRoomIds,
+                                                roomsInfoMap: roomsInfoMap,
+                                                roomSeatsMap: roomSeatsMap,
+                                                proctorGrid: proctorGrid,
+                                                proctorDocs: proctorDocs,
+                                                teachersMap: teachersMap,
+                                                attendedKeys: attendedKeys,
+                                                realtimeMap: realtimeMap,
+                                                submissionsMap: submissionsMap,
+                                                evData: evData,
+                                                draftState: draftState,
+                                              );
+                                            },
+                                          );
+                                        },
+                                      );
+                                    },
                                   );
                                 },
                               );
@@ -390,6 +463,8 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
     required Map<String, Map<String, dynamic>> roomsInfoMap,
     required Map<String, List<Map<String, dynamic>>> roomSeatsMap,
     required Map<String, String> proctorGrid,
+    required List<QueryDocumentSnapshot> proctorDocs,
+    required Map<String, String> teachersMap,
     required Set<String> attendedKeys,
     required Map<String, Map<String, dynamic>> realtimeMap,
     required Map<String, Map<String, dynamic>> submissionsMap,
@@ -711,10 +786,21 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
                         final rSeats = roomSeatsMap[rId] ?? [];
                         final rCap = (rInfo['capacity'] as num?)?.toInt() ?? rSeats.length;
 
-                        // Proctor key: e.g. proctor_d{dayIndex}_s{sessionIndex}_{roomId}
-                        final pKey1 = 'proctor_d${_selectedDayIndex}_s${_selectedSessionIndex}_$rId';
-                        final pKey2 = 'd${_selectedDayIndex}_s${_selectedSessionIndex}_$rId';
-                        final proctorName = proctorGrid[pKey1] ?? proctorGrid[pKey2] ?? 'Belum ditentukan';
+                        final rCode = (rInfo['code'] ?? rInfo['name'] ?? rId).toString();
+                        final sessionId = (currentSession['id'] ?? currentSession['sessionId'] ?? '').toString();
+
+                        // Proctor resolution
+                        final proctorName = _resolveProctorName(
+                          roomId: rId,
+                          roomName: rName,
+                          roomCode: rCode,
+                          dayIndex: _selectedDayIndex,
+                          sessionIndex: _selectedSessionIndex,
+                          sessionId: sessionId,
+                          proctorDocs: proctorDocs,
+                          proctorGrid: proctorGrid,
+                          teachersMap: teachersMap,
+                        );
 
                         // Calculate live counts in room
                         int totalHadir = 0;
@@ -968,5 +1054,178 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
         style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w800, color: color),
       ),
     );
+  }
+
+  String _resolveProctorName({
+    required String roomId,
+    required String roomName,
+    required String roomCode,
+    required int dayIndex,
+    required int sessionIndex,
+    required String sessionId,
+    required List<QueryDocumentSnapshot> proctorDocs,
+    required Map<String, String> proctorGrid,
+    required Map<String, String> teachersMap,
+  }) {
+    String cleanStr(String s) {
+      return s
+          .toLowerCase()
+          .replaceAll('ruangan', '')
+          .replaceAll('ruang', '')
+          .replaceAll('room', '')
+          .replaceAll('r.', '')
+          .replaceAll('_', '')
+          .replaceAll('-', '')
+          .replaceAll(' ', '')
+          .trim();
+    }
+
+    final cleanRId = cleanStr(roomId);
+    final cleanRName = cleanStr(roomName);
+    final cleanRCode = cleanStr(roomCode);
+
+    bool isRoomMatch(String rawRoom) {
+      final r = rawRoom.trim();
+      if (r.isEmpty) return false;
+      if (r == roomId || r == roomName || r == roomCode) return true;
+      final cr = cleanStr(r);
+      if (cr.isEmpty) return false;
+      if (cleanRId.isNotEmpty && (cr == cleanRId || cr.contains(cleanRId) || cleanRId.contains(cr))) return true;
+      if (cleanRName.isNotEmpty && (cr == cleanRName || cr.contains(cleanRName) || cleanRName.contains(cr))) return true;
+      if (cleanRCode.isNotEmpty && (cr == cleanRCode || cr.contains(cleanRCode) || cleanRCode.contains(cr))) return true;
+      return false;
+    }
+
+    bool isDayMatch(int? dIdx, String rawSess) {
+      if (dIdx != null && (dIdx == dayIndex || dIdx == dayIndex + 1 || (dayIndex > 0 && dIdx == dayIndex - 1))) {
+        return true;
+      }
+      final s = rawSess.toLowerCase();
+      if (s.contains('day_$dayIndex') || s.contains('day_${dayIndex + 1}') || s.contains('d$dayIndex') || s.contains('d${dayIndex + 1}')) {
+        return true;
+      }
+      return false;
+    }
+
+    bool isSessionMatch(int? sIdx, String rawSess) {
+      if (sIdx != null && (sIdx == sessionIndex || sIdx == sessionIndex + 1 || (sessionIndex > 0 && sIdx == sessionIndex - 1))) {
+        return true;
+      }
+      final s = rawSess.toLowerCase();
+      if (s.contains('session_$sessionIndex') ||
+          s.contains('session_${sessionIndex + 1}') ||
+          s.contains('s$sessionIndex') ||
+          s.contains('s${sessionIndex + 1}') ||
+          s.contains('sesi_$sessionIndex') ||
+          s.contains('sesi_${sessionIndex + 1}') ||
+          rawSess == sessionId) {
+        return true;
+      }
+      return false;
+    }
+
+    String resolveTeacherString(String rawTeacher) {
+      final t = rawTeacher.trim();
+      if (t.isEmpty) return '';
+      if (teachersMap.containsKey(t)) return teachersMap[t]!;
+      if (teachersMap.containsKey(t.toLowerCase())) return teachersMap[t.toLowerCase()]!;
+      return t;
+    }
+
+    // 1. Check direct subcollection 'proctors'
+    for (var pDoc in proctorDocs) {
+      final pData = pDoc.data() as Map<String, dynamic>;
+      final pRoom = (pData['roomId'] ?? pData['roomCode'] ?? pData['roomName'] ?? '').toString();
+      final pSess = (pData['sessionId'] ?? '').toString();
+      final pDay = (pData['dayIndex'] as num?)?.toInt();
+      final pSessIdx = (pData['sessionIndex'] as num?)?.toInt();
+
+      final roomMatches = isRoomMatch(pRoom) || isRoomMatch(pDoc.id);
+      final dayMatches = (pDay == null && !pSess.contains('day_')) ? true : isDayMatch(pDay, pSess);
+      final sessMatches = (pSessIdx == null && pSess.isEmpty) ? true : isSessionMatch(pSessIdx, pSess);
+
+      if (roomMatches && dayMatches && sessMatches) {
+        final tName = (pData['teacherName'] ?? '').toString().trim();
+        final tId = (pData['teacherId'] ?? pData['id'] ?? '').toString().trim();
+        final resolved = tName.isNotEmpty ? resolveTeacherString(tName) : resolveTeacherString(tId);
+        if (resolved.isNotEmpty && resolved != '-') return resolved;
+      }
+    }
+
+    // 2. Check direct proctorGrid exact keys first
+    final directKeys = [
+      'day_${dayIndex}_session_${sessionIndex}_room_$roomId',
+      'day_${dayIndex}_session_${sessionIndex}_room_$roomName',
+      'day_${dayIndex}_session_${sessionIndex}_room_$roomCode',
+      'day_${dayIndex + 1}_session_${sessionIndex + 1}_room_$roomId',
+      'day_${dayIndex + 1}_session_${sessionIndex + 1}_room_$roomName',
+      'day_${dayIndex + 1}_session_${sessionIndex + 1}_room_$roomCode',
+      'day_${dayIndex}_session_${sessionIndex + 1}_room_$roomId',
+      'day_${dayIndex}_session_${sessionIndex + 1}_room_$roomName',
+      'day_${dayIndex}_session_${sessionIndex}_$roomId',
+      'day_${dayIndex}_session_${sessionIndex}_$roomName',
+      'proctor_d${dayIndex}_s${sessionIndex}_$roomId',
+      'd${dayIndex}_s${sessionIndex}_$roomId',
+      'day_${dayIndex}_session_0_room_$roomId',
+      'day_${dayIndex}_session_0_room_$roomName',
+    ];
+
+    for (var k in directKeys) {
+      if (proctorGrid.containsKey(k)) {
+        final val = proctorGrid[k]?.trim() ?? '';
+        if (val.isNotEmpty) {
+          final resolved = resolveTeacherString(val);
+          if (resolved.isNotEmpty) return resolved;
+        }
+      }
+    }
+
+    // 3. Scan all entries in proctorGrid with flexible parsing
+    for (var entry in proctorGrid.entries) {
+      final key = entry.key.toLowerCase().trim();
+      final val = entry.value.trim();
+      if (val.isEmpty) continue;
+
+      final parts = key.split('_');
+      int? kDay;
+      int? kSess;
+      String kRoom = '';
+
+      if (parts.length >= 6 && parts[0].startsWith('day') && parts[2].startsWith('session') && parts[4].startsWith('room')) {
+        kDay = int.tryParse(parts[1]);
+        kSess = int.tryParse(parts[3]);
+        kRoom = parts.sublist(5).join('_');
+      } else if (parts.length >= 4 && parts[0].startsWith('day') && parts[2].startsWith('session')) {
+        kDay = int.tryParse(parts[1]);
+        kSess = int.tryParse(parts[3]);
+        kRoom = parts.sublist(4).join('_');
+      }
+
+      final bool dMatch = (kDay != null)
+          ? (kDay == dayIndex || kDay == dayIndex + 1)
+          : (key.contains('day_$dayIndex') || key.contains('day_${dayIndex + 1}') || !key.contains('day'));
+      final bool sMatch = (kSess != null)
+          ? (kSess == sessionIndex || kSess == sessionIndex + 1)
+          : (key.contains('session_$sessionIndex') || key.contains('session_${sessionIndex + 1}') || !key.contains('session'));
+      final bool rMatch = kRoom.isNotEmpty ? isRoomMatch(kRoom) : isRoomMatch(key);
+
+      if (dMatch && sMatch && rMatch) {
+        final resolved = resolveTeacherString(val);
+        if (resolved.isNotEmpty) return resolved;
+      }
+    }
+
+    // 4. Fallback: match room only within proctorGrid if day/session not specific
+    for (var entry in proctorGrid.entries) {
+      final key = entry.key.toLowerCase().trim();
+      final val = entry.value.trim();
+      if (val.isEmpty) continue;
+      if (isRoomMatch(key)) {
+        final resolved = resolveTeacherString(val);
+        if (resolved.isNotEmpty) return resolved;
+      }
+    }
+
+    return 'Belum ditentukan';
   }
 }

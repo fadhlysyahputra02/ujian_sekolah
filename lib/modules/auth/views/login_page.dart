@@ -489,7 +489,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Gunakan Aplikasi CBT Exambro pada smartphone Anda, atau buka Web melalui Komputer / Laptop (PC).',
+                                'Gunakan Aplikasi SesiCermat Exam pada smartphone Anda, atau buka Web melalui Komputer / Laptop (PC).',
                                 style: GoogleFonts.inter(
                                   fontSize: 12.5,
                                   color: const Color(0xFF9A3412),

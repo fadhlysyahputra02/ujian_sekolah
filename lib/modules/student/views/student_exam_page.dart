@@ -71,7 +71,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
   // Countdown Timer (ValueNotifier to avoid rebuilding the entire page every second!)
   Timer? _timer;
   late final ValueNotifier<int> _remainingSecondsNotifier = ValueNotifier<int>(3600);
-  DateTime? _targetEndDateTime;
   bool _isSubmitting = false;
 
   // Draft Debounce & Periodic Sync Timers
@@ -93,13 +92,13 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       onLeft: () {
         if (!_isSubmitting) {
           debugPrint('⚠️ WebExamMonitor trigger: Student left browser tab/window!');
+          _persistRemainingSeconds();
           _updateRealtimeControlStatus('left_app');
         }
       },
       onReturned: () {
         if (!_isSubmitting) {
           debugPrint('✅ WebExamMonitor trigger: Student focused browser tab/window!');
-          _recalibrateTimer();
           _updateRealtimeControlStatus('in_progress');
         }
       },
@@ -113,6 +112,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
   @override
   void dispose() {
+    _persistRemainingSeconds();
     if (_currentRealtimeStatus != 'completed') {
       _markLeftAppDirectly();
     }
@@ -214,10 +214,10 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
       debugPrint('⚠️ Lifecycle trigger (Observer): Student exited app!');
+      _persistRemainingSeconds();
       _updateRealtimeControlStatus('left_app');
     } else if (state == AppLifecycleState.resumed) {
       debugPrint('✅ Lifecycle trigger (Observer): Student returned to app!');
-      _recalibrateTimer();
       _updateRealtimeControlStatus('in_progress');
     }
   }
@@ -467,82 +467,86 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     return count;
   }
 
-  /// Recalibrates remaining seconds based on absolute target end time
-  void _recalibrateTimer() {
-    if (_targetEndDateTime != null) {
-      final remaining = _targetEndDateTime!.difference(DateTime.now()).inSeconds;
-      if (remaining > 0) {
-        _remainingSecondsNotifier.value = remaining;
-      } else {
-        _remainingSecondsNotifier.value = 0;
-        _timer?.cancel();
-        _handleTimeExpired();
-      }
-    }
+  Future<void> _persistRemainingSeconds() async {
+    try {
+      String studentDocId = widget.studentId.trim();
+      if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
+      if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
+      final String cleanSubjId = widget.subjectId.trim().toLowerCase();
+      final String cacheKey = 'exam_remaining_${widget.schoolId}_${widget.eventId}_${cleanSubjId}_$studentDocId';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(cacheKey, _remainingSecondsNotifier.value);
+    } catch (_) {}
   }
 
-  /// Calculates remaining seconds from current time until endTimeStr (e.g. "14:30") or stored target end time
+  /// Calculates duration and starts countdown timer. Pauses on app exit and resumes without loss of duration.
   Future<void> _calculateDurationAndStartTimer() async {
     int totalSecs = 3600; // Default 60 mins fallback
-    final now = DateTime.now();
 
     String studentDocId = widget.studentId.trim();
     if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
     if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
 
     final String cleanSubjId = widget.subjectId.trim().toLowerCase();
-    final String cacheKey = 'exam_target_end_${widget.schoolId}_${widget.eventId}_${cleanSubjId}_$studentDocId';
+    final String cacheKey = 'exam_remaining_${widget.schoolId}_${widget.eventId}_${cleanSubjId}_$studentDocId';
 
     try {
-      DateTime? targetEnd;
+      final prefs = await SharedPreferences.getInstance();
+      final savedSecs = prefs.getInt(cacheKey);
 
-      if (widget.endTimeStr.isNotEmpty) {
-        final endParts = widget.endTimeStr.split(':');
-        if (endParts.length >= 2) {
-          final eh = int.parse(endParts[0].trim());
-          final em = int.parse(endParts[1].trim());
-          int es = 0;
-          if (endParts.length >= 3) {
-            es = int.tryParse(endParts[2].trim()) ?? 0;
-          }
+      if (savedSecs != null && savedSecs > 0) {
+        totalSecs = savedSecs;
+      } else {
+        int calculatedDuration = 0;
 
-          final scheduledEnd = DateTime(now.year, now.month, now.day, eh, em, es);
-          if (scheduledEnd.isAfter(now)) {
-            targetEnd = scheduledEnd;
-          } else if (!widget.isMakeup) {
-            targetEnd = scheduledEnd; // Already past scheduled end
-          }
-        }
-      }
-
-      // For makeup exams or if endTimeStr was not set or already past in makeup
-      if (targetEnd == null || (widget.isMakeup && targetEnd.isBefore(now))) {
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          final savedIso = prefs.getString(cacheKey);
-          if (savedIso != null && savedIso.isNotEmpty) {
-            final parsed = DateTime.tryParse(savedIso);
-            if (parsed != null) {
-              targetEnd = parsed;
+        // 1. Try difference between startTimeStr and endTimeStr
+        if (widget.startTimeStr.isNotEmpty && widget.endTimeStr.isNotEmpty) {
+          final sParts = widget.startTimeStr.split(':');
+          final eParts = widget.endTimeStr.split(':');
+          if (sParts.length >= 2 && eParts.length >= 2) {
+            final sh = int.parse(sParts[0].trim());
+            final sm = int.parse(sParts[1].trim());
+            final eh = int.parse(eParts[0].trim());
+            final em = int.parse(eParts[1].trim());
+            final startMins = sh * 60 + sm;
+            final endMins = eh * 60 + em;
+            final diff = (endMins - startMins) * 60;
+            if (diff > 0) {
+              calculatedDuration = diff;
             }
           }
-
-          if (targetEnd == null) {
-            targetEnd = now.add(const Duration(hours: 2));
-            await prefs.setString(cacheKey, targetEnd.toIso8601String());
-          }
-        } catch (_) {
-          targetEnd ??= now.add(const Duration(hours: 2));
         }
-      }
 
-      _targetEndDateTime = targetEnd;
-      final remaining = targetEnd.difference(now).inSeconds;
-      totalSecs = remaining > 0 ? remaining : 0;
+        // 2. Fallback: if only endTimeStr is available
+        if (calculatedDuration <= 0 && widget.endTimeStr.isNotEmpty) {
+          final endParts = widget.endTimeStr.split(':');
+          if (endParts.length >= 2) {
+            final eh = int.parse(endParts[0].trim());
+            final em = int.parse(endParts[1].trim());
+            int es = 0;
+            if (endParts.length >= 3) {
+              es = int.tryParse(endParts[2].trim()) ?? 0;
+            }
+            final now = DateTime.now();
+            final endDateTime = DateTime(now.year, now.month, now.day, eh, em, es);
+            final diff = endDateTime.difference(now).inSeconds;
+            if (diff > 0) {
+              calculatedDuration = diff;
+            }
+          }
+        }
+
+        if (calculatedDuration > 0) {
+          totalSecs = calculatedDuration;
+        } else {
+          totalSecs = widget.isMakeup ? 7200 : 3600;
+        }
+
+        await prefs.setInt(cacheKey, totalSecs);
+      }
     } catch (e) {
-      debugPrint("Error calculating remaining time: $e");
-      totalSecs = 3600;
-      _targetEndDateTime = now.add(Duration(seconds: totalSecs));
+      debugPrint("Error calculating remaining duration: $e");
+      totalSecs = widget.isMakeup ? 7200 : 3600;
     }
 
     _remainingSecondsNotifier.value = totalSecs;
@@ -556,22 +560,14 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_targetEndDateTime != null) {
-        final remaining = _targetEndDateTime!.difference(DateTime.now()).inSeconds;
-        if (remaining > 0) {
-          _remainingSecondsNotifier.value = remaining;
-        } else {
-          _remainingSecondsNotifier.value = 0;
-          _timer?.cancel();
-          _handleTimeExpired();
+      if (_remainingSecondsNotifier.value > 0) {
+        _remainingSecondsNotifier.value--;
+        if (_remainingSecondsNotifier.value % 10 == 0) {
+          _persistRemainingSeconds();
         }
       } else {
-        if (_remainingSecondsNotifier.value > 0) {
-          _remainingSecondsNotifier.value--;
-        } else {
-          _timer?.cancel();
-          _handleTimeExpired();
-        }
+        _timer?.cancel();
+        _handleTimeExpired();
       }
     });
   }
@@ -989,7 +985,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
       if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
       final String cleanSubjId = widget.subjectId.trim().toLowerCase();
-      final String cacheKey = 'exam_target_end_${widget.schoolId}_${widget.eventId}_${cleanSubjId}_$studentDocId';
+      final String cacheKey = 'exam_remaining_${widget.schoolId}_${widget.eventId}_${cleanSubjId}_$studentDocId';
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(cacheKey);
     } catch (_) {}
