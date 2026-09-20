@@ -22,3 +22,41 @@ bool isWebMobile() {
 
   return isMobileUA || isMobilePlatform;
 }
+
+/// Mendapatkan deskripsi browser dan OS untuk Web
+String getClientDeviceLabel() {
+  try {
+    final ua = html.window.navigator.userAgent;
+    String browser = 'Web Browser';
+    if (ua.contains('Edg/')) {
+      browser = 'Edge';
+    } else if (ua.contains('Chrome/') || ua.contains('CriOS/')) {
+      browser = 'Chrome';
+    } else if (ua.contains('Safari/') && !ua.contains('Chrome/')) {
+      browser = 'Safari';
+    } else if (ua.contains('Firefox/') || ua.contains('FxiOS/')) {
+      browser = 'Firefox';
+    } else if (ua.contains('OPR/') || ua.contains('Opera/')) {
+      browser = 'Opera';
+    }
+
+    String os = 'Web';
+    if (ua.contains('Macintosh') || ua.contains('Mac OS X')) {
+      os = 'macOS';
+    } else if (ua.contains('Windows')) {
+      os = 'Windows';
+    } else if (ua.contains('Android')) {
+      os = 'Android';
+    } else if (ua.contains('iPhone') || ua.contains('iPad') || ua.contains('iPod')) {
+      os = 'iOS';
+    } else if (ua.contains('Linux')) {
+      os = 'Linux';
+    } else if (ua.contains('CrOS')) {
+      os = 'ChromeOS';
+    }
+
+    return 'Browser $browser ($os)';
+  } catch (_) {
+    return 'Browser Web';
+  }
+}

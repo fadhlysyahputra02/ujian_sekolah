@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sys_exam_school/core/services/student_session_service.dart';
 import 'package:sys_exam_school/core/utils/web_audio_helper.dart';
 
 class TeacherProctorController {
@@ -935,6 +936,81 @@ class TeacherProctorController {
                   ],
                 ),
               ],
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        Navigator.of(ctx).pop();
+                        final bool? confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (dlgCtx) => AlertDialog(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            title: Row(
+                              children: [
+                                const Icon(Icons.phonelink_erase_rounded, color: Color(0xFFEF4444)),
+                                const SizedBox(width: 10),
+                                Text('Reset Sesi Login?', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 17)),
+                              ],
+                            ),
+                            content: Text(
+                              'Sesi login siswa "$name" di perangkat/browser aktif saat ini akan diakhiri. Siswa dapat login kembali di perangkat baru.',
+                              style: GoogleFonts.inter(fontSize: 13.5, height: 1.45, color: const Color(0xFF334155)),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dlgCtx, false),
+                                child: Text('Batal', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(dlgCtx, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEF4444),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                ),
+                                child: Text('Ya, Reset Sesi', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirm == true) {
+                          final studentIdVal = (seatData['studentId'] ?? seatData['id'])?.toString();
+                          final nisVal = (seatData['nis'])?.toString();
+                          final ok = await StudentSessionService.resetSession(
+                            schoolId: schoolId,
+                            studentId: studentIdVal,
+                            studentNis: nisVal,
+                          );
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                ok
+                                    ? 'Sesi login siswa "$name" berhasil direset.'
+                                    : 'Gagal mereset sesi login siswa.',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                              backgroundColor: ok ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.phonelink_erase_rounded, size: 17, color: Color(0xFF475569)),
+                      label: Text('Reset Sesi Login Siswa', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF334155))),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 10),
               const Divider(height: 1, color: Color(0xFFF1F5F9)),
               const SizedBox(height: 16),

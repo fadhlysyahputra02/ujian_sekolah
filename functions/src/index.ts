@@ -1154,9 +1154,10 @@ export const importStudentsBulk = functions.https.onCall(async (request) => {
 
 /**
  * Resolves user email by temporary password (for auto-routing login).
+ * Enforces single-device login session check for role student.
  */
 export const resolveEmailByPassword = functions.https.onCall(async (request) => {
-  const { schoolId, password } = request.data || {};
+  const { schoolId, password, currentSessionId } = request.data || {};
 
   if (!schoolId || !password) {
     throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
@@ -1187,13 +1188,247 @@ export const resolveEmailByPassword = functions.https.onCall(async (request) => 
         .get();
 
     if (!studentsQuery.empty) {
-      const studentData = studentsQuery.docs[0].data();
-      return { success: true, email: studentData.email, role: 'student' };
+      const studentDoc = studentsQuery.docs[0];
+      const studentData = studentDoc.data();
+      const activeSession = studentData.activeSession;
+
+      // Check if student is already logged in on another device
+      if (activeSession && activeSession.sessionId) {
+        const isSameDevice = currentSessionId && activeSession.sessionId === currentSessionId;
+
+        // Check if session is expired (> 12 hours)
+        let isExpired = false;
+        if (activeSession.loginAt) {
+          const loginTime = activeSession.loginAt.toDate ? activeSession.loginAt.toDate() : new Date(activeSession.loginAt);
+          const diffHours = (Date.now() - loginTime.getTime()) / (1000 * 60 * 60);
+          if (diffHours > 12) {
+            isExpired = true;
+          }
+        }
+
+        if (!isSameDevice && !isExpired) {
+          const deviceName = activeSession.deviceInfo || 'Perangkat / Browser Lain';
+          const studentName = studentData.displayName || 'Siswa';
+          return {
+            success: false,
+            alreadyLoggedIn: true,
+            activeDevice: deviceName,
+            studentName,
+            loginAt: activeSession.loginAt ? (activeSession.loginAt.toDate ? activeSession.loginAt.toDate().toISOString() : activeSession.loginAt) : null,
+            message: `Akun siswa "${studentName}" sedang aktif di perangkat lain (${deviceName}). Siswa tidak dapat login di perangkat ataupun browser yang berbeda secara bersamaan.`,
+          };
+        }
+      }
+
+      return {
+        success: true,
+        email: studentData.email,
+        role: 'student',
+        studentId: studentDoc.id,
+      };
     }
 
     return { success: false };
   } catch (err: any) {
     throw new functions.https.HttpsError('internal', err.message || 'Gagal memverifikasi password.');
+  }
+});
+
+/**
+ * Registers an active session for a student upon login.
+ */
+export const registerStudentSession = functions.https.onCall(async (request) => {
+  const { schoolId, studentId, sessionId, deviceInfo } = request.data || {};
+
+  if (!schoolId || !sessionId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Parameter schoolId dan sessionId wajib disertakan.');
+  }
+
+  const db = admin.firestore();
+  const uid = request.auth?.uid;
+
+  try {
+    let targetDocRef: admin.firestore.DocumentReference | null = null;
+
+    if (studentId) {
+      targetDocRef = db.collection('schools').doc(schoolId).collection('students').doc(studentId);
+    } else if (uid) {
+      const q = await db.collection('schools').doc(schoolId).collection('students').where('uid', '==', uid).limit(1).get();
+      if (!q.empty) {
+        targetDocRef = q.docs[0].ref;
+      }
+    }
+
+    if (!targetDocRef) {
+      throw new functions.https.HttpsError('not-found', 'Data siswa tidak ditemukan.');
+    }
+
+    await targetDocRef.update({
+      activeSession: {
+        sessionId,
+        deviceInfo: deviceInfo || 'Perangkat Siswa',
+        loginAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastActiveAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    throw new functions.https.HttpsError('internal', err.message || 'Gagal mendaftarkan sesi siswa.');
+  }
+});
+
+/**
+ * Clears an active session for a student (called on logout).
+ */
+export const clearStudentSession = functions.https.onCall(async (request) => {
+  const { schoolId, studentId, sessionId } = request.data || {};
+  const uid = request.auth?.uid;
+
+  const db = admin.firestore();
+
+  try {
+    let targetDocRef: admin.firestore.DocumentReference | null = null;
+
+    if (schoolId && studentId) {
+      targetDocRef = db.collection('schools').doc(schoolId).collection('students').doc(studentId);
+    } else if (schoolId && uid) {
+      const q = await db.collection('schools').doc(schoolId).collection('students').where('uid', '==', uid).limit(1).get();
+      if (!q.empty) {
+        targetDocRef = q.docs[0].ref;
+      }
+    } else if (uid) {
+      const q = await db.collectionGroup('students').where('uid', '==', uid).limit(1).get();
+      if (!q.empty) {
+        targetDocRef = q.docs[0].ref;
+      }
+    }
+
+    if (targetDocRef) {
+      const snap = await targetDocRef.get();
+      if (snap.exists) {
+        const curSession = snap.data()?.activeSession;
+        if (!sessionId || !curSession || curSession.sessionId === sessionId) {
+          await targetDocRef.update({
+            activeSession: null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    throw new functions.https.HttpsError('internal', err.message || 'Gagal menghapus sesi.');
+  }
+});
+
+/**
+ * Resets an active session for a student (callable by school admin or teacher/proctor).
+ */
+export const resetStudentSession = functions.https.onCall(async (request) => {
+  const { schoolId, studentId, studentNis } = request.data || {};
+
+  if (!schoolId || (!studentId && !studentNis)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Parameter schoolId dan studentId/NIS wajib diisi.');
+  }
+
+  const role = request.auth?.token?.role;
+  const callerSchoolId = request.auth?.token?.schoolId;
+  const isSuperAdmin = role === 'super_admin' || request.auth?.token?.email === 'sadmin@sesicermat.com';
+
+  if (!isSuperAdmin && (callerSchoolId !== schoolId || (role !== 'school_admin' && role !== 'teacher'))) {
+    throw new functions.https.HttpsError('permission-denied', 'Hanya admin sekolah atau pengawas yang berhak mereset sesi siswa.');
+  }
+
+  const db = admin.firestore();
+
+  try {
+    let targetDocRef: admin.firestore.DocumentReference | null = null;
+    let studentName = 'Siswa';
+
+    if (studentId) {
+      targetDocRef = db.collection('schools').doc(schoolId).collection('students').doc(studentId);
+      const snap = await targetDocRef.get();
+      if (snap.exists) {
+        studentName = snap.data()?.displayName || 'Siswa';
+      }
+    } else if (studentNis) {
+      const q = await db.collection('schools').doc(schoolId).collection('students').where('nis', '==', studentNis).limit(1).get();
+      if (!q.empty) {
+        targetDocRef = q.docs[0].ref;
+        studentName = q.docs[0].data()?.displayName || 'Siswa';
+      }
+    }
+
+    if (!targetDocRef) {
+      throw new functions.https.HttpsError('not-found', 'Siswa tidak ditemukan.');
+    }
+
+    await targetDocRef.update({
+      activeSession: null,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const actorUid = request.auth?.uid || 'unknown';
+    await writeAuditLog(db, schoolId, actorUid, 'RESET_STUDENT_SESSION', `Mereset sesi login siswa ${studentName}.`);
+
+    return { success: true, message: `Sesi login untuk ${studentName} berhasil direset.` };
+  } catch (err: any) {
+    throw new functions.https.HttpsError('internal', err.message || 'Gagal mereset sesi siswa.');
+  }
+});
+
+/**
+ * Resets all student sessions for a school (or all schools) from 0.
+ */
+export const resetAllStudentSessions = functions.https.onCall(async (request) => {
+  const { schoolId } = request.data || {};
+  const db = admin.firestore();
+
+  try {
+    let studentDocs: admin.firestore.QueryDocumentSnapshot[] = [];
+
+    if (schoolId) {
+      const snap = await db.collection('schools').doc(schoolId).collection('students').get();
+      studentDocs = snap.docs;
+    } else {
+      const snap = await db.collectionGroup('students').get();
+      studentDocs = snap.docs;
+    }
+
+    let batch = db.batch();
+    let count = 0;
+    let totalUpdated = 0;
+
+    for (const doc of studentDocs) {
+      if (doc.data().activeSession != null) {
+        batch.update(doc.ref, {
+          activeSession: null,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        count++;
+        totalUpdated++;
+        if (count >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          count = 0;
+        }
+      }
+    }
+
+    if (count > 0) {
+      await batch.commit();
+    }
+
+    return {
+      success: true,
+      count: totalUpdated,
+      message: `Berhasil mereset ${totalUpdated} sesi siswa dari 0.`,
+    };
+  } catch (err: any) {
+    throw new functions.https.HttpsError('internal', err.message || 'Gagal mereset semua sesi siswa.');
   }
 });
 

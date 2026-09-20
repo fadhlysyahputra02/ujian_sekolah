@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/student_session_service.dart';
 import '../../../core/utils/platform_helper.dart';
 import '../../../core/utils/web_reload.dart';
 
@@ -48,6 +49,19 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     _loadLastSchoolCode();
     _fetchSchools();
     _initAnimations();
+    _checkTerminatedSessionNotice();
+  }
+
+  void _checkTerminatedSessionNotice() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final auth = Provider.of<AuthService>(context, listen: false);
+      if (auth.sessionTerminatedReason != null) {
+        final msg = auth.sessionTerminatedReason!;
+        auth.clearSessionTerminatedReason();
+        _showSessionTerminatedDialog(msg);
+      }
+    });
   }
 
   void _initAnimations() {
@@ -268,6 +282,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     final password = _passwordController.text;
 
     String emailOrUsername = '';
+    String? resolvedStudentId;
+    String? resolvedRole;
 
     final inputLower = typedText.toLowerCase();
     bool isSuperAdminLogin = inputLower == 'sadmin';
@@ -401,18 +417,34 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       }
 
       try {
+        final currentSessionId = await StudentSessionService.getCurrentSessionId();
         final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('resolveEmailByPassword');
         final response = await callable.call({
           'schoolId': schoolId,
           'password': password,
+          'currentSessionId': currentSessionId,
         });
 
         final resData = response.data as Map?;
         final bool success = resData?['success'] == true;
 
+        if (resData?['alreadyLoggedIn'] == true) {
+          if (mounted) {
+            setState(() => _isLoggingIn = false);
+            final activeDevice = resData?['activeDevice'] as String? ?? 'Perangkat / Browser Lain';
+            final studentName = resData?['studentName'] as String? ?? 'Siswa';
+            await _showStudentAlreadyLoggedInDialog(
+              studentName: studentName,
+              activeDevice: activeDevice,
+            );
+          }
+          return;
+        }
+
         if (success) {
           final resolvedEmail = resData?['email'] as String?;
-          final resolvedRole = resData?['role'] as String?;
+          resolvedRole = resData?['role'] as String?;
+          resolvedStudentId = resData?['studentId'] as String?;
 
           // Penolakan siswa jika masuk dari Web Mobile
           if (isWebMobile() && resolvedRole == 'student') {
@@ -486,6 +518,22 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             await _showStudentWebBlockedDialog();
           }
           return;
+        }
+      }
+
+      // 3. Daftarkan sesi unik siswa jika yang login adalah siswa
+      if (resolvedRole == 'student' || authService.role == 'student') {
+        try {
+          final schoolId = _selectedSchool?['id'] as String? ?? authService.schoolId ?? '';
+          if (schoolId.isNotEmpty) {
+            await StudentSessionService.registerSession(
+              schoolId: schoolId,
+              studentId: resolvedStudentId,
+              uid: authService.user?.uid,
+            );
+          }
+        } catch (e) {
+          debugPrint('[LOGIN] Error registering student session: $e');
         }
       }
 
@@ -670,7 +718,251 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
+  /// Menampilkan dialog peringatan bahwa akun siswa sedang aktif di perangkat lain.
+  Future<void> _showStudentAlreadyLoggedInDialog({
+    required String studentName,
+    required String activeDevice,
+  }) async {
+    if (!mounted) return;
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            width: 400,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header Gradient
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFFEA580C), Color(0xFFDC2626)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.phonelink_lock_rounded,
+                          color: Colors.white,
+                          size: 38,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Akun Sedang Aktif',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Login Ganda Tidak Diizinkan',
+                        style: GoogleFonts.inter(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Body
+                Padding(
+                  padding: const EdgeInsets.all(22),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Akun siswa "$studentName" saat ini sedang login di perangkat lain:',
+                        style: GoogleFonts.inter(
+                          fontSize: 13.5,
+                          color: const Color(0xFF334155),
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFFEDD5)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.devices_rounded, color: Color(0xFFEA580C), size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                activeDevice,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF9A3412),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Untuk menjaga kepatuhan ujian, siswa hanya dapat login pada satu perangkat/browser dalam satu waktu.\n\nSilakan keluar (logout) dari perangkat tersebut terlebih dahulu, atau hubungi Pengawas Ujian / Admin Sekolah untuk mereset sesi login Anda.',
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          color: const Color(0xFF64748B),
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFDC2626),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            'Saya Mengerti',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
+  /// Menampilkan dialog bahwa sesi siswa diakhiri (misal di-reset oleh guru/admin).
+  Future<void> _showSessionTerminatedDialog(String message) async {
+    if (!mounted) return;
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            width: 380,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.info_outline_rounded,
+                          color: Colors.white,
+                          size: 32,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Pemberitahuan Sesi',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(22),
+                  child: Column(
+                    children: [
+                      Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 13.5,
+                          color: const Color(0xFF334155),
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: Text('Tutup', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

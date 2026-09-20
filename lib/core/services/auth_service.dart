@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'student_session_service.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -17,6 +18,8 @@ class AuthService extends ChangeNotifier {
   bool _isSchoolDisabled = false;
   bool _isStudentInactive = false;
   bool _isLoading = true;
+  String? _sessionTerminatedReason;
+  String? _establishedSessionId;
 
   User? get user => _user;
   String? get role => _role;
@@ -25,6 +28,11 @@ class AuthService extends ChangeNotifier {
   bool get isSchoolDisabled => _isSchoolDisabled;
   bool get isStudentInactive => _isStudentInactive;
   bool get isLoading => _isLoading;
+  String? get sessionTerminatedReason => _sessionTerminatedReason;
+
+  void clearSessionTerminatedReason() {
+    _sessionTerminatedReason = null;
+  }
 
   bool get isBlocked => _user != null && _role != 'super_admin' && (_isSchoolDisabled || _isStudentInactive);
 
@@ -57,6 +65,7 @@ class AuthService extends ChangeNotifier {
       _schoolCode = null;
       _isSchoolDisabled = false;
       _isLoading = false;
+      _establishedSessionId = null;
       notifyListeners();
       return;
     }
@@ -146,9 +155,10 @@ class AuthService extends ChangeNotifier {
 
         _studentSubscription = studentStream.listen((snapshot) async {
           bool newInactive = false;
+          Map<String, dynamic>? studentData;
           if (snapshot.docs.isNotEmpty) {
-            final data = snapshot.docs.first.data() as Map<String, dynamic>?;
-            newInactive = data?['status'] == 'inactive' || data?['disabled'] == true;
+            studentData = snapshot.docs.first.data() as Map<String, dynamic>?;
+            newInactive = studentData?['status'] == 'inactive' || studentData?['disabled'] == true;
           } else if (_schoolId != null && user.email != null) {
             // Fallback check by email if uid query returned empty
             try {
@@ -160,10 +170,43 @@ class AuthService extends ChangeNotifier {
                   .limit(1)
                   .get();
               if (emailSnap.docs.isNotEmpty) {
-                final data = emailSnap.docs.first.data();
-                newInactive = data['status'] == 'inactive' || data['disabled'] == true;
+                studentData = emailSnap.docs.first.data();
+                newInactive = studentData['status'] == 'inactive' || studentData['disabled'] == true;
               }
             } catch (_) {}
+          }
+
+          // Single device session enforcement for student
+          if (studentData != null) {
+            final activeSession = studentData['activeSession'] as Map<String, dynamic>?;
+            final remoteSessionId = activeSession?['sessionId']?.toString();
+            final localSessionId = await StudentSessionService.getCurrentSessionId();
+
+            // Konfirmasi sesi aktif di perangkat ini jika remote session cocok dengan local session
+            if (remoteSessionId != null && localSessionId != null && remoteSessionId == localSessionId) {
+              _establishedSessionId = localSessionId;
+            }
+
+            // HANYA putuskan sesi jika perangkat ini sebelumnya sudah pernah berhasil membentuk sesi aktif (_establishedSessionId != null)
+            // Ini mencegah pemutusan palsu saat murid baru pertama kali login atau saat activeSession masih kosong di database.
+            if (_establishedSessionId != null) {
+              if (activeSession == null || remoteSessionId == null) {
+                // Sesi di-reset oleh pengawas atau admin sekolah di tengah aktivitas ujian/belajar
+                debugPrint('[SESSION] Student activeSession was reset by admin/proctor.');
+                _establishedSessionId = null;
+                _sessionTerminatedReason = 'Sesi login Anda telah direset oleh Pengawas Ujian atau Admin Sekolah.';
+                await signOut();
+                return;
+              } else if (remoteSessionId != _establishedSessionId) {
+                // Sesi terdeteksi telah aktif di perangkat/browser lain
+                final otherDevice = activeSession['deviceInfo']?.toString() ?? 'Perangkat Lain';
+                debugPrint('[SESSION] Student active session mismatch ($otherDevice, remote=$remoteSessionId vs established=$_establishedSessionId).');
+                _establishedSessionId = null;
+                _sessionTerminatedReason = 'Sesi Anda telah berakhir karena akun ini telah login di perangkat lain ($otherDevice).';
+                await signOut();
+                return;
+              }
+            }
           }
 
           final bool wasLoading = _isLoading;
@@ -234,6 +277,8 @@ class AuthService extends ChangeNotifier {
 
   /// Sign in helper that maps "sadmin" to "sadmin@sesicermat.com"
   Future<UserCredential> signIn(String usernameOrEmail, String password) async {
+    _sessionTerminatedReason = null;
+    _establishedSessionId = null;
     String email = usernameOrEmail.trim();
     if (email.toLowerCase() == 'sadmin') {
       email = 'sadmin@sesicermat.com';
@@ -246,6 +291,17 @@ class AuthService extends ChangeNotifier {
 
   /// Sign out helper
   Future<void> signOut() async {
+    try {
+      if (_role == 'student' && _schoolId != null) {
+        await StudentSessionService.clearSession(
+          schoolId: _schoolId!,
+          uid: _user?.uid,
+        );
+      }
+    } catch (e) {
+      debugPrint("Error clearing student session on sign out: $e");
+    }
+
     try {
       if (_schoolCode != null && _schoolCode!.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();

@@ -170,6 +170,136 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   // Subcollection caches for subject matching
   List<Map<String, dynamic>> _timetableSubcollection = [];
   List<Map<String, dynamic>> _sessionsSubcollection = [];
+  final Map<String, String> _classMap = {};
+  final Map<String, String> _subjectMap = {};
+
+  Future<void> _ensureClassAndSubjectMaps() async {
+    if (_classMap.isNotEmpty && _subjectMap.isNotEmpty) return;
+    if (_schoolId.isEmpty) return;
+    try {
+      final classSnap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('classes')
+          .get();
+      for (var doc in classSnap.docs) {
+        final data = doc.data();
+        final name = (data['name'] ?? doc.id).toString();
+        _classMap[doc.id] = name;
+        _classMap[name] = name;
+      }
+    } catch (_) {}
+
+    try {
+      final subjSnap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('subjects')
+          .get();
+      for (var doc in subjSnap.docs) {
+        final data = doc.data();
+        final name = (data['name'] ?? doc.id).toString();
+        _subjectMap[doc.id] = name;
+        final code = (data['code'] ?? '').toString();
+        if (code.isNotEmpty) _subjectMap[code] = name;
+      }
+    } catch (_) {}
+  }
+
+  String _extractGrade(String str) {
+    final lower = str.toLowerCase().replaceAll(' ', '');
+    if (lower.startsWith('xii') || lower.contains('12') || lower.contains('xii')) return '12';
+    if (lower.startsWith('xi') || lower.contains('11') || lower.contains('xi')) return '11';
+    if (lower.startsWith('x') || lower.contains('10') || lower.contains('x')) return '10';
+    return '';
+  }
+
+  bool _isClassMatched(Set<String> targetClasses, Set<String> roomClasses) {
+    if (roomClasses.isEmpty || targetClasses.isEmpty) return false;
+
+    for (var tc in targetClasses) {
+      if (tc.trim().isEmpty) continue;
+      final cleanTc = tc.trim().toLowerCase().replaceAll(' ', '');
+      final resolvedTc = (_classMap[tc] ?? _classMap[tc.trim()] ?? '').trim().toLowerCase().replaceAll(' ', '');
+
+      for (var rc in roomClasses) {
+        if (rc.trim().isEmpty) continue;
+        final cleanRc = rc.trim().toLowerCase().replaceAll(' ', '');
+        final resolvedRc = (_classMap[rc] ?? _classMap[rc.trim()] ?? '').trim().toLowerCase().replaceAll(' ', '');
+
+        if (cleanRc.isEmpty) continue;
+
+        // 1. Exact string match on raw or resolved
+        if (cleanTc == cleanRc) return true;
+        if (resolvedTc.isNotEmpty && resolvedTc == cleanRc) return true;
+        if (resolvedRc.isNotEmpty && cleanTc == resolvedRc) return true;
+        if (resolvedTc.isNotEmpty && resolvedRc.isNotEmpty && resolvedTc == resolvedRc) return true;
+
+        // 2. Avoid major stream/grade conflicts before checking substring
+        final bool tcIsIpa = cleanTc.contains('ipa') || resolvedTc.contains('ipa');
+        final bool tcIsIps = cleanTc.contains('ips') || resolvedTc.contains('ips');
+        final bool rcIsIpa = cleanRc.contains('ipa') || resolvedRc.contains('ipa');
+        final bool rcIsIps = cleanRc.contains('ips') || resolvedRc.contains('ips');
+
+        if ((tcIsIpa && rcIsIps) || (tcIsIps && rcIsIpa)) {
+          continue; // Incompatible majors (IPA vs IPS)
+        }
+
+        // Check grade conflicts (X vs XI vs XII)
+        final String tcGrade = _extractGrade(cleanTc.isNotEmpty ? cleanTc : resolvedTc);
+        final String rcGrade = _extractGrade(cleanRc.isNotEmpty ? cleanRc : resolvedRc);
+        if (tcGrade.isNotEmpty && rcGrade.isNotEmpty && tcGrade != rcGrade) {
+          continue; // Incompatible grades (e.g. 10 vs 11 vs 12)
+        }
+
+        // 3. Substring match only if long enough (>= 3 chars)
+        final String matchTc = resolvedTc.isNotEmpty ? resolvedTc : cleanTc;
+        final String matchRc = resolvedRc.isNotEmpty ? resolvedRc : cleanRc;
+        if (matchTc.length >= 3 && matchRc.length >= 3) {
+          if (matchTc == matchRc) return true;
+          if (matchRc.contains(matchTc) || matchTc.contains(matchRc)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _isSubjectForRoomClasses(String sId, String sName, Set<String> roomClasses, List<Map<String, dynamic>> timetableList) {
+    if (roomClasses.isEmpty) return true;
+    final cleanSId = sId.toLowerCase().trim();
+    final cleanSName = sName.toLowerCase().trim();
+
+    bool foundInTimetable = false;
+    for (var t in timetableList) {
+      final tSubId = (t['subjectId'] ?? t['id'] ?? '').toString().toLowerCase().trim();
+      final tSubName = (t['subjectName'] ?? t['subject'] ?? '').toString().toLowerCase().trim();
+
+      if ((cleanSId.isNotEmpty && tSubId == cleanSId) || (cleanSName.isNotEmpty && tSubName == cleanSName)) {
+        foundInTimetable = true;
+        final Set<String> tClasses = {};
+        final rawClassIds = t['classIds'] as List? ?? t['classNames'] as List? ?? t['classes'] as List? ?? t['targetClasses'] as List?;
+        if (rawClassIds != null) {
+          for (var c in rawClassIds) {
+            if (c != null && c.toString().trim().isNotEmpty) tClasses.add(c.toString().trim());
+          }
+        }
+        final singleCId = (t['classId'] ?? '').toString().trim();
+        final singleCName = (t['className'] ?? '').toString().trim();
+        if (singleCId.isNotEmpty) tClasses.add(singleCId);
+        if (singleCName.isNotEmpty) tClasses.add(singleCName);
+
+        if (_isClassMatched(tClasses, roomClasses)) {
+          return true;
+        }
+      }
+    }
+
+    if (foundInTimetable) {
+      return false;
+    }
+
+    return true;
+  }
 
   @override
   void initState() {
@@ -256,6 +386,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
       }
       return;
     }
+
+    await _ensureClassAndSubjectMaps();
 
     final cacheKey = '${_schoolId}_${widget.eventId}_$uid';
     final now = DateTime.now();
@@ -3614,7 +3746,6 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                   matchedSubjects.add('Ujian Susulan');
                                 } else {
                                   final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
-                                  final targetSessionIdStr1 = 'session_$sessionIndex';
 
                                   String? targetRealSessionId;
                                   if (sortedDates.isNotEmpty && dayIndex < sortedDates.length) {
@@ -3625,96 +3756,156 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                     }
                                   }
 
-                                  final int targetOrder = dayIndex * (sessionsList.isNotEmpty ? sessionsList.length : 2) + sessionIndex + 1;
+                                  int sessionsPerDay = 2;
+                                  if (sessionsList.isNotEmpty) {
+                                    final uniqueSlots = sessionsList
+                                        .map((s) => (s['sessionIndex'] as num?)?.toInt())
+                                        .whereType<int>()
+                                        .toSet();
+                                    if (uniqueSlots.isNotEmpty) {
+                                      sessionsPerDay = uniqueSlots.length;
+                                    } else if (dateGroups.isNotEmpty) {
+                                      sessionsPerDay = dateGroups.values.first.length;
+                                    }
+                                  }
 
-                                  for (var tItem in timetableList) {
-                                    final tSessionId = (tItem['sessionId'] ?? '').toString();
-                                    final tDay = (tItem['dayIndex'] ?? tItem['day'] as num?)?.toInt();
-                                    final tSession = (tItem['sessionIndex'] ?? tItem['session'] as num?)?.toInt();
-                                    final tOrder = (tItem['order'] as num?)?.toInt();
+                                  final Map<String, Map<String, int>> sessionDocSlotMap = {};
+                                  for (int idx = 0; idx < sessionsList.length; idx++) {
+                                    final s = sessionsList[idx];
+                                    final sid = (s['id'] ?? s['docId'] ?? s['_docId'] ?? '').toString();
+                                    final tempId = (s['tempId'] ?? '').toString();
 
-                                    bool isMatch = false;
+                                    int d = (s['dayIndex'] as num?)?.toInt() ?? (sessionsPerDay > 0 ? idx ~/ sessionsPerDay : 0);
+                                    int slot = (s['sessionIndex'] as num?)?.toInt() ?? (sessionsPerDay > 0 ? idx % sessionsPerDay : idx);
 
-                                    if (tDay != null && tDay != dayIndex) {
-                                      isMatch = false;
-                                    } else if (tSessionId == targetKeyStr || (targetRealSessionId != null && tSessionId == targetRealSessionId)) {
-                                      isMatch = true;
-                                    } else if (tSessionId.isNotEmpty) {
-                                      if (tDay == dayIndex && (tSessionId == targetSessionIdStr1 || tSessionId == '$sessionIndex')) {
-                                        isMatch = true;
-                                      }
-                                    } else if (tSession != null) {
-                                      bool dayMatch = tDay == null || tDay == dayIndex;
-                                      bool sessMatch = tSession == sessionIndex;
-                                      isMatch = dayMatch && sessMatch;
-                                    } else if (tOrder != null) {
-                                      isMatch = (tOrder == targetOrder);
+                                    if (s['order'] != null && sessionsPerDay > 0) {
+                                      final orderVal = (s['order'] as num).toInt();
+                                      d = (orderVal - 1) ~/ sessionsPerDay;
+                                      slot = (orderVal - 1) % sessionsPerDay;
                                     }
 
-                                    if (isMatch) {
-                                      final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString().trim();
-                                      final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString().trim();
-                                      final cId = (tItem['classId'] ?? '').toString().trim();
+                                    if (sid.isNotEmpty) sessionDocSlotMap[sid] = {'day': d, 'slot': slot};
+                                    if (tempId.isNotEmpty) sessionDocSlotMap[tempId] = {'day': d, 'slot': slot};
+                                  }
 
-                                      if (subj.isNotEmpty) {
-                                        bool classMatched = roomClassNames.isEmpty;
-                                        if (!classMatched) {
-                                          final clsClean = cls.toLowerCase().replaceAll(' ', '');
-                                          final cIdClean = cId.toLowerCase().replaceAll(' ', '');
-                                          classMatched = roomClassNames.contains(cls) || 
-                                                         roomClassNames.contains(cId) ||
-                                                         roomClassNames.contains(clsClean) ||
-                                                         roomClassNames.contains(cIdClean) ||
-                                                         roomClassNames.any((c) {
-                                                           final cClean = c.toLowerCase().replaceAll(' ', '');
-                                                           return cClean.isNotEmpty && (clsClean.contains(cClean) || cClean.contains(clsClean));
-                                                         });
-                                        }
+                                  final int targetOrder = dayIndex * sessionsPerDay + sessionIndex + 1;
 
-                                        if (classMatched) {
-                                          if (!matchedSubjects.contains(subj)) {
-                                            matchedSubjects.add(subj);
-                                          }
+                                  final List<Map<String, dynamic>> matchingTimetable = timetableList.where((t) {
+                                    final tsId = (t['sessionId'] ?? t['session_id'] ?? '').toString().trim();
+                                    final tDay = (t['dayIndex'] as num?)?.toInt() ?? (t['day'] != null ? int.tryParse(t['day'].toString()) : null);
+                                    final tSlot = (t['sessionIndex'] ?? t['slotIndex'] ?? t['session'] as num?)?.toInt();
+                                    final tOrder = (t['order'] as num?)?.toInt();
+
+                                    if (tDay != null && tSlot != null) {
+                                      return tDay == dayIndex && tSlot == sessionIndex;
+                                    }
+                                    if (sessionDocSlotMap.containsKey(tsId)) {
+                                      final mapped = sessionDocSlotMap[tsId]!;
+                                      return mapped['day'] == dayIndex && mapped['slot'] == sessionIndex;
+                                    }
+                                    if (tsId == targetKeyStr) return true;
+                                    if (tsId.startsWith('day_')) {
+                                      final parts = tsId.split('_');
+                                      if (parts.length >= 4) {
+                                        final d = int.tryParse(parts[1]);
+                                        final s = int.tryParse(parts[3]);
+                                        if (d != null && s != null) return d == dayIndex && s == sessionIndex;
+                                      }
+                                    }
+                                    if (targetRealSessionId != null && tsId == targetRealSessionId) return true;
+                                    if (tDay != null) {
+                                      if (tDay == dayIndex) {
+                                        if (tSlot != null) return tSlot == sessionIndex;
+                                        if (tsId == 'session_$sessionIndex' || tsId == 'session_${sessionIndex + 1}' || tsId == '$sessionIndex') return true;
+                                        if (tsId.isEmpty) return sessionIndex == 0;
+                                      }
+                                      return false;
+                                    }
+                                    if (tOrder != null && tOrder == targetOrder) return true;
+                                    if (tsId == 'session_$sessionIndex' || tsId == 'session_${sessionIndex + 1}' || tsId == '$sessionIndex') {
+                                      return dayIndex == 0;
+                                    }
+                                    return false;
+                                  }).toList();
+
+                                  // Filter timetable items specifically for classes in this room
+                                  for (var t in matchingTimetable) {
+                                    final Set<String> tClasses = {};
+                                    final rawClassIds = t['classIds'] as List? ??
+                                        t['classNames'] as List? ??
+                                        t['classes'] as List? ??
+                                        t['targetClasses'] as List?;
+                                    if (rawClassIds != null) {
+                                      for (var c in rawClassIds) {
+                                        if (c != null && c.toString().trim().isNotEmpty) {
+                                          tClasses.add(c.toString().trim());
                                         }
+                                      }
+                                    }
+                                    final singleCId = (t['classId'] ?? '').toString().trim();
+                                    final singleCName = (t['className'] ?? '').toString().trim();
+                                    if (singleCId.isNotEmpty) tClasses.add(singleCId);
+                                    if (singleCName.isNotEmpty) tClasses.add(singleCName);
+
+                                    bool classMatched = roomClassNames.isEmpty || _isClassMatched(tClasses, roomClassNames);
+
+                                    if (classMatched) {
+                                      final sId = (t['subjectId'] ?? t['id'] ?? '').toString().trim();
+                                      final subName = (t['subjectName'] ?? t['subject'] ?? '').toString().trim().isNotEmpty
+                                          ? (t['subjectName'] ?? t['subject']).toString().trim()
+                                          : (_subjectMap[sId] ?? sId);
+                                      if (subName.isNotEmpty && !matchedSubjects.contains(subName)) {
+                                        matchedSubjects.add(subName);
                                       }
                                     }
                                   }
 
+                                  // Fallback: scheduleGrid (only if matchedSubjects is empty, and strictly filter by room classes)
                                   if (matchedSubjects.isEmpty) {
-                                    final scheduleGrid = draftState?['step6']?['scheduleGrid'] as Map? ?? draftState?['scheduleGrid'] as Map? ?? evData['scheduleGrid'] as Map? ?? {};
+                                    final scheduleGrid = draftState?['step6']?['scheduleGrid'] as Map? ??
+                                        draftState?['scheduleGrid'] as Map? ??
+                                        evData['scheduleGrid'] as Map? ??
+                                        {};
                                     final gridKeys = [
                                       'day_${dayIndex}_session_$sessionIndex',
-                                      'day_${dayIndex}_session_${sessionIndex + 1}',
+                                      if (targetRealSessionId != null) targetRealSessionId,
                                       'session_$sessionIndex',
-                                      'session_${sessionIndex + 1}',
                                       '${sessionIndex + 1}',
                                     ];
+                                    final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+
                                     for (var gk in gridKeys) {
                                       final schedSubjectIds = scheduleGrid[gk];
                                       if (schedSubjectIds is List && schedSubjectIds.isNotEmpty) {
-                                        final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
                                         for (var sId in schedSubjectIds) {
-                                          String foundName = sId.toString();
+                                          final sIdStr = sId.toString().trim();
+                                          String foundName = _subjectMap[sIdStr] ?? sIdStr;
                                           for (var sItem in subjectsList) {
                                             if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId || sItem['name'] == sId)) {
-                                              foundName = sItem['name'] ?? sId.toString();
+                                              foundName = (sItem['name'] ?? sIdStr).toString().trim();
                                               break;
                                             }
                                           }
-                                          if (!matchedSubjects.contains(foundName)) matchedSubjects.add(foundName);
+                                          if (_isSubjectForRoomClasses(sIdStr, foundName, roomClassNames, timetableList)) {
+                                            if (!matchedSubjects.contains(foundName)) {
+                                              matchedSubjects.add(foundName);
+                                            }
+                                          }
                                         }
                                       }
+                                      if (matchedSubjects.isNotEmpty) break;
                                     }
                                   }
 
-                                  if (matchedSubjects.isEmpty) {
-                                    final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
-                                    for (var sItem in subjectsList) {
-                                      if (sItem is Map) {
-                                        final sName = (sItem['name'] ?? sItem['subjectName'] ?? '').toString();
-                                        if (sName.isNotEmpty && !matchedSubjects.contains(sName)) {
-                                          matchedSubjects.add(sName);
-                                        }
+                                  // Fallback: If no classes were assigned to the room at all
+                                  if (matchedSubjects.isEmpty && roomClassNames.isEmpty) {
+                                    for (var t in matchingTimetable) {
+                                      final sId = (t['subjectId'] ?? t['id'] ?? '').toString().trim();
+                                      final subName = (t['subjectName'] ?? t['subject'] ?? '').toString().trim().isNotEmpty
+                                          ? (t['subjectName'] ?? t['subject']).toString().trim()
+                                          : (_subjectMap[sId] ?? sId);
+                                      if (subName.isNotEmpty && !matchedSubjects.contains(subName)) {
+                                        matchedSubjects.add(subName);
                                       }
                                     }
                                   }

@@ -13,6 +13,7 @@ import '../../../core/models/student.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/services/admin_user_service.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/student_session_service.dart';
 import '../../../core/constants/app_version.dart';
 import '../../../core/services/app_update_service.dart';
 import '../../../core/widgets/app_splash_loader.dart';
@@ -862,6 +863,123 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     }
   }
 
+  Future<void> _resetAllStudentSessions(String schoolId, List<Student> students) async {
+    if (students.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Informasi'),
+          content: const Text('Tidak ada data murid.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Tutup'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F9FF),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.phonelink_erase_rounded, color: Color(0xFF0284C7), size: 24),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Reset Sesi Semua Murid',
+                style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Apakah Anda yakin ingin mereset seluruh sesi login murid (${students.length} murid) dari 0?\n\nSemua sesi login di perangkat/browser aktif saat ini akan dikosongkan sehingga seluruh murid dapat login kembali dari perangkat mana pun.',
+          style: GoogleFonts.inter(fontSize: 13.5, height: 1.5, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Batal', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0284C7),
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            child: Text('Ya, Reset Semua Sesi', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Sedang mereset sesi semua murid dari 0...'),
+        backgroundColor: Color(0xFF0284C7),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    try {
+      int count = 0;
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      for (final s in students) {
+        final ref = FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('students')
+            .doc(s.id);
+        batch.update(ref, {'activeSession': null, 'updatedAt': FieldValue.serverTimestamp()});
+        count++;
+        if (count % 400 == 0) {
+          await batch.commit();
+          batch = FirebaseFirestore.instance.batch();
+        }
+      }
+      await batch.commit();
+
+      // Panggil Cloud Function juga untuk konsistensi
+      await StudentSessionService.resetAllStudentSessions(schoolId: schoolId);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Berhasil mereset seluruh sesi login untuk ${students.length} murid dari 0.'),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal mereset sesi massal: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _generateAllTeacherPasswords(String schoolId, List<Teacher> teachers) async {
     if (teachers.isEmpty) {
       showDialog(
@@ -1304,6 +1422,94 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           SnackBar(
             content: Text(errStr),
             backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _resetStudentSession(String schoolId, Student student) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (dlgCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.phonelink_erase_rounded, color: Color(0xFF0284C7)),
+            const SizedBox(width: 10),
+            Text('Reset Sesi Login?', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 17)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Sesi login siswa "${student.displayName}" di perangkat aktif saat ini akan diakhiri. Siswa dapat login kembali di perangkat baru.',
+              style: GoogleFonts.inter(fontSize: 13.5, height: 1.45, color: const Color(0xFF334155)),
+            ),
+            if (student.hasActiveSession) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F9FF),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFBAE6FD)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.devices_rounded, size: 16, color: Color(0xFF0284C7)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Perangkat aktif: ${student.activeDeviceName ?? 'Perangkat Lain'}',
+                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF0369A1)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dlgCtx, false),
+            child: Text('Batal', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dlgCtx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0284C7),
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            child: Text('Ya, Reset Sesi', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await StudentSessionService.resetSession(
+        schoolId: schoolId,
+        studentId: student.id,
+        studentNis: student.nis,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? 'Sesi login siswa "${student.displayName}" berhasil direset.'
+                  : 'Gagal mereset sesi login siswa.',
+              style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
@@ -2956,6 +3162,21 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                               tooltip: 'Ekspor ke Excel',
                             ),
                             const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: () => _resetAllStudentSessions(schoolId, allStudents),
+                              icon: const Icon(Icons.phonelink_erase_rounded, size: 16, color: Color(0xFF0284C7)),
+                              label: Text(
+                                'Reset Semua Sesi',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF0284C7)),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFFBAE6FD)),
+                                backgroundColor: const Color(0xFFF0F9FF),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
                             ElevatedButton.icon(
                               onPressed: () => _generateAllPasswords(schoolId, allStudents),
                               icon: const Icon(Icons.vpn_key_rounded, size: 16),
@@ -2976,7 +3197,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                               onPressed: () => _showStudentForm(schoolId),
                               icon: const Icon(Icons.add_rounded, size: 18),
                               label: Text(
-                               'Tambah Murid',
+                                'Tambah Murid',
                                 style: GoogleFonts.inter(fontWeight: FontWeight.w700),
                               ),
                               style: ElevatedButton.styleFrom(
@@ -3029,6 +3250,18 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                                 elevation: 0,
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF0F9FF),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFBAE6FD)),
+                              ),
+                              child: IconButton(
+                                icon: const Icon(Icons.phonelink_erase_rounded, color: Color(0xFF0284C7), size: 20),
+                                onPressed: () => _resetAllStudentSessions(schoolId, allStudents),
+                                tooltip: 'Reset Semua Sesi Murid',
                               ),
                             ),
                             Container(
@@ -3229,13 +3462,25 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                                 color: s.isInactive ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: Text(
-                                s.isInactive ? 'Nonaktif' : 'Aktif',
-                                style: TextStyle(
-                                  color: s.isInactive ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    s.isInactive ? 'Nonaktif' : 'Aktif',
+                                    style: TextStyle(
+                                      color: s.isInactive ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  if (s.hasActiveSession) ...[
+                                    const SizedBox(width: 5),
+                                    Tooltip(
+                                      message: 'Sedang Login: ${s.activeDeviceName ?? 'Perangkat Lain'}',
+                                      child: const Icon(Icons.devices_rounded, size: 14, color: Color(0xFF0284C7)),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ),
@@ -3244,6 +3489,17 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                       DataCell(Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            icon: Icon(
+                              Icons.phonelink_erase_rounded,
+                              color: s.hasActiveSession ? const Color(0xFF0284C7) : const Color(0xFF94A3B8),
+                              size: 20,
+                            ),
+                            tooltip: s.hasActiveSession
+                                ? 'Reset Sesi Login (Aktif: ${s.activeDeviceName ?? 'Perangkat Lain'})'
+                                : 'Reset Sesi Login Perangkat',
+                            onPressed: () => _resetStudentSession(schoolId, s),
+                          ),
                           IconButton(
                             icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 20),
                             tooltip: s.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
