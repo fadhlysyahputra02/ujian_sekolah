@@ -509,7 +509,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           context.pop();
         } else {
           context.go(widget.isAdminView
-              ? '/admin/eventujian/${widget.eventId}/rooms?schoolId=${Uri.encodeComponent(schoolId)}'
+              ? '/admin/eventujian'
               : '/teacher/event/${widget.eventId}/pengawas');
         }
       },
@@ -525,7 +525,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 context.pop();
               } else {
                 context.go(widget.isAdminView
-                    ? '/admin/eventujian/${widget.eventId}/rooms?schoolId=${Uri.encodeComponent(schoolId)}'
+                    ? '/admin/eventujian'
                     : '/teacher/event/${widget.eventId}/pengawas');
               }
             },

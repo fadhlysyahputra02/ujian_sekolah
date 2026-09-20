@@ -3354,7 +3354,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                       .doc(activeAllocId)
                                       .collection('seats')
                                       .snapshots()
-                                  : Stream.value(null),
+                                  : null,
                               builder: (context, seatsSnap) {
                                 final seatDocs = seatsSnap.data?.docs ?? [];
 
@@ -3750,6 +3750,8 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         );
       },
     );
+  },
+);
   }
 
   Widget _buildProctorCard({
