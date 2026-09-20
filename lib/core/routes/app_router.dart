@@ -175,15 +175,49 @@ class AppRouter {
           },
         ),
         GoRoute(
-          path: '/admin/event/:eventId/rooms',
+          path: '/admin/eventujian/:eventId/rooms',
           builder: (context, state) {
             final eventId = state.pathParameters['eventId']!;
             final eventName = state.uri.queryParameters['eventName'] ?? 'Event Ujian';
-            final schoolId = authService.schoolId ?? '';
+            final schoolId = state.uri.queryParameters['schoolId'] ?? authService.schoolId ?? '';
             return AdminEventRoomsPage(
               schoolId: schoolId,
               eventId: eventId,
               eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/rooms',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['eventName'] ?? 'Event Ujian';
+            final schoolId = state.uri.queryParameters['schoolId'] ?? authService.schoolId ?? '';
+            return AdminEventRoomsPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/eventujian/:eventId/hari/:dayIndex/ruangan/:roomId/sesi/:sessionIndex',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final roomId = state.pathParameters['roomId']!;
+            final dayIndex = int.tryParse(state.pathParameters['dayIndex'] ?? '0') ?? 0;
+            final sessionIndex = int.tryParse(state.pathParameters['sessionIndex'] ?? '0') ?? 0;
+            final eventName = state.uri.queryParameters['eventName'];
+            final roomName = state.uri.queryParameters['roomName'];
+            final schoolId = state.uri.queryParameters['schoolId'] ?? authService.schoolId ?? '';
+            return AdminRoomMonitoringPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              roomId: roomId,
+              dayIndex: dayIndex,
+              sessionIndex: sessionIndex,
+              eventName: eventName,
+              roomName: roomName,
             );
           },
         ),
@@ -196,7 +230,7 @@ class AppRouter {
             final sessionIndex = int.tryParse(state.uri.queryParameters['sessionIndex'] ?? '0') ?? 0;
             final eventName = state.uri.queryParameters['eventName'];
             final roomName = state.uri.queryParameters['roomName'];
-            final schoolId = authService.schoolId ?? '';
+            final schoolId = state.uri.queryParameters['schoolId'] ?? authService.schoolId ?? '';
             return AdminRoomMonitoringPage(
               schoolId: schoolId,
               eventId: eventId,

@@ -18,17 +18,14 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
+  final _schoolCodeController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   String? _errorMessage;
 
-  // Autocomplete controller reference
-  TextEditingController? _schoolSearchController;
-
   // School selection states
   List<Map<String, dynamic>> _schools = [];
   Map<String, dynamic>? _selectedSchool;
-  bool _isLoadingSchools = true;
   bool _isLoggingIn = false;
 
   // Animation controllers
@@ -96,6 +93,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _schoolCodeController.dispose();
     _passwordController.dispose();
     _fadeController.dispose();
     _slideController.dispose();
@@ -157,18 +155,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       if (mounted) {
         setState(() {
           _schools = loadedSchools;
-          _isLoadingSchools = false;
         });
         removeSessionItem('fs_reloaded');
         debugPrint('[LOGIN] Loaded ${_schools.length} schools (sorted by activeUserCount)');
       }
     } catch (e) {
       debugPrint('[LOGIN] Fetch gagal: $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingSchools = false;
-        });
-      }
       if (kIsWeb && getSessionItem('fs_reloaded') != 'true') {
         setSessionItem('fs_reloaded', 'true');
         debugPrint('[LOGIN] Auto reloading browser page due to web hot-restart Firestore corruption...');
@@ -187,7 +179,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     final authService = Provider.of<AuthService>(context, listen: false);
 
-    final typedText = _schoolSearchController?.text.trim() ?? '';
+    final typedText = _schoolCodeController.text.trim();
     final password = _passwordController.text;
 
     String emailOrUsername = '';
@@ -239,14 +231,67 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     if (isSuperAdminLogin) {
       emailOrUsername = 'sadmin@sesicermat.com';
     } else {
-      if (_selectedSchool == null || _selectedSchool!['name'] != typedText) {
+      Map<String, dynamic>? matchedSchool;
+
+      // 1. Search in cached _schools by code, id, or name (case-insensitive)
+      for (final s in _schools) {
+        final code = (s['code'] ?? '').toString().trim().toLowerCase();
+        final id = (s['id'] ?? '').toString().trim().toLowerCase();
+        final name = (s['name'] ?? '').toString().trim().toLowerCase();
+        if (code == inputLower || id == inputLower || name == inputLower) {
+          matchedSchool = s;
+          break;
+        }
+      }
+
+      // 2. Direct Firestore fallback query if not found in memory
+      if (matchedSchool == null) {
+        try {
+          final querySnap = await FirebaseFirestore.instance
+              .collection('schools')
+              .where('code', isEqualTo: typedText)
+              .limit(1)
+              .get();
+          if (querySnap.docs.isNotEmpty) {
+            final doc = querySnap.docs.first;
+            final data = doc.data();
+            matchedSchool = {
+              'id': doc.id,
+              'name': (data['name'] ?? '').toString(),
+              'adminEmail': (data['adminEmail'] ?? '').toString(),
+              'code': (data['code'] ?? '').toString(),
+              'logoUrl': data['logoUrl'] ?? data['logoBase64'] ?? data['logo'],
+            };
+          } else {
+            final docSnap = await FirebaseFirestore.instance
+                .collection('schools')
+                .doc(typedText)
+                .get();
+            if (docSnap.exists && docSnap.data()?['deleted'] != true) {
+              final data = docSnap.data()!;
+              matchedSchool = {
+                'id': docSnap.id,
+                'name': (data['name'] ?? '').toString(),
+                'adminEmail': (data['adminEmail'] ?? '').toString(),
+                'code': (data['code'] ?? '').toString(),
+                'logoUrl': data['logoUrl'] ?? data['logoBase64'] ?? data['logo'],
+              };
+            }
+          }
+        } catch (e) {
+          debugPrint('[LOGIN] Direct Firestore query error: $e');
+        }
+      }
+
+      if (matchedSchool == null) {
         setState(() {
           _isLoggingIn = false;
-          _errorMessage = 'Silakan pilih sekolah yang valid dari daftar pencarian';
+          _errorMessage = 'Kode sekolah tidak ditemukan. Silakan periksa kembali kode sekolah Anda.';
         });
         return;
       }
 
+      _selectedSchool = matchedSchool;
       final schoolId = _selectedSchool!['id'] as String;
 
       // 1. Cek langsung ke Firestore pada Web Mobile apakah password terdaftar milik siswa di sekolah ini
@@ -1076,167 +1121,58 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               const SizedBox(height: 20),
             ],
 
-            // School Autocomplete
-            _buildLabel('Nama Sekolah', isDark),
+            // Kode Sekolah
+            _buildLabel('Kode Sekolah', isDark),
             const SizedBox(height: 8),
-            Autocomplete<Map<String, dynamic>>(
-              optionsBuilder: (TextEditingValue textEditingValue) {
-                final term = textEditingValue.text.trim().toLowerCase();
-                debugPrint('[Autocomplete] term="$term" _schools.length=${_schools.length}');
-                if (term.isEmpty) return _schools.take(3).toList();
-                if (term == 'sadmin') return const Iterable<Map<String, dynamic>>.empty();
-                final filtered = _schools.where((school) {
-                  final name = school['name'].toString().toLowerCase();
-                  final code = school['code'].toString().toLowerCase();
-                  return name.contains(term) || code.contains(term);
-                });
-                final result = filtered.take(3).toList();
-                debugPrint('[Autocomplete] result.length=${result.length}');
-                return result;
-              },
-              displayStringForOption: (Map<String, dynamic> option) => option['name']?.toString() ?? 'Tanpa Nama',
-              onSelected: (Map<String, dynamic> selection) async {
-                final logoAlreadyInList = selection['logoUrl']?.toString().trim() ?? '';
-                debugPrint('[Login] onSelected: ${selection["name"]}, logoUrl length=${logoAlreadyInList.length}');
-                setState(() {
-                  _selectedSchool = selection;
-                });
-                // always fetch fresh to ensure logo is up to date
-                await _fetchSchoolLogoDirectly(selection['id']);
-              },
-              fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                _schoolSearchController = textEditingController;
-                return _buildInputField(
-                  controller: textEditingController,
-                  focusNode: focusNode,
-                  hintText: _isLoadingSchools ? 'Memuat daftar sekolah...' : 'Ketik nama sekolah...',
-                  prefixIcon: Icons.search_rounded,
-                  isDark: isDark,
-                  inputTextColor: inputTextColor,
-                  subtitleColor: subtitleColor,
-                  inputBorderColor: inputBorderColor,
-                  onChanged: (text) {
-                    if (text.trim().isEmpty && _selectedSchool != null) {
-                      setState(() {
-                        _selectedSchool = null;
-                      });
+            _buildInputField(
+              controller: _schoolCodeController,
+              hintText: 'Masukkan kode sekolah...',
+              prefixIcon: Icons.apartment_rounded,
+              isDark: isDark,
+              inputTextColor: inputTextColor,
+              subtitleColor: subtitleColor,
+              inputBorderColor: inputBorderColor,
+              onChanged: (text) {
+                final term = text.trim().toLowerCase();
+                if (term.isEmpty) {
+                  if (_selectedSchool != null) {
+                    setState(() {
+                      _selectedSchool = null;
+                    });
+                  }
+                } else {
+                  final found = _schools.cast<Map<String, dynamic>?>().firstWhere(
+                    (s) =>
+                        (s?['code'] ?? '').toString().trim().toLowerCase() == term ||
+                        (s?['id'] ?? '').toString().trim().toLowerCase() == term,
+                    orElse: () => null,
+                  );
+                  if (found != _selectedSchool) {
+                    setState(() {
+                      _selectedSchool = found;
+                    });
+                    if (found != null) {
+                      _fetchSchoolLogoDirectly(found['id']);
                     }
-                  },
-                  suffixIcon: textEditingController.text.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.close_rounded, size: 18, color: subtitleColor),
-                          onPressed: () {
-                            textEditingController.clear();
-                            setState(() {
-                              _selectedSchool = null;
-                            });
-                          },
-                        )
-                      : null,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Silakan masukkan nama sekolah atau sadmin';
-                    }
-                    return null;
-                  },
-                );
+                  }
+                }
               },
-              optionsViewBuilder: (context, onSelected, options) {
-                final size = MediaQuery.of(context).size;
-                return Align(
-                  alignment: Alignment.topLeft,
-                  child: Material(
-                    elevation: 0,
-                    color: Colors.transparent,
-                    child: Container(
-                      width: size.width > 900 ? 348 : size.width - 80,
-                      margin: const EdgeInsets.only(top: 4),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
-                            blurRadius: 20,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      constraints: const BoxConstraints(maxHeight: 220),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: ListView.builder(
-                          padding: EdgeInsets.zero,
-                          shrinkWrap: true,
-                          itemCount: options.length,
-                          itemBuilder: (BuildContext context, int index) {
-                            final Map<String, dynamic> option = options.elementAt(index);
-                            return InkWell(
-                              onTap: () => onSelected(option),
-                              hoverColor: isDark
-                                  ? const Color(0xFF4F46E5).withValues(alpha: 0.08)
-                                  : const Color(0xFFF5F3FF),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                                decoration: BoxDecoration(
-                                  border: index < options.length - 1
-                                      ? Border(
-                                          bottom: BorderSide(
-                                            color: isDark
-                                                ? const Color(0xFF334155)
-                                                : const Color(0xFFF1F5F9),
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(7),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF4F46E5).withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Icon(Icons.business_rounded,
-                                          color: Color(0xFF4F46E5), size: 16),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            option['name']?.toString() ?? 'Tanpa Nama',
-                                            style: GoogleFonts.inter(
-                                              fontWeight: FontWeight.w600,
-                                              color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            "Kode: ${option['code']?.toString() ?? '-'}",
-                                            style: GoogleFonts.inter(
-                                              color: subtitleColor,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Icon(Icons.arrow_forward_ios_rounded,
-                                        size: 12, color: subtitleColor),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                );
+              suffixIcon: _schoolCodeController.text.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(Icons.close_rounded, size: 18, color: subtitleColor),
+                      onPressed: () {
+                        _schoolCodeController.clear();
+                        setState(() {
+                          _selectedSchool = null;
+                        });
+                      },
+                    )
+                  : null,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Silakan masukkan kode sekolah atau sadmin';
+                }
+                return null;
               },
             ),
             const SizedBox(height: 20),

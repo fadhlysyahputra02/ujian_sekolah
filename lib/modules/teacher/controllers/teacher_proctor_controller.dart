@@ -452,6 +452,11 @@ class TeacherProctorController {
     required String proctorDocId,
     required String newStatus,
     String? roomId,
+    Map<int, Map<String, dynamic>>? seatMap,
+    Set<String>? allowedSubjectIds,
+    Set<String>? allowedSubjectNames,
+    int? dayIndex,
+    int? sessionIndex,
   }) async {
     try {
       final db = FirebaseFirestore.instance;
@@ -462,26 +467,129 @@ class TeacherProctorController {
           .doc(eventId)
           .collection('proctors');
 
+      final bool isEnded = newStatus == 'Selesai' || newStatus == 'Ujian Selesai';
+
+      final Map<String, dynamic> proctorPayload = {
+        'status': newStatus,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (isEnded) {
+        proctorPayload['isEnded'] = true;
+        proctorPayload['endedAt'] = FieldValue.serverTimestamp();
+      }
+
       if (proctorDocId.isNotEmpty && !proctorDocId.startsWith('grid_')) {
-        await proctorColl.doc(proctorDocId).set({
-          'status': newStatus,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        await proctorColl.doc(proctorDocId).set(proctorPayload, SetOptions(merge: true));
       } else if (roomId != null && roomId.isNotEmpty) {
         final snap = await proctorColl.where('roomId', isEqualTo: roomId).get();
         if (snap.docs.isNotEmpty) {
           for (var doc in snap.docs) {
-            await doc.reference.set({
-              'status': newStatus,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+            await doc.reference.set(proctorPayload, SetOptions(merge: true));
           }
         } else {
-          await proctorColl.doc(roomId).set({
-            'roomId': roomId,
-            'status': newStatus,
+          final copy = Map<String, dynamic>.from(proctorPayload);
+          copy['roomId'] = roomId;
+          await proctorColl.doc(roomId).set(copy, SetOptions(merge: true));
+        }
+      }
+
+      // If exam is completed by proctor, force finish all active/allocated students in this room
+      if (isEnded && seatMap != null && seatMap.isNotEmpty) {
+        final eventRef = db
+            .collection('schools')
+            .doc(schoolId)
+            .collection('events')
+            .doc(eventId);
+        final realtimeColl = eventRef.collection('realtime_control');
+        final submissionsColl = eventRef.collection('submissions');
+
+        final batch = db.batch();
+        int batchCount = 0;
+
+        for (var sData in seatMap.values) {
+          final bool isAttended = sData['isAttended'] == true || sData['attended'] == true;
+          final bool isWorking = sData['isWorking'] == true || sData['status'] == 'in_progress' || sData['status'] == 'working';
+          final bool isLeftApp = sData['isLeftApp'] == true || sData['status'] == 'left_app';
+          final bool isAlreadyCompleted = sData['isCompleted'] == true || sData['status'] == 'completed';
+
+          // HANYA proses murid yang sudah hadir/presensi ATAU yang sudah mulai pengerjaan
+          // Murid yang belum hadir & belum mengerjakan jangan diubah agar tetap bisa ikut ujian susulan
+          if (!isAttended && !isWorking && !isLeftApp && !isAlreadyCompleted) {
+            continue;
+          }
+
+          final sId = (sData['studentId'] ?? sData['id'] ?? '').toString().trim();
+          final nis = (sData['nis'] ?? '').toString().trim();
+          final sName = (sData['displayName'] ?? sData['studentName'] ?? sData['name'] ?? '').toString().trim();
+          final sClass = (sData['className'] ?? sData['classId'] ?? sData['class'] ?? '').toString().trim();
+          final sSubjId = (sData['subjectId'] ?? '').toString().trim();
+          final sSubjName = (sData['subjectName'] ?? '').toString().trim();
+
+          String studentDocId = sId.isNotEmpty ? sId : (nis.isNotEmpty ? nis : sName.replaceAll(' ', '_'));
+          if (studentDocId.isEmpty) continue;
+
+          final subjectIdList = <String>{};
+          if (sSubjId.isNotEmpty) subjectIdList.add(sSubjId.toLowerCase());
+          if (allowedSubjectIds != null) {
+            for (var id in allowedSubjectIds) {
+              if (id.trim().isNotEmpty) subjectIdList.add(id.trim().toLowerCase());
+            }
+          }
+
+          final rtPayload = <String, dynamic>{
+            'studentId': sId,
+            'studentName': sName,
+            'nis': nis,
+            'className': sClass,
+            'status': 'completed',
+            'isCompleted': true,
+            'isWorking': false,
+            'isLeftApp': false,
+            'isForceSubmitted': true,
             'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+            'completedAt': FieldValue.serverTimestamp(),
+          };
+          if (sSubjId.isNotEmpty) rtPayload['subjectId'] = sSubjId;
+          if (sSubjName.isNotEmpty) rtPayload['subjectName'] = sSubjName;
+
+          // Write general student realtime doc
+          batch.set(realtimeColl.doc(studentDocId), rtPayload, SetOptions(merge: true));
+          batchCount++;
+
+          // Write session-scoped documents (${studentDocId}_${subjectId})
+          for (var subj in subjectIdList) {
+            if (subj.isNotEmpty) {
+              final sessionDocId = '${studentDocId}_$subj';
+              batch.set(realtimeColl.doc(sessionDocId), rtPayload, SetOptions(merge: true));
+              batchCount++;
+
+              // Also ensure submissions doc is marked as completed
+              final subPayload = <String, dynamic>{
+                'studentId': sId,
+                'studentName': sName,
+                'nis': nis,
+                'className': sClass,
+                'subjectId': subj,
+                'status': 'completed',
+                'isCompleted': true,
+                'autoSubmitted': true,
+                'isForceSubmitted': true,
+                'submittedAt': FieldValue.serverTimestamp(),
+              };
+              if (sSubjName.isNotEmpty) subPayload['subjectName'] = sSubjName;
+              batch.set(submissionsColl.doc(sessionDocId), subPayload, SetOptions(merge: true));
+              batchCount++;
+            }
+          }
+
+          if (batchCount >= 400) {
+            await batch.commit();
+            batchCount = 0;
+          }
+        }
+
+        if (batchCount > 0) {
+          await batch.commit();
         }
       }
 

@@ -20,6 +20,7 @@ class TeacherProctorRoomPage extends StatefulWidget {
   final int sessionIndex;
   final String docId;
   final bool isAdminView;
+  final String? schoolId;
 
   const TeacherProctorRoomPage({
     super.key,
@@ -29,6 +30,7 @@ class TeacherProctorRoomPage extends StatefulWidget {
     this.sessionIndex = 0,
     this.docId = '',
     this.isAdminView = false,
+    this.schoolId,
   });
 
   @override
@@ -156,7 +158,15 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   @override
   void initState() {
     super.initState();
-    _initSchoolId();
+    final directSid = (widget.schoolId != null && widget.schoolId!.isNotEmpty) ? widget.schoolId : null;
+    if (directSid != null) {
+      _resolvedSchoolId = directSid;
+      _isResolvingSchool = false;
+      _initStreams(directSid);
+      _fetchTimetableSubcollection(shouldSetState: true);
+    } else {
+      _initSchoolId();
+    }
   }
 
   void _initStreams(String sid) {
@@ -183,7 +193,9 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   Future<void> _initSchoolId() async {
     final authService = Provider.of<AuthService>(context, listen: false);
 
-    String? foundSchoolId = authService.schoolId;
+    String? foundSchoolId = (widget.schoolId != null && widget.schoolId!.isNotEmpty)
+        ? widget.schoolId
+        : authService.schoolId;
 
     if (foundSchoolId == null || foundSchoolId.isEmpty) {
       for (int i = 0; i < 20; i++) {
@@ -218,8 +230,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     _resolvedSchoolId = foundSchoolId ?? authService.schoolId ?? '';
 
     if (_resolvedSchoolId != null && _resolvedSchoolId!.isNotEmpty) {
-      await _fetchTimetableSubcollection(shouldSetState: false);
       _initStreams(_resolvedSchoolId!);
+      _fetchTimetableSubcollection(shouldSetState: false);
     }
 
     if (mounted) {
@@ -230,7 +242,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   }
 
   Future<void> _fetchTimetableSubcollection({bool shouldSetState = true}) async {
-    final sid = _resolvedSchoolId;
+    final sid = _resolvedSchoolId ?? widget.schoolId;
     if (sid == null || sid.isEmpty) return;
     try {
       final eventRef = FirebaseFirestore.instance
@@ -239,30 +251,44 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
           .collection('events')
           .doc(widget.eventId);
 
-      final results = await Future.wait([
-        eventRef.collection('timetable').get(),
-        eventRef.collection('sessions').orderBy('order').get(),
-      ]);
+      QuerySnapshot? timetableSnap;
+      try {
+        timetableSnap = await eventRef.collection('timetable').get();
+      } catch (e) {
+        debugPrint("Error fetching timetable: $e");
+      }
 
-      final timetableSnap = results[0];
-      final sessionsSnap = results[1];
+      QuerySnapshot? sessionsSnap;
+      try {
+        sessionsSnap = await eventRef.collection('sessions').orderBy('order').get();
+      } catch (_) {
+        try {
+          sessionsSnap = await eventRef.collection('sessions').get();
+        } catch (e) {
+          debugPrint("Error fetching sessions: $e");
+        }
+      }
 
-      _timetableSubcollection = timetableSnap.docs.map((d) {
-        final data = d.data();
-        data['_docId'] = d.id;
-        return data;
-      }).toList();
-      _sessionsSubcollection = sessionsSnap.docs.map((d) {
-        final data = d.data();
-        data['id'] = d.id;
-        return data;
-      }).toList();
-
+      if (timetableSnap != null) {
+        _timetableSubcollection = timetableSnap.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          data['_docId'] = d.id;
+          return data;
+        }).toList();
+      }
+      if (sessionsSnap != null) {
+        _sessionsSubcollection = sessionsSnap.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          data['id'] = d.id;
+          return data;
+        }).toList();
+      }
+    } catch (e) {
+      debugPrint("Error in _fetchTimetableSubcollection: $e");
+    } finally {
       if (shouldSetState && mounted) {
         setState(() {});
       }
-    } catch (e) {
-      debugPrint('Error fetching timetable/sessions subcollection: $e');
     }
   }
 
@@ -462,9 +488,16 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
   @override
   Widget build(BuildContext context) {
-    final schoolId = _resolvedSchoolId ?? '';
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final schoolId = _resolvedSchoolId ?? widget.schoolId ?? authService.schoolId ?? '';
 
-    if (_isResolvingSchool || schoolId.isEmpty) {
+    if (_eventStream == null && schoolId.isNotEmpty) {
+      _resolvedSchoolId = schoolId;
+      _initStreams(schoolId);
+      _fetchTimetableSubcollection(shouldSetState: false);
+    }
+
+    if (_isResolvingSchool && schoolId.isEmpty) {
       return _buildProctorLoadingView('Menyiapkan Data Denah Ruangan...');
     }
 
@@ -475,7 +508,9 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go('/teacher/event/${widget.eventId}/pengawas');
+          context.go(widget.isAdminView
+              ? '/admin/eventujian/${widget.eventId}/rooms?schoolId=${Uri.encodeComponent(schoolId)}'
+              : '/teacher/event/${widget.eventId}/pengawas');
         }
       },
       child: Scaffold(
@@ -489,23 +524,45 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               if (context.canPop()) {
                 context.pop();
               } else {
-                context.go('/teacher/event/${widget.eventId}/pengawas');
+                context.go(widget.isAdminView
+                    ? '/admin/eventujian/${widget.eventId}/rooms?schoolId=${Uri.encodeComponent(schoolId)}'
+                    : '/teacher/event/${widget.eventId}/pengawas');
               }
             },
           ),
-          title: Text(
-            'Ruang Pengawas Ujian',
-            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+          title: Row(
+            children: [
+              Text(
+                widget.isAdminView ? 'Pantau Denah Ruangan' : 'Ruang Pengawas Ujian',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              if (widget.isAdminView) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4F46E5),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Admin View',
+                    style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         body: StreamBuilder<DocumentSnapshot>(
         stream: _eventStream ??
-            FirebaseFirestore.instance
-                .collection('schools')
-                .doc(schoolId)
-                .collection('events')
-                .doc(widget.eventId)
-                .snapshots(),
+            (schoolId.isNotEmpty
+                ? FirebaseFirestore.instance
+                    .collection('schools')
+                    .doc(schoolId)
+                    .collection('events')
+                    .doc(widget.eventId)
+                    .snapshots()
+                : null),
         builder: (context, evSnap) {
           if (!evSnap.hasData && evSnap.connectionState == ConnectionState.waiting) {
             return _buildProctorLoadingView('Memuat Data Event Ujian...');
@@ -876,21 +933,55 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
               // Date & Session Time Labels
               DateTime sessionDate = DateTime.now();
+              Map<String, dynamic>? activeSession;
+              if (_sessionsSubcollection.isNotEmpty) {
+                final dateGroups = <String, List<Map<String, dynamic>>>{};
+                for (var s in _sessionsSubcollection) {
+                  final dStr = (s['date'] ?? s['startDate'] ?? '').toString();
+                  if (dStr.isNotEmpty) {
+                    dateGroups.putIfAbsent(dStr, () => []).add(s);
+                  }
+                }
+                for (var k in dateGroups.keys) {
+                  dateGroups[k]!.sort((a, b) {
+                    final oA = (a['order'] as num?) ?? 0;
+                    final oB = (b['order'] as num?) ?? 0;
+                    if (oA != oB) return oA.compareTo(oB);
+                    return (a['startTime'] ?? '').toString().compareTo((b['startTime'] ?? '').toString());
+                  });
+                }
+                final sortedDates = dateGroups.keys.toList()..sort();
+                if (widget.dayIndex < sortedDates.length) {
+                  final dayDate = sortedDates[widget.dayIndex];
+                  final daySessions = dateGroups[dayDate] ?? [];
+                  if (widget.sessionIndex < daySessions.length) {
+                    activeSession = daySessions[widget.sessionIndex];
+                  }
+                }
+                if (activeSession == null && widget.sessionIndex < _sessionsSubcollection.length) {
+                  activeSession = _sessionsSubcollection[widget.sessionIndex];
+                }
+              }
+
+              if (activeSession != null && activeSession['date'] != null) {
+                final d = DateTime.tryParse(activeSession['date'].toString());
+                if (d != null) sessionDate = d;
+              }
               String dateLabel = '${_getNamaHari(sessionDate)}, ${sessionDate.day} ${_getNamaBulan(sessionDate)} ${sessionDate.year}';
 
               String sessionTimeRange = '';
-              if (widget.sessionIndex < _sessionsSubcollection.length) {
-                final sData = _sessionsSubcollection[widget.sessionIndex];
-                final startTime = (sData['startTime'] ?? sData['start'] ?? '').toString();
-                final endTime = (sData['endTime'] ?? sData['end'] ?? '').toString();
+              String sessionName = 'Sesi ${widget.sessionIndex + 1}';
+              if (activeSession != null) {
+                sessionName = (activeSession['name'] ?? activeSession['sessionName'] ?? 'Sesi ${widget.sessionIndex + 1}').toString();
+                final startTime = (activeSession['startTime'] ?? activeSession['start'] ?? '').toString();
+                final endTime = (activeSession['endTime'] ?? activeSession['end'] ?? '').toString();
                 if (startTime.isNotEmpty && endTime.isNotEmpty) {
                   sessionTimeRange = ' ($startTime - $endTime)';
+                } else if (startTime.isNotEmpty) {
+                  sessionTimeRange = ' ($startTime)';
                 }
               }
-              if (sessionTimeRange.isEmpty) {
-                sessionTimeRange = widget.sessionIndex == 0 ? ' (12:01 - 12:30)' : ' (14:00 - 15:30)';
-              }
-              String sessionLabel = 'Sesi ${widget.sessionIndex + 1}$sessionTimeRange';
+              String sessionLabel = '$sessionName$sessionTimeRange';
 
               if (isMakeupRoom && targetMakeupSession != null) {
                 final mDateStr = (targetMakeupSession['date'] ?? '').toString();
@@ -1494,9 +1585,14 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 bool isLeftApp = !isCompleted &&
                                     ((rtData?['isLeftApp'] == true) || (rtData?['status'] == 'left_app'));
 
-                                bool isWorking = (rtData?['isWorking'] == true) ||
+                                bool isWorking = !isCompleted && ((rtData?['isWorking'] == true) ||
                                     (rtData?['status'] == 'in_progress') ||
-                                    (rtData?['status'] == 'working');
+                                    (rtData?['status'] == 'working'));
+
+                                // If a student never attended and never started answering, they are absent (Belum Hadir)
+                                if (!isAttended && !isWorking && !isLeftApp && (rtData?['answeredCount'] == null || rtData?['answeredCount'] == 0) && (subData?['answers'] == null || (subData?['answers'] as Map).isEmpty)) {
+                                  isCompleted = false;
+                                }
 
                                 int? answeredCount = (rtData?['answeredCount'] as num?)?.toInt() ?? (subData?['answeredCount'] as num?)?.toInt();
                                 int? totalQuestions = (rtData?['totalQuestions'] as num?)?.toInt() ??
@@ -1726,6 +1822,26 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                         }
                                       }
                                     }
+                                  }
+
+                                  if (currentStatus == 'Selesai' || currentStatus == 'Ujian Selesai') {
+                                    seatMap.forEach((seatNum, sData) {
+                                      final bool wasAttended = sData['isAttended'] == true || sData['attended'] == true;
+                                      final bool wasWorking = sData['isWorking'] == true || sData['isLeftApp'] == true;
+                                      final bool hadAnswers = (sData['answeredCount'] as num?) != null && (sData['answeredCount'] as num) > 0;
+                                      if (wasAttended || wasWorking || hadAnswers) {
+                                        sData['isCompleted'] = true;
+                                        sData['isLeftApp'] = false;
+                                        sData['isWorking'] = false;
+                                        sData['status'] = 'completed';
+                                      } else {
+                                        sData['isCompleted'] = false;
+                                        sData['isLeftApp'] = false;
+                                        sData['isWorking'] = false;
+                                        sData['isAttended'] = false;
+                                        sData['status'] = 'normal';
+                                      }
+                                    });
                                   }
 
                                   return LayoutBuilder(

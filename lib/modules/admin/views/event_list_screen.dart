@@ -791,10 +791,10 @@ class _EventListScreenState extends State<EventListScreen> {
                                       ),
                                     ),
                                     // 1.5. Lihat Ruangan
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.push('/admin/event/${e['id']}/rooms?eventName=${Uri.encodeComponent(name)}');
-                                      },
+                                     ElevatedButton.icon(
+                                       onPressed: () {
+                                         context.go('/admin/eventujian/${e['id']}/rooms?schoolId=${Uri.encodeComponent(widget.schoolId)}&eventName=${Uri.encodeComponent(name)}');
+                                       },
                                       icon: const Icon(Icons.meeting_room_outlined, size: 15),
                                       label: Text('Lihat Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                       style: ElevatedButton.styleFrom(
@@ -920,10 +920,10 @@ class _EventListScreenState extends State<EventListScreen> {
                                     ),
                                     const SizedBox(height: 8),
                                     ElevatedButton.icon(
-                                      onPressed: () {
-                                        final evId = e['id'];
-                                        context.push('/admin/event/$evId/rooms?eventName=${Uri.encodeComponent(name)}');
-                                      },
+                                       onPressed: () {
+                                         final evId = e['id'];
+                                         context.go('/admin/eventujian/$evId/rooms?schoolId=${Uri.encodeComponent(widget.schoolId)}&eventName=${Uri.encodeComponent(name)}');
+                                       },
                                       icon: const Icon(Icons.meeting_room_outlined, size: 15),
                                       label: Text('Lihat Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                                       style: ElevatedButton.styleFrom(

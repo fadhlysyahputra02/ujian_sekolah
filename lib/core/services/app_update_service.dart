@@ -1,5 +1,6 @@
 import 'dart:developer' as developer;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -29,8 +30,17 @@ class AppUpdateService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// Memeriksa apakah ada versi baru di Firestore
+  /// Memeriksa apakah ada versi baru di Firestore (khusus mobile Android/iOS)
   Future<AppUpdateCheckResult> checkForUpdate() async {
+    // Pada platform Web / browser, jangan periksa atau tampilkan pembaruan APK
+    if (kIsWeb) {
+      return AppUpdateCheckResult(
+        hasUpdate: false,
+        currentVersion: 'Web',
+        currentBuildNumber: 0,
+      );
+    }
+
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
@@ -88,11 +98,14 @@ class AppUpdateService {
     }
   }
 
-  /// Memeriksa dan menampilkan dialog jika ada update baru
+  /// Memeriksa dan menampilkan dialog jika ada update baru (khusus mobile Android/iOS)
   Future<void> checkAndShowUpdateDialog(
     BuildContext context, {
     bool silentIfLatest = true,
   }) async {
+    // Pada web/browser, jangan tampilkan dialog update
+    if (kIsWeb) return;
+
     final result = await checkForUpdate();
 
     if (!context.mounted) return;

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/utils/web_exam_monitor.dart';
@@ -84,6 +85,10 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
   DateTime? _lastRealtimeStatusUpdate;
   late final WebExamMonitor _webExamMonitor;
 
+  StreamSubscription<DocumentSnapshot>? _realtimeSubscription;
+  StreamSubscription<DocumentSnapshot>? _realtimeGlobalSubscription;
+  StreamSubscription<DocumentSnapshot>? _submissionSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -108,10 +113,14 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     _loadQuestions();
     _startPeriodicSyncTimer();
     _updateRealtimeControlStatus('in_progress');
+    _listenForForceCompletion();
   }
 
   @override
   void dispose() {
+    _realtimeSubscription?.cancel();
+    _realtimeGlobalSubscription?.cancel();
+    _submissionSubscription?.cancel();
     _persistRemainingSeconds();
     if (_currentRealtimeStatus != 'completed') {
       _markLeftAppDirectly();
@@ -188,6 +197,140 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       debugPrint('⚡ Left app directly recorded on dispose for $sessionDocId');
     } catch (e) {
       debugPrint('❌ Error in _markLeftAppDirectly: $e');
+    }
+  }
+
+  void _listenForForceCompletion() {
+    if (widget.schoolId.isEmpty || widget.eventId.isEmpty) return;
+    String studentDocId = widget.studentId.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
+    if (studentDocId.isEmpty) return;
+
+    final cleanSubjId = widget.subjectId.trim().toLowerCase();
+    final sessionDocId = cleanSubjId.isNotEmpty
+        ? '${studentDocId}_$cleanSubjId'
+        : '${studentDocId}_${widget.sessionName.trim().toLowerCase()}';
+
+    final eventRef = FirebaseFirestore.instance
+        .collection('schools')
+        .doc(widget.schoolId)
+        .collection('events')
+        .doc(widget.eventId);
+
+    void checkData(Map<String, dynamic>? data) {
+      if (data == null || _isSubmitting || !mounted) return;
+
+      // Strict subject check to prevent any cross-session triggers
+      final docSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
+      final docSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
+      if (docSubjId.isNotEmpty && cleanSubjId.isNotEmpty && docSubjId != cleanSubjId) {
+        return; // Belongs to a different subject/session
+      }
+      if (docSubjName.isNotEmpty && widget.subjectName.isNotEmpty && docSubjName != widget.subjectName.toLowerCase().trim()) {
+        return; // Belongs to a different subject/session
+      }
+
+      final isForce = data['isForceSubmitted'] == true;
+      final isCompleted = data['isCompleted'] == true || data['status'] == 'completed';
+
+      if (isForce || (isCompleted && _currentRealtimeStatus != 'completed')) {
+        _handleProctorForceFinish();
+      }
+    }
+
+    _realtimeSubscription = eventRef
+        .collection('realtime_control')
+        .doc(sessionDocId)
+        .snapshots()
+        .listen((snap) {
+      if (snap.exists) {
+        checkData(snap.data());
+      }
+    });
+
+    if (sessionDocId != studentDocId) {
+      _realtimeGlobalSubscription = eventRef
+          .collection('realtime_control')
+          .doc(studentDocId)
+          .snapshots()
+          .listen((snap) {
+        if (snap.exists) {
+          checkData(snap.data());
+        }
+      });
+    }
+
+    _submissionSubscription = eventRef
+        .collection('submissions')
+        .doc(sessionDocId)
+        .snapshots()
+        .listen((snap) {
+      if (snap.exists) {
+        checkData(snap.data());
+      }
+    });
+  }
+
+  void _handleProctorForceFinish() {
+    if (_isSubmitting) return;
+    _isSubmitting = true;
+    _timer?.cancel();
+    _draftDebounceTimer?.cancel();
+    _periodicSyncTimer?.cancel();
+    _webExamMonitor.stop();
+
+    _saveAnswersToFirestore(autoSubmitted: true);
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF059669), size: 26),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Ujian Selesai',
+                  style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Sesi ujian telah diselesaikan oleh Guru Pengawas. Semua jawaban yang telah Anda kerjakan telah otomatis tersimpan dan dikumpulkan ke server.',
+            style: GoogleFonts.inter(fontSize: 14, height: 1.5, color: const Color(0xFF334155)),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  context.go('/student');
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Kembali ke Dashboard'),
+            ),
+          ],
+        ),
+      );
     }
   }
 

@@ -122,6 +122,11 @@ class ProctorHeaderBanner extends StatelessWidget {
           proctorDocId: proctorDocId ?? '',
           newStatus: 'Selesai',
           roomId: roomId,
+          seatMap: seatMap,
+          allowedSubjectIds: allowedSubjectIds,
+          allowedSubjectNames: allowedSubjectNames,
+          dayIndex: dayIndex,
+          sessionIndex: sessionIndex,
         );
       }
     }

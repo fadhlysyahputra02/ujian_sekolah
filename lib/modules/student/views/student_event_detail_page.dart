@@ -73,7 +73,37 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     super.dispose();
   }
 
-  Future<void> _loadStudentAndEventDetails() async {
+  Future<QuerySnapshot<Map<String, dynamic>>> _fetchCollection(
+    Query<Map<String, dynamic>> query, {
+    bool forceServer = true,
+  }) async {
+    if (forceServer) {
+      try {
+        return await query.get(const GetOptions(source: Source.server));
+      } catch (e) {
+        debugPrint('Fallback to default query get: $e');
+        return await query.get();
+      }
+    }
+    return await query.get();
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _fetchDoc(
+    DocumentReference<Map<String, dynamic>> docRef, {
+    bool forceServer = true,
+  }) async {
+    if (forceServer) {
+      try {
+        return await docRef.get(const GetOptions(source: Source.server));
+      } catch (e) {
+        debugPrint('Fallback to default doc get: $e');
+        return await docRef.get();
+      }
+    }
+    return await docRef.get();
+  }
+
+  Future<void> _loadStudentAndEventDetails({bool forceRefresh = true}) async {
     final authService = Provider.of<AuthService>(context, listen: false);
 
     // Wait for auth to load
@@ -94,6 +124,11 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       return;
     }
 
+    // Reset caches before reload so fresh Firestore data is always rendered
+    _sessionMap.clear();
+    _makeupApprovals.clear();
+    _allocatedSeat = null;
+
     try {
       final db = FirebaseFirestore.instance;
       final schoolRef = db.collection('schools').doc(_schoolId);
@@ -103,7 +138,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       try {
         final serverTsRef = db.collection('_server_time').doc('now');
         await serverTsRef.set({'ts': FieldValue.serverTimestamp()});
-        final serverDoc = await serverTsRef.get();
+        final serverDoc = await _fetchDoc(serverTsRef, forceServer: forceRefresh);
         final serverTs = serverDoc.data()?['ts'];
         if (serverTs is Timestamp) {
           final serverNow = serverTs.toDate();
@@ -116,20 +151,20 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
       // PARALLEL BATCH 1: Fetch Student profile, Classes, Event doc, Sessions, Timetable, Allocations concurrently
       final results = await Future.wait([
-        schoolRef.collection('students').where('uid', isEqualTo: uid).limit(1).get(),
-        schoolRef.collection('classes').get(),
-        eventRef.get(),
-        eventRef.collection('sessions').get(),
-        eventRef.collection('timetable').get(),
-        eventRef.collection('allocations').get(),
+        _fetchCollection(schoolRef.collection('students').where('uid', isEqualTo: uid).limit(1), forceServer: forceRefresh),
+        _fetchCollection(schoolRef.collection('classes'), forceServer: forceRefresh),
+        _fetchDoc(eventRef, forceServer: forceRefresh),
+        _fetchCollection(eventRef.collection('sessions'), forceServer: forceRefresh),
+        _fetchCollection(eventRef.collection('timetable'), forceServer: forceRefresh),
+        _fetchCollection(eventRef.collection('allocations'), forceServer: forceRefresh),
       ]);
 
-      final studentSnap = results[0] as QuerySnapshot;
-      final classSnap = results[1] as QuerySnapshot;
-      final eventDoc = results[2] as DocumentSnapshot;
-      final sessionsSnap = results[3] as QuerySnapshot;
-      final timetableSnap = results[4] as QuerySnapshot;
-      final allocSnap = results[5] as QuerySnapshot;
+      final studentSnap = results[0] as QuerySnapshot<Map<String, dynamic>>;
+      final classSnap = results[1] as QuerySnapshot<Map<String, dynamic>>;
+      final eventDoc = results[2] as DocumentSnapshot<Map<String, dynamic>>;
+      final sessionsSnap = results[3] as QuerySnapshot<Map<String, dynamic>>;
+      final timetableSnap = results[4] as QuerySnapshot<Map<String, dynamic>>;
+      final allocSnap = results[5] as QuerySnapshot<Map<String, dynamic>>;
 
       if (studentSnap.docs.isNotEmpty) {
         final doc = studentSnap.docs.first;
@@ -137,7 +172,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
         // Resolve student's class name
         for (var cDoc in classSnap.docs) {
-          final cData = cDoc.data() as Map<String, dynamic>;
+          final cData = cDoc.data();
           final sIds = cData['studentIds'];
           if (sIds is List && sIds.contains(doc.id)) {
             _myClassId = cDoc.id;
@@ -146,14 +181,14 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           }
         }
 
-        final docMap = doc.data() as Map<String, dynamic>;
+        final docMap = doc.data();
         _myClassName ??= (docMap['className'] ?? docMap['classId'] ?? _student!.angkatan).toString();
         _myClassId ??= _myClassName;
 
         // Load makeup approvals for this student (separate fetch – non-blocking if collection not yet created)
         _makeupApprovals.clear();
         try {
-          final makeupApprovalsSnap = await eventRef.collection('makeup_approvals').get();
+          final makeupApprovalsSnap = await _fetchCollection(eventRef.collection('makeup_approvals'), forceServer: forceRefresh);
           for (var mDoc in makeupApprovalsSnap.docs) {
             final mData = mDoc.data();
             final mStudentId = (mData['studentId'] ?? '').toString().trim();
@@ -162,11 +197,18 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
             final currentStudentNis = (_student?.nis ?? '').trim();
 
             final bool isStudentMatch = (currentStudentId.isNotEmpty && mStudentId == currentStudentId) ||
-                (currentStudentNis.isNotEmpty && mNis.isNotEmpty && mNis == currentStudentNis);
+                (currentStudentNis.isNotEmpty && mNis.isNotEmpty && mNis == currentStudentNis) ||
+                (currentStudentId.isNotEmpty && mDoc.id.startsWith('${currentStudentId}_')) ||
+                (currentStudentNis.isNotEmpty && mDoc.id.startsWith('${currentStudentNis}_'));
 
             if (isStudentMatch) {
-              final subId = (mData['subjectId'] ?? '').toString().trim();
+              String subId = (mData['subjectId'] ?? '').toString().trim();
               final subName = (mData['subjectName'] ?? '').toString().trim();
+
+              if (subId.isEmpty && mDoc.id.contains('_')) {
+                subId = mDoc.id.substring(mDoc.id.indexOf('_') + 1).trim();
+              }
+
               if (subId.isNotEmpty) {
                 _makeupApprovals[subId] = mData;
               }
@@ -178,7 +220,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           }
 
           // Supplement with makeup_sessions collection
-          final makeupSessionsSnap = await eventRef.collection('makeup_sessions').get();
+          final makeupSessionsSnap = await _fetchCollection(eventRef.collection('makeup_sessions'), forceServer: forceRefresh);
           for (var sDoc in makeupSessionsSnap.docs) {
             final sData = sDoc.data();
             final room = (sData['roomName'] ?? sData['room'] ?? '').toString();
@@ -245,7 +287,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         }
 
         // Process Event Doc Date Range
-        final Map<String, dynamic> evData = eventDoc.exists ? (eventDoc.data() as Map<String, dynamic>? ?? {}) : {};
+        final Map<String, dynamic> evData = eventDoc.exists ? (eventDoc.data() ?? {}) : {};
         if (evData.isNotEmpty) {
           final sd = evData['startDate'];
           final ed = evData['endDate'];
@@ -261,8 +303,9 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         }
 
         // Process Sessions
+        _sessionMap.clear();
         for (var sDoc in sessionsSnap.docs) {
-          final sData = sDoc.data() as Map<String, dynamic>;
+          final sData = Map<String, dynamic>.from(sDoc.data());
           sData['id'] = sDoc.id;
           _sessionMap[sDoc.id] = sData;
           final tempId = sData['tempId']?.toString();
@@ -278,7 +321,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         final studentReligion = (_student?.religion ?? 'Islam').trim();
 
         for (var tDoc in timetableSnap.docs) {
-          final tData = tDoc.data() as Map<String, dynamic>;
+          final tData = Map<String, dynamic>.from(tDoc.data());
           final tClass = (tData['className'] ?? tData['classId'] ?? '').toString().trim();
           final tClassId = (tData['classId'] ?? '').toString().trim();
 
@@ -309,10 +352,10 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
         // Task A: Seat lookup (pick LATEST allocation if multiple exist after re-allocation)
         if (allocSnap.docs.isNotEmpty) {
-          final sortedAllocDocs = List<QueryDocumentSnapshot>.from(allocSnap.docs);
+          final sortedAllocDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(allocSnap.docs);
           sortedAllocDocs.sort((a, b) {
-            final aTime = (a.data() as Map<String, dynamic>?)?['createdAt'];
-            final bTime = (b.data() as Map<String, dynamic>?)?['createdAt'];
+            final aTime = a.data()['createdAt'];
+            final bTime = b.data()['createdAt'];
             if (aTime is Timestamp && bTime is Timestamp) {
               return bTime.compareTo(aTime);
             }
@@ -321,7 +364,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           final activeAllocId = sortedAllocDocs.first.id;
           final allocRef = eventRef.collection('allocations').doc(activeAllocId);
           parallelTasks.add(
-            allocRef.collection('seats').get().then((seatSnap) {
+            _fetchCollection(allocRef.collection('seats'), forceServer: forceRefresh).then((seatSnap) {
               for (var sDoc in seatSnap.docs) {
                 final sData = sDoc.data();
                 if (sData['studentId'] == doc.id ||
@@ -354,6 +397,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                 item: item,
                 studentAngkatan: studentAngkatan,
                 studentClass: _myClassName ?? '',
+                forceRefresh: forceRefresh,
               ),
             );
           }
@@ -361,7 +405,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
         // Task C: Submission completion check for all subjects in parallel
         parallelTasks.add(
-          eventRef.collection('submissions').get().then((subSnap) {
+          _fetchCollection(eventRef.collection('submissions'), forceServer: forceRefresh).then((subSnap) {
             for (var item in filteredTimetable) {
               final subId = (item['subjectId'] ?? item['subjectName'] ?? '').toString();
               final subName = (item['subjectName'] ?? '').toString();
@@ -394,11 +438,10 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         await Future.wait(parallelTasks);
 
         if (_allocatedSeat == null) {
-          final allStudentsSnap = await FirebaseFirestore.instance
-              .collection('schools')
-              .doc(_schoolId)
-              .collection('students')
-              .get();
+          final allStudentsSnap = await _fetchCollection(
+            FirebaseFirestore.instance.collection('schools').doc(_schoolId).collection('students'),
+            forceServer: forceRefresh,
+          );
 
           _allocatedSeat = _synthesizeStudentSeatLocation(
             evData: evData,
@@ -1117,12 +1160,16 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     required Map<String, dynamic> item,
     required String studentAngkatan,
     required String studentClass,
+    bool forceRefresh = true,
   }) async {
     try {
-      List<QueryDocumentSnapshot> rawDocs = [];
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> rawDocs = [];
 
       try {
-        final qSnap1 = await eventRef.collection('subjects').doc(subId).collection('questions').get();
+        final qSnap1 = await _fetchCollection(
+          eventRef.collection('subjects').doc(subId).collection('questions'),
+          forceServer: forceRefresh,
+        );
         if (qSnap1.docs.isNotEmpty) {
           rawDocs = qSnap1.docs;
         }
@@ -1130,7 +1177,10 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
       if (rawDocs.isEmpty && subName.isNotEmpty && subName != subId) {
         try {
-          final qSnap2 = await eventRef.collection('subjects').doc(subName).collection('questions').get();
+          final qSnap2 = await _fetchCollection(
+            eventRef.collection('subjects').doc(subName).collection('questions'),
+            forceServer: forceRefresh,
+          );
           if (qSnap2.docs.isNotEmpty) {
             rawDocs = qSnap2.docs;
           }
@@ -1139,10 +1189,10 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
       if (rawDocs.isEmpty) {
         try {
-          final qSnap3 = await eventRef
-              .collection('questions')
-              .where('subjectId', isEqualTo: subId)
-              .get();
+          final qSnap3 = await _fetchCollection(
+            eventRef.collection('questions').where('subjectId', isEqualTo: subId),
+            forceServer: forceRefresh,
+          );
           if (qSnap3.docs.isNotEmpty) {
             rawDocs = qSnap3.docs;
           }
@@ -1456,6 +1506,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
       final draftState = evData['draftState'] as Map<String, dynamic>?;
       final rawRoomAssignments = draftState?['step6']?['roomAssignments'] as Map<String, dynamic>? ??
+          draftState?['step5']?['roomAssignments'] as Map<String, dynamic>? ??
           draftState?['roomAssignments'] as Map<String, dynamic>? ??
           evData['roomAssignments'] as Map<String, dynamic>? ??
           {};

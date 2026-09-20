@@ -3010,69 +3010,40 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final evData = evSnap.data?.data() as Map<String, dynamic>? ?? {};
         final draftState = evData['draftState'] as Map<String, dynamic>?;
 
-        // 1. Timetable List — prefer subcollection (real Firestore IDs)
-        final timetableList = <Map<String, dynamic>>[];
-        if (_timetableSubcollection.isNotEmpty) {
-          timetableList.addAll(_timetableSubcollection);
-        } else {
-          if (draftState != null && draftState['timetable'] is List) {
-            for (var item in (draftState['timetable'] as List)) {
-              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
-            }
-          }
-          if (evData['timetable'] is List) {
-            for (var item in (evData['timetable'] as List)) {
-              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
-            }
-          }
-        }
-
-        // 2. Rooms Map
-        final roomsList = <Map<String, dynamic>>[];
-        if (draftState != null && draftState['step4']?['rooms'] is List) {
-          for (var r in (draftState['step4']['rooms'] as List)) {
-            if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
-          }
-        } else if (draftState != null && draftState['rooms'] is List) {
-          for (var r in (draftState['rooms'] as List)) {
-            if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
-          }
-        }
-        if (evData['rooms'] is List) {
-          for (var r in (evData['rooms'] as List)) {
-            if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
-          }
-        }
-
-        // 3. Sessions Map — prefer subcollection (has real Firestore IDs & order)
-        final sessionsList = <Map<String, dynamic>>[];
-        if (_sessionsSubcollection.isNotEmpty) {
-          sessionsList.addAll(_sessionsSubcollection);
-        } else if (draftState != null && draftState['step2']?['sessions'] is List) {
-          for (var s in (draftState['step2']['sessions'] as List)) {
-            if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
-          }
-        } else if (draftState != null && draftState['sessions'] is List) {
-          for (var s in (draftState['sessions'] as List)) {
-            if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
-          }
-        } else if (evData['sessions'] is List) {
-          for (var s in (evData['sessions'] as List)) {
-            if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
-          }
-        }
-
-        // 4. Makeup & Proctor Streams
         return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('schools')
               .doc(_schoolId)
               .collection('events')
               .doc(widget.eventId)
-              .collection('makeup_sessions')
+              .collection('sessions')
               .snapshots(),
-          builder: (context, makeupSnap) {
-            final makeupDocs = makeupSnap.data?.docs ?? [];
+          builder: (context, sessionSnap) {
+            final sessionsDocs = sessionSnap.data?.docs ?? [];
+            final sessionsList = <Map<String, dynamic>>[];
+            if (sessionsDocs.isNotEmpty) {
+              for (var d in sessionsDocs) {
+                final data = d.data() as Map<String, dynamic>;
+                data['id'] = d.id;
+                data['_docId'] = d.id;
+                sessionsList.add(data);
+              }
+              sessionsList.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
+            } else if (_sessionsSubcollection.isNotEmpty) {
+              sessionsList.addAll(_sessionsSubcollection);
+            } else if (draftState != null && draftState['step2']?['sessions'] is List) {
+              for (var s in (draftState['step2']['sessions'] as List)) {
+                if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
+              }
+            } else if (draftState != null && draftState['sessions'] is List) {
+              for (var s in (draftState['sessions'] as List)) {
+                if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
+              }
+            } else if (evData['sessions'] is List) {
+              for (var s in (evData['sessions'] as List)) {
+                if (s is Map) sessionsList.add(Map<String, dynamic>.from(s));
+              }
+            }
 
             return StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -3080,527 +3051,694 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                   .doc(_schoolId)
                   .collection('events')
                   .doc(widget.eventId)
-                  .collection('proctors')
+                  .collection('timetable')
                   .snapshots(),
-              builder: (context, proctorSnap) {
-                final proctorDocs = proctorSnap.data?.docs ?? [];
-                final teacherId = _teacher!.id;
-                final teacherUid = _teacher!.uid ?? '';
-                final teacherName = _teacher!.displayName;
-                final teacherNip = _teacher!.nip;
-
-                // Helper to match current teacher strictly across all possible ID/Name formats
-                bool matchesCurrentTeacher(String tid) {
-                  final target = tid.trim().toLowerCase();
-                  if (target.isEmpty) return false;
-
-                  final myId = teacherId.trim().toLowerCase();
-                  final myUid = teacherUid.trim().toLowerCase();
-                  final myName = teacherName.trim().toLowerCase();
-                  final myNip = teacherNip.trim().toLowerCase();
-
-                  // 1. Direct exact matches
-                  if (target == myId) return true;
-                  if (myUid.isNotEmpty && target == myUid) return true;
-                  if (myName.isNotEmpty && target == myName) return true;
-                  if (myNip.isNotEmpty && target == myNip) return true;
-
-                  // 2. Strict normalized comparison (strip 'guru', spaces, underscores, dashes)
-                  final cleanTarget = target.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                  final cleanMyName = myName.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                  final cleanMyId = myId.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                  final cleanMyNip = myNip.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-
-                  if (cleanTarget.isNotEmpty) {
-                    if (cleanTarget == cleanMyName) return true;
-                    if (cleanTarget == cleanMyId) return true;
-                    if (cleanMyNip.isNotEmpty && cleanTarget == cleanMyNip) return true;
+              builder: (context, timetableSnap) {
+                final timetableDocs = timetableSnap.data?.docs ?? [];
+                final timetableList = <Map<String, dynamic>>[];
+                if (timetableDocs.isNotEmpty) {
+                  for (var d in timetableDocs) {
+                    final data = d.data() as Map<String, dynamic>;
+                    data['_docId'] = d.id;
+                    timetableList.add(data);
                   }
-
-                  return false;
-                }
-
-                // Primary source of truth: proctorGrid from draftState or evData
-                final proctorGrid = draftState?['proctorGrid'] as Map? ?? evData['proctorGrid'] as Map? ?? {};
-                final rawDutyList = <Map<String, dynamic>>[];
-
-                if (proctorGrid.isNotEmpty) {
-                  proctorGrid.forEach((keyStr, tidStr) {
-                    final k = keyStr.toString();
-                    final v = tidStr.toString();
-
-                    if (matchesCurrentTeacher(v)) {
-                      final parts = k.split('_');
-                      if (parts.length >= 6 && parts[0] == 'day' && parts[2] == 'session' && parts[4] == 'room') {
-                        final dIdx = int.tryParse(parts[1]) ?? 0;
-                        final sIdx = int.tryParse(parts[3]) ?? 0;
-                        final rId = parts.sublist(5).join('_');
-
-                        rawDutyList.add({
-                          'docId': 'grid_$k',
-                          'roomId': rId,
-                          'sessionId': 'day_${dIdx}_session_$sIdx',
-                          'dayIndex': dIdx,
-                          'sessionIndex': sIdx,
-                          'status': 'Belum Dimulai',
-                        });
-                      }
+                } else if (_timetableSubcollection.isNotEmpty) {
+                  timetableList.addAll(_timetableSubcollection);
+                } else {
+                  if (draftState != null && draftState['timetable'] is List) {
+                    for (var item in (draftState['timetable'] as List)) {
+                      if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
                     }
-                  });
-                }
-
-                // Supplement with proctorDocs subcollection
-                if (proctorDocs.isNotEmpty) {
-                  for (var pDoc in proctorDocs) {
-                    final pData = pDoc.data() as Map<String, dynamic>;
-                    final pTeacher = pData['teacherId']?.toString() ?? '';
-                    final pTeacherName = pData['teacherName']?.toString() ?? '';
-
-                    if (matchesCurrentTeacher(pTeacher) || matchesCurrentTeacher(pTeacherName)) {
-                      int dIdx = (pData['dayIndex'] as num?)?.toInt() ?? -1;
-                      int sIdx = (pData['sessionIndex'] as num?)?.toInt() ?? -1;
-                      final sId = (pData['sessionId'] ?? '').toString();
-
-                      if (dIdx < 0 || sIdx < 0) {
-                        Map<String, dynamic>? matchedSession;
-                        if (_sessionsSubcollection.isNotEmpty) {
-                          for (var sObj in _sessionsSubcollection) {
-                            if (sObj['id'] == sId || sObj['tempId'] == sId || sObj['_docId'] == sId) {
-                              matchedSession = sObj;
-                              break;
-                            }
-                          }
-                        }
-
-                        if (matchedSession != null) {
-                          final tempId = (matchedSession['tempId'] ?? '').toString();
-                          if (tempId.startsWith('day_')) {
-                            final parts = tempId.split('_');
-                            if (parts.length >= 4) {
-                              if (dIdx < 0) dIdx = int.tryParse(parts[1]) ?? 0;
-                              if (sIdx < 0) sIdx = int.tryParse(parts[3]) ?? 0;
-                            }
-                          } else {
-                            final order = (matchedSession['order'] as num?)?.toInt() ?? 1;
-                            final numSessionsPerDay = (sessionsList.isNotEmpty ? sessionsList.length : 2);
-                            if (dIdx < 0) dIdx = (order - 1) ~/ numSessionsPerDay;
-                            if (sIdx < 0) sIdx = (order - 1) % numSessionsPerDay;
-                          }
-                        } else if (sId.startsWith('day_')) {
-                          final parts = sId.split('_');
-                          if (parts.length >= 4) {
-                            if (dIdx < 0) dIdx = int.tryParse(parts[1]) ?? 0;
-                            if (sIdx < 0) sIdx = int.tryParse(parts[3]) ?? 0;
-                          }
-                        }
-
-                        if (dIdx < 0) dIdx = 0;
-                        if (sIdx < 0) sIdx = 0;
-                      }
-
-                      rawDutyList.add({
-                        'docId': pDoc.id,
-                        'roomId': pData['roomId'] ?? '',
-                        'sessionId': sId.isNotEmpty ? sId : 'day_${dIdx}_session_$sIdx',
-                        'dayIndex': dIdx,
-                        'sessionIndex': sIdx,
-                        'status': pData['status'] ?? 'Belum Dimulai',
-                      });
+                  }
+                  if (evData['timetable'] is List) {
+                    for (var item in (evData['timetable'] as List)) {
+                      if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
                     }
                   }
                 }
 
-                // Supplement with makeup_sessions
-                if (makeupDocs.isNotEmpty) {
-                  for (var mDoc in makeupDocs) {
-                    final mData = mDoc.data() as Map<String, dynamic>;
-                    final pIds = List<String>.from((mData['proctorIds'] as Iterable?)?.map((e) => e.toString()) ?? []);
-                    final pNames = List<String>.from((mData['proctorNames'] as Iterable?)?.map((e) => e.toString()) ?? []);
-
-                    if (pIds.any((id) => matchesCurrentTeacher(id)) ||
-                        pNames.any((name) => matchesCurrentTeacher(name))) {
-                      final roomName = (mData['roomName'] ?? 'Ruang Susulan').toString();
-                      rawDutyList.add({
-                        'docId': mDoc.id,
-                        'roomId': roomName,
-                        'roomName': roomName,
-                        'sessionId': 'makeup_${mDoc.id}',
-                        'dayIndex': 0,
-                        'sessionIndex': 0,
-                        'status': (mData['status'] ?? 'active').toString() == 'active' ? 'Sedang Berlangsung' : 'Belum Dimulai',
-                        'isMakeup': true,
-                        'makeupDate': mData['date']?.toString() ?? '',
-                        'makeupStartTime': mData['startTime']?.toString() ?? '',
-                        'makeupEndTime': mData['endTime']?.toString() ?? '',
-                      });
-                    }
+                // 2. Rooms Map
+                final roomsList = <Map<String, dynamic>>[];
+                if (draftState != null && draftState['step4']?['rooms'] is List) {
+                  for (var r in (draftState['step4']['rooms'] as List)) {
+                    if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
+                  }
+                } else if (draftState != null && draftState['rooms'] is List) {
+                  for (var r in (draftState['rooms'] as List)) {
+                    if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
+                  }
+                }
+                if (evData['rooms'] is List) {
+                  for (var r in (evData['rooms'] as List)) {
+                    if (r is Map) roomsList.add(Map<String, dynamic>.from(r));
                   }
                 }
 
-                // Deduplicate duties by dayIndex_sessionIndex_roomId
-                final uniqueDutyMap = <String, Map<String, dynamic>>{};
-                for (var duty in rawDutyList) {
-                  final uniqueKey = '${duty['dayIndex']}_${duty['sessionIndex']}_${duty['roomId']}';
-                  if (!uniqueDutyMap.containsKey(uniqueKey) || !uniqueDutyMap[uniqueKey]!['docId'].toString().startsWith('grid_')) {
-                    uniqueDutyMap[uniqueKey] = duty;
-                  }
-                }
-
-                final assignedDutyList = uniqueDutyMap.values.toList();
-
-                // Sort duties chronologically by dayIndex, sessionIndex, roomId
-                assignedDutyList.sort((a, b) {
-                  int cDay = (a['dayIndex'] as int).compareTo(b['dayIndex'] as int);
-                  if (cDay != 0) return cDay;
-                  int cSess = (a['sessionIndex'] as int).compareTo(b['sessionIndex'] as int);
-                  if (cSess != 0) return cSess;
-                  return (a['roomId'] as String).compareTo(b['roomId'] as String);
-                });
-
-                if (assignedDutyList.isEmpty) {
-                  return SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    child: Container(
-                      constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 200),
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFEEF2FF),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.event_busy_rounded, size: 56, color: Color(0xFF4F46E5)),
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.inter(fontSize: 16, color: const Color(0xFF1E293B), fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Silakan hubungi administrator sekolah jika terdapat kekeliruan.',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                // Stream allocations
+                // 4. Makeup & Proctor Streams
                 return StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('schools')
                       .doc(_schoolId)
                       .collection('events')
                       .doc(widget.eventId)
-                      .collection('allocations')
+                      .collection('makeup_sessions')
                       .snapshots(),
-                  builder: (context, allocSnap) {
-                    final allocDocs = allocSnap.data?.docs ?? [];
-                    String? activeAllocId;
-                    if (allocDocs.isNotEmpty) {
-                      activeAllocId = allocDocs.first.id;
-                    }
+                  builder: (context, makeupSnap) {
+                    final makeupDocs = makeupSnap.data?.docs ?? [];
 
-                    return ListView.separated(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(20),
-                      itemCount: assignedDutyList.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 18),
-                      itemBuilder: (context, index) {
-                        final duty = assignedDutyList[index];
-                        final docId = duty['docId'] as String;
-                        final roomId = duty['roomId'] as String;
-                        final dayIndex = duty['dayIndex'] as int;
-                        final sessionIndex = duty['sessionIndex'] as int;
-                        final status = duty['status'] as String;
-                        final isMakeup = duty['isMakeup'] == true;
+                    return StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('schools')
+                          .doc(_schoolId)
+                          .collection('events')
+                          .doc(widget.eventId)
+                          .collection('proctors')
+                          .snapshots(),
+                      builder: (context, proctorSnap) {
+                        final proctorDocs = proctorSnap.data?.docs ?? [];
+                        final teacherId = _teacher!.id;
+                        final teacherUid = _teacher!.uid ?? '';
+                        final teacherName = _teacher!.displayName;
+                        final teacherNip = _teacher!.nip;
 
-                        final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
-                        final targetSId = duty['sessionId']?.toString() ?? '';
-                        Map<String, dynamic>? matchedSession;
+                        // Helper to match current teacher strictly across all possible ID/Name formats
+                        bool matchesCurrentTeacher(String tid) {
+                          final target = tid.trim().toLowerCase();
+                          if (target.isEmpty) return false;
 
-                        // 1. Direct match on targetKeyStr or targetSId
-                        for (var s in sessionsList) {
-                          final sid = (s['id'] ?? s['_docId'] ?? s['tempId'] ?? s['docId'] ?? '').toString();
-                          if (sid == targetKeyStr || (targetSId.isNotEmpty && sid == targetSId)) {
-                            matchedSession = s;
-                            break;
-                          }
-                        }
+                          final myId = teacherId.trim().toLowerCase();
+                          final myUid = teacherUid.trim().toLowerCase();
+                          final myName = teacherName.trim().toLowerCase();
+                          final myNip = teacherNip.trim().toLowerCase();
 
-                        // 2. Match on dayIndex and sessionIndex
-                        if (matchedSession == null) {
-                          for (var s in sessionsList) {
-                            final sd = (s['dayIndex'] as num?)?.toInt();
-                            final ss = (s['sessionIndex'] as num?)?.toInt();
-                            if (sd != null && ss != null && sd == dayIndex && ss == sessionIndex) {
-                              matchedSession = s;
-                              break;
-                            }
-                          }
-                        }
+                          // 1. Direct exact matches
+                          if (target == myId) return true;
+                          if (myUid.isNotEmpty && target == myUid) return true;
+                          if (myName.isNotEmpty && target == myName) return true;
+                          if (myNip.isNotEmpty && target == myNip) return true;
 
-                        // 3. Match on calculated order
-                        if (matchedSession == null) {
-                          final numSessionsPerDay = (sessionsList.isNotEmpty ? sessionsList.length : 2);
-                          final targetOrder = (dayIndex * numSessionsPerDay) + sessionIndex + 1;
-                          for (var s in sessionsList) {
-                            if ((s['order'] as num?)?.toInt() == targetOrder) {
-                              matchedSession = s;
-                              break;
-                            }
-                          }
-                        }
+                          // 2. Strict normalized comparison (strip 'guru', spaces, underscores, dashes)
+                          final cleanTarget = target.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                          final cleanMyName = myName.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                          final cleanMyId = myId.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                          final cleanMyNip = myNip.replaceAll('guru', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
 
-                        // 4. Fallback to session slot modulo
-                        if (matchedSession == null && sessionsList.length > sessionIndex) {
-                          matchedSession = sessionsList[sessionIndex];
-                        }
-
-                        // Date Label - Always strictly calculate based on event startDate + dayIndex
-                        DateTime? dutyDate;
-                        if (isMakeup && (duty['makeupDate']?.isNotEmpty ?? false)) {
-                          dutyDate = DateTime.tryParse(duty['makeupDate']);
-                        } else {
-                          final startDateVal = evData['startDate'] ?? draftState?['startDate'] ?? draftState?['step1']?['startDate'];
-                          DateTime? eventStartDate;
-                          if (startDateVal is Timestamp) {
-                            eventStartDate = startDateVal.toDate();
-                          } else if (startDateVal is String && startDateVal.isNotEmpty) {
-                            eventStartDate = DateTime.tryParse(startDateVal);
+                          if (cleanTarget.isNotEmpty) {
+                            if (cleanTarget == cleanMyName) return true;
+                            if (cleanTarget == cleanMyId) return true;
+                            if (cleanMyNip.isNotEmpty && cleanTarget == cleanMyNip) return true;
                           }
 
-                          if (eventStartDate != null) {
-                            dutyDate = DateTime(eventStartDate.year, eventStartDate.month, eventStartDate.day).add(Duration(days: dayIndex));
-                          } else if (matchedSession != null) {
-                            final rawDate = matchedSession['date'] ?? matchedSession['startDate'];
-                            if (rawDate is String && rawDate.isNotEmpty) {
-                              dutyDate = DateTime.tryParse(rawDate);
-                            } else if (rawDate is Timestamp) {
-                              dutyDate = rawDate.toDate();
-                            }
-                          }
+                          return false;
                         }
 
-                        final dateLabel = dutyDate != null
-                            ? '${_getNamaHari(dutyDate.weekday)}, ${dutyDate.day} ${_getNamaBulan(dutyDate.month)} ${dutyDate.year}'
-                            : (isMakeup ? 'Ujian Susulan' : 'Hari Ke-${dayIndex + 1}');
+                        // Primary source of truth: proctorGrid from draftState or evData
+                        final proctorGrid = draftState?['proctorGrid'] as Map? ?? evData['proctorGrid'] as Map? ?? {};
+                        final rawDutyList = <Map<String, dynamic>>[];
 
-                        // Session Name - Prefer data in matchedSession or makeup data
-                        String sessionLabel = isMakeup ? 'Ujian Susulan' : 'Sesi ${sessionIndex + 1}';
-                        if (isMakeup) {
-                          final mStart = (duty['makeupStartTime'] ?? '').toString();
-                          final mEnd = (duty['makeupEndTime'] ?? '').toString();
-                          sessionLabel = mStart.isNotEmpty ? 'Ujian Susulan ($mStart - $mEnd)' : 'Ujian Susulan';
-                        } else if (matchedSession != null) {
-                          final sName = matchedSession['name'] ?? matchedSession['sessionName'] ?? 'Sesi ${sessionIndex + 1}';
-                          final sStart = matchedSession['startTime'] ?? matchedSession['start'] ?? '';
-                          final sEnd = matchedSession['endTime'] ?? matchedSession['end'] ?? '';
-                          sessionLabel = sStart.isNotEmpty ? '$sName ($sStart - $sEnd)' : sName;
-                        }
+                        if (proctorGrid.isNotEmpty) {
+                          proctorGrid.forEach((keyStr, tidStr) {
+                            final k = keyStr.toString();
+                            final v = tidStr.toString();
 
-                        // Room Name & Capacity
-                        String roomName = (duty['roomName'] ?? roomId).toString();
-                        int roomCapacity = 0;
-                        for (var r in roomsList) {
-                          if (r['id'] == roomId || r['code'] == roomId || r['name'] == roomId) {
-                            roomName = r['name'] ?? roomId;
-                            roomCapacity = (r['capacity'] as num?)?.toInt() ?? 0;
-                            break;
-                          }
-                        }
+                            if (matchesCurrentTeacher(v)) {
+                              final parts = k.split('_');
+                              if (parts.length >= 6 && parts[0] == 'day' && parts[2] == 'session' && parts[4] == 'room') {
+                                final dIdx = int.tryParse(parts[1]) ?? 0;
+                                final sIdx = int.tryParse(parts[3]) ?? 0;
+                                final rId = parts.sublist(5).join('_');
 
-                        // Resolve Classes assigned to this room
-                        final rawRoomAssignments = draftState?['step6']?['roomAssignments'] as Map? ?? draftState?['roomAssignments'] as Map? ?? evData['roomAssignments'] as Map? ?? {};
-                        final roomAliases = {roomId, roomName}.where((s) => s.isNotEmpty).toSet();
-                        final Set<String> normalizedAliases = {};
-                        for (var a in roomAliases) {
-                          final clean = a.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                          if (clean.isNotEmpty) normalizedAliases.add(clean);
-                        }
-
-                        final roomClassNames = <String>{};
-                        if (rawRoomAssignments.isNotEmpty) {
-                          rawRoomAssignments.forEach((key, val) {
-                            final kStr = key.toString();
-                            final kClean = kStr.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                            bool isMatch = roomAliases.contains(kStr);
-                            if (!isMatch) {
-                              for (var norm in normalizedAliases) {
-                                if (kClean == norm || (norm.length > 2 && kClean.contains(norm)) || (kClean.length > 2 && norm.contains(kClean))) {
-                                  isMatch = true;
-                                  break;
-                                }
-                              }
-                            }
-                            if (isMatch && val is List) {
-                              for (var c in val) {
-                                if (c is Map) {
-                                  final cName = (c['className'] ?? c['classId'] ?? '').toString();
-                                  final cId = (c['classId'] ?? '').toString();
-                                  if (cName.isNotEmpty) roomClassNames.add(cName);
-                                  if (cId.isNotEmpty) roomClassNames.add(cId);
-                                }
+                                rawDutyList.add({
+                                  'docId': 'grid_$k',
+                                  'roomId': rId,
+                                  'sessionId': 'day_${dIdx}_session_$sIdx',
+                                  'dayIndex': dIdx,
+                                  'sessionIndex': sIdx,
+                                  'status': 'Belum Dimulai',
+                                });
                               }
                             }
                           });
                         }
 
-                        // Subjects for this Day & Session & Room Classes
-                        final matchedSubjects = <String>[];
-                        if (isMakeup) {
-                          matchedSubjects.add('Ujian Susulan');
-                        } else {
-                          final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
-                          final targetSessionIdStr1 = 'session_$sessionIndex';
+                        // Supplement with proctorDocs subcollection
+                        if (proctorDocs.isNotEmpty) {
+                          for (var pDoc in proctorDocs) {
+                            final pData = pDoc.data() as Map<String, dynamic>;
+                            final pTeacher = pData['teacherId']?.toString() ?? '';
+                            final pTeacherName = pData['teacherName']?.toString() ?? '';
 
-                          String extractDateStr(dynamic d) {
-                            if (d is String) return d.length >= 10 ? d.substring(0, 10) : d;
-                            if (d is Timestamp) {
-                              final dt = d.toDate();
-                              return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-                            }
-                            return '';
-                          }
+                            if (matchesCurrentTeacher(pTeacher) || matchesCurrentTeacher(pTeacherName)) {
+                              int dIdx = (pData['dayIndex'] as num?)?.toInt() ?? -1;
+                              int sIdx = (pData['sessionIndex'] as num?)?.toInt() ?? -1;
+                              final sId = (pData['sessionId'] ?? '').toString();
 
-                          String? targetRealSessionId;
-                          if (_sessionsSubcollection.isNotEmpty) {
-                            final dateGroups = <String, List<Map<String, dynamic>>>{};
-                            for (var s in _sessionsSubcollection) {
-                              final dStr = extractDateStr(s['date'] ?? s['startDate']);
-                              if (dStr.isNotEmpty) {
-                                dateGroups.putIfAbsent(dStr, () => []).add(s);
-                              }
-                            }
-                            final sortedDates = dateGroups.keys.toList()..sort();
-                            if (dayIndex < sortedDates.length) {
-                              final dayDate = sortedDates[dayIndex];
-                              final daySessions = List<Map<String, dynamic>>.from(dateGroups[dayDate]!);
-                              daySessions.sort((a, b) => ((a['order'] as num?) ?? 0).compareTo((b['order'] as num?) ?? 0));
-                              if (sessionIndex < daySessions.length) {
-                                targetRealSessionId = daySessions[sessionIndex]['id']?.toString();
-                              }
-                            }
-                          }
-
-                          final int targetOrder = dayIndex * (sessionsList.isNotEmpty ? sessionsList.length : 2) + sessionIndex + 1;
-
-                          for (var tItem in timetableList) {
-                            final tSessionId = (tItem['sessionId'] ?? '').toString();
-                            final tDay = (tItem['dayIndex'] ?? tItem['day'] as num?)?.toInt();
-                            final tSession = (tItem['sessionIndex'] ?? tItem['session'] as num?)?.toInt();
-                            final tOrder = (tItem['order'] as num?)?.toInt();
-
-                            bool isMatch = false;
-
-                            if (tDay != null && tDay != dayIndex) {
-                              isMatch = false;
-                            } else if (tSessionId == targetKeyStr || (targetRealSessionId != null && tSessionId == targetRealSessionId)) {
-                              isMatch = true;
-                            } else if (tSessionId.isNotEmpty) {
-                              if (tDay == dayIndex && (tSessionId == targetSessionIdStr1 || tSessionId == '$sessionIndex')) {
-                                isMatch = true;
-                              }
-                            } else if (tSession != null) {
-                              bool dayMatch = tDay == null || tDay == dayIndex;
-                              bool sessMatch = tSession == sessionIndex;
-                              isMatch = dayMatch && sessMatch;
-                            } else if (tOrder != null) {
-                              isMatch = (tOrder == targetOrder);
-                            }
-
-                            if (isMatch) {
-                              final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString().trim();
-                              final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString().trim();
-                              final cId = (tItem['classId'] ?? '').toString().trim();
-
-                              if (subj.isNotEmpty) {
-                                bool classMatched = roomClassNames.isEmpty;
-                                if (!classMatched) {
-                                  final clsClean = cls.toLowerCase().replaceAll(' ', '');
-                                  final cIdClean = cId.toLowerCase().replaceAll(' ', '');
-                                  classMatched = roomClassNames.contains(cls) || 
-                                                 roomClassNames.contains(cId) ||
-                                                 roomClassNames.contains(clsClean) ||
-                                                 roomClassNames.contains(cIdClean) ||
-                                                 roomClassNames.any((c) {
-                                                   final cClean = c.toLowerCase().replaceAll(' ', '');
-                                                   return cClean.isNotEmpty && (clsClean.contains(cClean) || cClean.contains(clsClean));
-                                                 });
-                                }
-
-                                if (classMatched) {
-                                  if (!matchedSubjects.contains(subj)) {
-                                    matchedSubjects.add(subj);
-                                  }
-                                }
-                              }
-                            }
-                          }
-
-                          if (matchedSubjects.isEmpty) {
-                            final scheduleGrid = draftState?['step6']?['scheduleGrid'] as Map? ?? draftState?['scheduleGrid'] as Map? ?? evData['scheduleGrid'] as Map? ?? {};
-                            final gridKeys = [
-                              'day_${dayIndex}_session_$sessionIndex',
-                              'day_${dayIndex}_session_${sessionIndex + 1}',
-                              'session_$sessionIndex',
-                              'session_${sessionIndex + 1}',
-                              '${sessionIndex + 1}',
-                            ];
-                            for (var gk in gridKeys) {
-                              final schedSubjectIds = scheduleGrid[gk];
-                              if (schedSubjectIds is List && schedSubjectIds.isNotEmpty) {
-                                final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
-                                for (var sId in schedSubjectIds) {
-                                  String foundName = sId.toString();
-                                  for (var sItem in subjectsList) {
-                                    if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId || sItem['name'] == sId)) {
-                                      foundName = sItem['name'] ?? sId.toString();
+                              if (dIdx < 0 || sIdx < 0) {
+                                Map<String, dynamic>? matchedSession;
+                                if (sessionsList.isNotEmpty) {
+                                  for (var sObj in sessionsList) {
+                                    if (sObj['id'] == sId || sObj['tempId'] == sId || sObj['_docId'] == sId) {
+                                      matchedSession = sObj;
                                       break;
                                     }
                                   }
-                                  if (!matchedSubjects.contains(foundName)) matchedSubjects.add(foundName);
                                 }
-                              }
-                            }
-                          }
 
-                          if (matchedSubjects.isEmpty) {
-                            final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
-                            for (var sItem in subjectsList) {
-                              if (sItem is Map) {
-                                final sName = (sItem['name'] ?? sItem['subjectName'] ?? '').toString();
-                                if (sName.isNotEmpty && !matchedSubjects.contains(sName)) {
-                                  matchedSubjects.add(sName);
+                                if (matchedSession != null) {
+                                  final tempId = (matchedSession['tempId'] ?? '').toString();
+                                  if (tempId.startsWith('day_')) {
+                                    final parts = tempId.split('_');
+                                    if (parts.length >= 4) {
+                                      if (dIdx < 0) dIdx = int.tryParse(parts[1]) ?? 0;
+                                      if (sIdx < 0) sIdx = int.tryParse(parts[3]) ?? 0;
+                                    }
+                                  } else {
+                                    final order = (matchedSession['order'] as num?)?.toInt() ?? 1;
+                                    final numSessionsPerDay = (sessionsList.isNotEmpty ? sessionsList.length : 2);
+                                    if (dIdx < 0) dIdx = (order - 1) ~/ numSessionsPerDay;
+                                    if (sIdx < 0) sIdx = (order - 1) % numSessionsPerDay;
+                                  }
+                                } else if (sId.startsWith('day_')) {
+                                  final parts = sId.split('_');
+                                  if (parts.length >= 4) {
+                                    if (dIdx < 0) dIdx = int.tryParse(parts[1]) ?? 0;
+                                    if (sIdx < 0) sIdx = int.tryParse(parts[3]) ?? 0;
+                                  }
                                 }
+
+                                if (dIdx < 0) dIdx = 0;
+                                if (sIdx < 0) sIdx = 0;
                               }
+
+                              rawDutyList.add({
+                                'docId': pDoc.id,
+                                'roomId': pData['roomId'] ?? '',
+                                'sessionId': sId.isNotEmpty ? sId : 'day_${dIdx}_session_$sIdx',
+                                'dayIndex': dIdx,
+                                'sessionIndex': sIdx,
+                                'status': pData['status'] ?? 'Belum Dimulai',
+                              });
                             }
                           }
                         }
 
-                        final subjectText = matchedSubjects.isNotEmpty ? matchedSubjects.join(' • ') : 'Semua Mata Pelajaran';
+                        // Supplement with makeup_sessions
+                        if (makeupDocs.isNotEmpty) {
+                          for (var mDoc in makeupDocs) {
+                            final mData = mDoc.data() as Map<String, dynamic>;
+                            final pIds = List<String>.from((mData['proctorIds'] as Iterable?)?.map((e) => e.toString()) ?? []);
+                            final pNames = List<String>.from((mData['proctorNames'] as Iterable?)?.map((e) => e.toString()) ?? []);
 
-                        return _buildProctorCard(
-                          docId: docId,
-                          dateLabel: dateLabel,
-                          dutyDate: dutyDate,
-                          sessionLabel: sessionLabel,
-                          roomName: roomName,
-                          roomId: roomId,
-                          roomCapacity: roomCapacity,
-                          subjectText: subjectText,
-                          status: status,
-                          activeAllocId: activeAllocId,
-                          dayIndex: dayIndex,
-                          sessionIndex: sessionIndex,
+                            if (pIds.any((id) => matchesCurrentTeacher(id)) ||
+                                pNames.any((name) => matchesCurrentTeacher(name))) {
+                              final roomName = (mData['roomName'] ?? 'Ruang Susulan').toString();
+                              rawDutyList.add({
+                                'docId': mDoc.id,
+                                'roomId': roomName,
+                                'roomName': roomName,
+                                'sessionId': 'makeup_${mDoc.id}',
+                                'dayIndex': 0,
+                                'sessionIndex': 0,
+                                'status': (mData['status'] ?? 'active').toString() == 'active' ? 'Sedang Berlangsung' : 'Belum Dimulai',
+                                'isMakeup': true,
+                                'makeupDate': mData['date']?.toString() ?? '',
+                                'makeupStartTime': mData['startTime']?.toString() ?? '',
+                                'makeupEndTime': mData['endTime']?.toString() ?? '',
+                              });
+                            }
+                          }
+                        }
+
+                        // Deduplicate duties by dayIndex_sessionIndex_roomId
+                        final uniqueDutyMap = <String, Map<String, dynamic>>{};
+                        for (var duty in rawDutyList) {
+                          final uniqueKey = '${duty['dayIndex']}_${duty['sessionIndex']}_${duty['roomId']}';
+                          if (!uniqueDutyMap.containsKey(uniqueKey) || !uniqueDutyMap[uniqueKey]!['docId'].toString().startsWith('grid_')) {
+                            uniqueDutyMap[uniqueKey] = duty;
+                          }
+                        }
+
+                        final assignedDutyList = uniqueDutyMap.values.toList();
+
+                        // Sort duties chronologically by dayIndex, sessionIndex, roomId
+                        assignedDutyList.sort((a, b) {
+                          int cDay = (a['dayIndex'] as int).compareTo(b['dayIndex'] as int);
+                          if (cDay != 0) return cDay;
+                          int cSess = (a['sessionIndex'] as int).compareTo(b['sessionIndex'] as int);
+                          if (cSess != 0) return cSess;
+                          return (a['roomId'] as String).compareTo(b['roomId'] as String);
+                        });
+
+                        if (assignedDutyList.isEmpty) {
+                          return SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: Container(
+                              constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 200),
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.all(32),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFEEF2FF),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.event_busy_rounded, size: 56, color: Color(0xFF4F46E5)),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Text(
+                                    'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.inter(fontSize: 16, color: const Color(0xFF1E293B), fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Silakan hubungi administrator sekolah jika terdapat kekeliruan.',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+
+                        // Stream allocations
+                        return StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('schools')
+                              .doc(_schoolId)
+                              .collection('events')
+                              .doc(widget.eventId)
+                              .collection('allocations')
+                              .snapshots(),
+                          builder: (context, allocSnap) {
+                            final allocDocs = allocSnap.data?.docs ?? [];
+                            String? activeAllocId;
+                            Map<String, dynamic>? activeAllocData;
+                            if (allocDocs.isNotEmpty) {
+                              activeAllocId = allocDocs.first.id;
+                              activeAllocData = allocDocs.first.data() as Map<String, dynamic>?;
+                            }
+
+                            return StreamBuilder<QuerySnapshot>(
+                              stream: activeAllocId != null && activeAllocId.isNotEmpty
+                                  ? FirebaseFirestore.instance
+                                      .collection('schools')
+                                      .doc(_schoolId)
+                                      .collection('events')
+                                      .doc(widget.eventId)
+                                      .collection('allocations')
+                                      .doc(activeAllocId)
+                                      .collection('seats')
+                                      .snapshots()
+                                  : Stream.value(null),
+                              builder: (context, seatsSnap) {
+                                final seatDocs = seatsSnap.data?.docs ?? [];
+
+                                // Group sessionsList by date (sorted)
+                                final Map<String, List<Map<String, dynamic>>> dateGroups = {};
+                                for (var s in sessionsList) {
+                                  final dStr = (s['date'] ?? s['startDate'] ?? '').toString();
+                                  if (dStr.isNotEmpty) {
+                                    dateGroups.putIfAbsent(dStr, () => []).add(s);
+                                  }
+                                }
+                                for (var k in dateGroups.keys) {
+                                  dateGroups[k]!.sort((a, b) {
+                                    final oA = (a['order'] as num?) ?? 0;
+                                    final oB = (b['order'] as num?) ?? 0;
+                                    if (oA != oB) return oA.compareTo(oB);
+                                    final stA = (a['startTime'] ?? '').toString();
+                                    final stB = (b['startTime'] ?? '').toString();
+                                    return stA.compareTo(stB);
+                                  });
+                                }
+                                final sortedDates = dateGroups.keys.toList()..sort();
+
+                                return ListView.separated(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.all(20),
+                                  itemCount: assignedDutyList.length,
+                                  separatorBuilder: (_, __) => const SizedBox(height: 18),
+                                  itemBuilder: (context, index) {
+                                    final duty = assignedDutyList[index];
+                                    final docId = duty['docId'] as String;
+                                    final roomId = duty['roomId'] as String;
+                                    final dayIndex = duty['dayIndex'] as int;
+                                    final sessionIndex = duty['sessionIndex'] as int;
+                                    final status = duty['status'] as String;
+                                    final isMakeup = duty['isMakeup'] == true;
+
+                                    final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
+                                    final targetSId = duty['sessionId']?.toString() ?? '';
+                                    Map<String, dynamic>? matchedSession;
+
+                                    // 1. Direct match on targetKeyStr or targetSId
+                                    for (var s in sessionsList) {
+                                      final sid = (s['id'] ?? s['_docId'] ?? s['tempId'] ?? s['docId'] ?? '').toString();
+                                      if ((targetSId.isNotEmpty && sid == targetSId) || sid == targetKeyStr) {
+                                        matchedSession = s;
+                                        break;
+                                      }
+                                    }
+
+                                    // 2. Match via dateGroups using dayIndex & sessionIndex
+                                    if (matchedSession == null && dayIndex < sortedDates.length) {
+                                      final dayDate = sortedDates[dayIndex];
+                                      final daySessions = dateGroups[dayDate] ?? [];
+                                      if (sessionIndex < daySessions.length) {
+                                        matchedSession = daySessions[sessionIndex];
+                                      }
+                                    }
+
+                                    // 3. Match on dayIndex and sessionIndex
+                                    if (matchedSession == null) {
+                                      for (var s in sessionsList) {
+                                        final sd = (s['dayIndex'] as num?)?.toInt();
+                                        final ss = (s['sessionIndex'] as num?)?.toInt();
+                                        if (sd != null && ss != null && sd == dayIndex && ss == sessionIndex) {
+                                          matchedSession = s;
+                                          break;
+                                        }
+                                      }
+                                    }
+
+                                    // 4. Match on calculated order
+                                    if (matchedSession == null) {
+                                      final numSessionsPerDay = (sessionsList.isNotEmpty ? sessionsList.length : 2);
+                                      final targetOrder = (dayIndex * numSessionsPerDay) + sessionIndex + 1;
+                                      for (var s in sessionsList) {
+                                        if ((s['order'] as num?)?.toInt() == targetOrder) {
+                                          matchedSession = s;
+                                          break;
+                                        }
+                                      }
+                                    }
+
+                                    // 5. Fallback to session slot modulo
+                                    if (matchedSession == null && sessionsList.length > sessionIndex) {
+                                      matchedSession = sessionsList[sessionIndex];
+                                    }
+
+                                    // Date Label - Always strictly calculate based on matchedSession or event startDate + dayIndex
+                                    DateTime? dutyDate;
+                                    if (isMakeup && (duty['makeupDate']?.isNotEmpty ?? false)) {
+                                      dutyDate = DateTime.tryParse(duty['makeupDate']);
+                                    } else if (matchedSession != null && matchedSession['date'] != null) {
+                                      final rawDate = (matchedSession['date'] ?? matchedSession['startDate']).toString();
+                                      dutyDate = DateTime.tryParse(rawDate);
+                                    }
+
+                                    if (dutyDate == null) {
+                                      final startDateVal = evData['startDate'] ?? draftState?['startDate'] ?? draftState?['step1']?['startDate'];
+                                      DateTime? eventStartDate;
+                                      if (startDateVal is Timestamp) {
+                                        eventStartDate = startDateVal.toDate();
+                                      } else if (startDateVal is String && startDateVal.isNotEmpty) {
+                                        eventStartDate = DateTime.tryParse(startDateVal);
+                                      }
+
+                                      if (eventStartDate != null) {
+                                        dutyDate = DateTime(eventStartDate.year, eventStartDate.month, eventStartDate.day).add(Duration(days: dayIndex));
+                                      }
+                                    }
+
+                                    final dateLabel = dutyDate != null
+                                        ? '${_getNamaHari(dutyDate.weekday)}, ${dutyDate.day} ${_getNamaBulan(dutyDate.month)} ${dutyDate.year}'
+                                        : (isMakeup ? 'Ujian Susulan' : 'Hari Ke-${dayIndex + 1}');
+
+                                    // Session Name - Prefer data in matchedSession or makeup data
+                                    String sessionLabel = isMakeup ? 'Ujian Susulan' : 'Sesi ${sessionIndex + 1}';
+                                    if (isMakeup) {
+                                      final mStart = (duty['makeupStartTime'] ?? '').toString();
+                                      final mEnd = (duty['makeupEndTime'] ?? '').toString();
+                                      sessionLabel = mStart.isNotEmpty ? 'Ujian Susulan ($mStart - $mEnd)' : 'Ujian Susulan';
+                                    } else if (matchedSession != null) {
+                                      final sName = (matchedSession['name'] ?? matchedSession['sessionName'] ?? 'Sesi ${sessionIndex + 1}').toString();
+                                      final sStart = (matchedSession['startTime'] ?? matchedSession['start'] ?? '').toString();
+                                      final sEnd = (matchedSession['endTime'] ?? matchedSession['end'] ?? '').toString();
+                                      sessionLabel = (sStart.isNotEmpty && sEnd.isNotEmpty) ? '$sName ($sStart - $sEnd)' : (sStart.isNotEmpty ? '$sName ($sStart)' : sName);
+                                    }
+
+                                    // Room Name & Capacity & Aliases
+                                    String roomName = (duty['roomName'] ?? roomId).toString();
+                                    String roomCode = '';
+                                    String actualRoomId = roomId;
+                                    int roomCapacity = 0;
+
+                                    for (var r in roomsList) {
+                                      final rId = (r['id'] ?? '').toString();
+                                      final rName = (r['name'] ?? '').toString();
+                                      final rCode = (r['code'] ?? '').toString();
+
+                                      if (rId == roomId || rCode == roomId || rName == roomId ||
+                                          (rName.isNotEmpty && rName.toLowerCase().replaceAll(' ', '') == roomId.toLowerCase().replaceAll(' ', '')) ||
+                                          (rCode.isNotEmpty && rCode.toLowerCase().replaceAll(' ', '') == roomId.toLowerCase().replaceAll(' ', ''))) {
+                                        if (rName.isNotEmpty) roomName = rName;
+                                        if (rCode.isNotEmpty) roomCode = rCode;
+                                        if (rId.isNotEmpty) actualRoomId = rId;
+                                        roomCapacity = (r['capacity'] as num?)?.toInt() ?? 0;
+                                        break;
+                                      }
+                                    }
+
+                                    final roomAliases = {roomId, roomName, roomCode, actualRoomId}.where((s) => s.isNotEmpty).toSet();
+                                    final Set<String> normalizedAliases = {};
+                                    for (var a in roomAliases) {
+                                      final clean = a.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                                      if (clean.isNotEmpty) normalizedAliases.add(clean);
+                                    }
+
+                                    // Resolve Classes assigned to this room from all available sources
+                                    final roomClassNames = <String>{};
+
+                                    // 1. From Firestore seats subcollection (highest accuracy)
+                                    if (seatDocs.isNotEmpty) {
+                                      for (var sDoc in seatDocs) {
+                                        final s = sDoc.data() as Map<String, dynamic>;
+                                        final sRoomId = (s['roomId'] ?? s['roomName'] ?? s['roomCode'] ?? '').toString();
+                                        final sRoomName = (s['roomName'] ?? '').toString();
+                                        final sRoomCode = (s['roomCode'] ?? '').toString();
+
+                                        final cleanSRoomId = sRoomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                                        final cleanSRoomName = sRoomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                                        final cleanSRoomCode = sRoomCode.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+
+                                        bool isSeatInRoom = roomAliases.contains(sRoomId) ||
+                                            roomAliases.contains(sRoomName) ||
+                                            roomAliases.contains(sRoomCode) ||
+                                            normalizedAliases.contains(cleanSRoomId) ||
+                                            normalizedAliases.contains(cleanSRoomName) ||
+                                            normalizedAliases.contains(cleanSRoomCode);
+
+                                        if (isSeatInRoom) {
+                                          final cName = (s['className'] ?? s['classId'] ?? s['name'] ?? '').toString().trim();
+                                          final cId = (s['classId'] ?? '').toString().trim();
+                                          if (cName.isNotEmpty) roomClassNames.add(cName);
+                                          if (cId.isNotEmpty) roomClassNames.add(cId);
+                                        }
+                                      }
+                                    }
+
+                                    // 2. From rawRoomAssignments (allocData, draftState, evData)
+                                    if (roomClassNames.isEmpty) {
+                                      final rawRoomAssignments = activeAllocData?['roomAssignments'] as Map? ??
+                                          activeAllocData?['roomLayouts']?['roomAssignments'] as Map? ??
+                                          activeAllocData?['draftState']?['step5']?['roomAssignments'] as Map? ??
+                                          activeAllocData?['draftState']?['roomAssignments'] as Map? ??
+                                          draftState?['step5']?['roomAssignments'] as Map? ??
+                                          draftState?['step6']?['roomAssignments'] as Map? ??
+                                          draftState?['roomAssignments'] as Map? ??
+                                          evData['roomAssignments'] as Map? ??
+                                          evData['draftState']?['step5']?['roomAssignments'] as Map? ??
+                                          {};
+
+                                      if (rawRoomAssignments.isNotEmpty) {
+                                        rawRoomAssignments.forEach((key, val) {
+                                          final kStr = key.toString();
+                                          final kClean = kStr.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                                          bool isMatch = roomAliases.contains(kStr) || normalizedAliases.contains(kClean);
+                                          if (!isMatch) {
+                                            for (var norm in normalizedAliases) {
+                                              if (kClean == norm || (norm.length > 2 && kClean.contains(norm)) || (kClean.length > 2 && norm.contains(kClean))) {
+                                                isMatch = true;
+                                                break;
+                                              }
+                                            }
+                                          }
+                                          if (isMatch && val is List) {
+                                            for (var c in val) {
+                                              if (c is Map) {
+                                                final cName = (c['className'] ?? c['classId'] ?? c['name'] ?? '').toString();
+                                                final cId = (c['classId'] ?? '').toString();
+                                                if (cName.isNotEmpty) roomClassNames.add(cName);
+                                                if (cId.isNotEmpty) roomClassNames.add(cId);
+                                              } else if (c is String && c.isNotEmpty) {
+                                                roomClassNames.add(c);
+                                              }
+                                            }
+                                          }
+                                        });
+                                      }
+                                    }
+
+                                    // 3. From roomsList fallback
+                                    if (roomClassNames.isEmpty) {
+                                      for (var r in roomsList) {
+                                        final rId = (r['id'] ?? '').toString();
+                                        final rName = (r['name'] ?? '').toString();
+                                        final rCode = (r['code'] ?? '').toString();
+                                        if (roomAliases.contains(rId) || roomAliases.contains(rName) || roomAliases.contains(rCode)) {
+                                          final rClasses = r['classes'] as List? ?? r['assignedClasses'] as List? ?? r['roomAssignments'] as List? ?? [];
+                                          for (var item in rClasses) {
+                                            if (item is Map) {
+                                              final cName = (item['className'] ?? item['classId'] ?? item['name'] ?? '').toString();
+                                              final cId = (item['classId'] ?? '').toString();
+                                              if (cName.isNotEmpty) roomClassNames.add(cName);
+                                              if (cId.isNotEmpty) roomClassNames.add(cId);
+                                            } else if (item is String && item.isNotEmpty) {
+                                              roomClassNames.add(item);
+                                            }
+                                          }
+                                          break;
+                                        }
+                                      }
+                                    }
+
+                                // Subjects for this Day & Session & Room Classes
+                                final matchedSubjects = <String>[];
+                                if (isMakeup) {
+                                  matchedSubjects.add('Ujian Susulan');
+                                } else {
+                                  final targetKeyStr = 'day_${dayIndex}_session_$sessionIndex';
+                                  final targetSessionIdStr1 = 'session_$sessionIndex';
+
+                                  String? targetRealSessionId;
+                                  if (sortedDates.isNotEmpty && dayIndex < sortedDates.length) {
+                                    final dayDate = sortedDates[dayIndex];
+                                    final daySessions = dateGroups[dayDate] ?? [];
+                                    if (sessionIndex < daySessions.length) {
+                                      targetRealSessionId = daySessions[sessionIndex]['id']?.toString();
+                                    }
+                                  }
+
+                                  final int targetOrder = dayIndex * (sessionsList.isNotEmpty ? sessionsList.length : 2) + sessionIndex + 1;
+
+                                  for (var tItem in timetableList) {
+                                    final tSessionId = (tItem['sessionId'] ?? '').toString();
+                                    final tDay = (tItem['dayIndex'] ?? tItem['day'] as num?)?.toInt();
+                                    final tSession = (tItem['sessionIndex'] ?? tItem['session'] as num?)?.toInt();
+                                    final tOrder = (tItem['order'] as num?)?.toInt();
+
+                                    bool isMatch = false;
+
+                                    if (tDay != null && tDay != dayIndex) {
+                                      isMatch = false;
+                                    } else if (tSessionId == targetKeyStr || (targetRealSessionId != null && tSessionId == targetRealSessionId)) {
+                                      isMatch = true;
+                                    } else if (tSessionId.isNotEmpty) {
+                                      if (tDay == dayIndex && (tSessionId == targetSessionIdStr1 || tSessionId == '$sessionIndex')) {
+                                        isMatch = true;
+                                      }
+                                    } else if (tSession != null) {
+                                      bool dayMatch = tDay == null || tDay == dayIndex;
+                                      bool sessMatch = tSession == sessionIndex;
+                                      isMatch = dayMatch && sessMatch;
+                                    } else if (tOrder != null) {
+                                      isMatch = (tOrder == targetOrder);
+                                    }
+
+                                    if (isMatch) {
+                                      final subj = (tItem['subjectName'] ?? tItem['subject'] ?? '').toString().trim();
+                                      final cls = (tItem['className'] ?? tItem['classId'] ?? '').toString().trim();
+                                      final cId = (tItem['classId'] ?? '').toString().trim();
+
+                                      if (subj.isNotEmpty) {
+                                        bool classMatched = roomClassNames.isEmpty;
+                                        if (!classMatched) {
+                                          final clsClean = cls.toLowerCase().replaceAll(' ', '');
+                                          final cIdClean = cId.toLowerCase().replaceAll(' ', '');
+                                          classMatched = roomClassNames.contains(cls) || 
+                                                         roomClassNames.contains(cId) ||
+                                                         roomClassNames.contains(clsClean) ||
+                                                         roomClassNames.contains(cIdClean) ||
+                                                         roomClassNames.any((c) {
+                                                           final cClean = c.toLowerCase().replaceAll(' ', '');
+                                                           return cClean.isNotEmpty && (clsClean.contains(cClean) || cClean.contains(clsClean));
+                                                         });
+                                        }
+
+                                        if (classMatched) {
+                                          if (!matchedSubjects.contains(subj)) {
+                                            matchedSubjects.add(subj);
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+
+                                  if (matchedSubjects.isEmpty) {
+                                    final scheduleGrid = draftState?['step6']?['scheduleGrid'] as Map? ?? draftState?['scheduleGrid'] as Map? ?? evData['scheduleGrid'] as Map? ?? {};
+                                    final gridKeys = [
+                                      'day_${dayIndex}_session_$sessionIndex',
+                                      'day_${dayIndex}_session_${sessionIndex + 1}',
+                                      'session_$sessionIndex',
+                                      'session_${sessionIndex + 1}',
+                                      '${sessionIndex + 1}',
+                                    ];
+                                    for (var gk in gridKeys) {
+                                      final schedSubjectIds = scheduleGrid[gk];
+                                      if (schedSubjectIds is List && schedSubjectIds.isNotEmpty) {
+                                        final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+                                        for (var sId in schedSubjectIds) {
+                                          String foundName = sId.toString();
+                                          for (var sItem in subjectsList) {
+                                            if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId || sItem['name'] == sId)) {
+                                              foundName = sItem['name'] ?? sId.toString();
+                                              break;
+                                            }
+                                          }
+                                          if (!matchedSubjects.contains(foundName)) matchedSubjects.add(foundName);
+                                        }
+                                      }
+                                    }
+                                  }
+
+                                  if (matchedSubjects.isEmpty) {
+                                    final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+                                    for (var sItem in subjectsList) {
+                                      if (sItem is Map) {
+                                        final sName = (sItem['name'] ?? sItem['subjectName'] ?? '').toString();
+                                        if (sName.isNotEmpty && !matchedSubjects.contains(sName)) {
+                                          matchedSubjects.add(sName);
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+
+                                final subjectText = matchedSubjects.isNotEmpty ? matchedSubjects.join(' • ') : 'Semua Mata Pelajaran';
+
+                                return _buildProctorCard(
+                                  docId: docId,
+                                  dateLabel: dateLabel,
+                                  dutyDate: dutyDate,
+                                  sessionLabel: sessionLabel,
+                                  roomName: roomName,
+                                  roomId: roomId,
+                                  roomCapacity: roomCapacity,
+                                  subjectText: subjectText,
+                                  status: status,
+                                  activeAllocId: activeAllocId,
+                                  dayIndex: dayIndex,
+                                  sessionIndex: sessionIndex,
+                                );
+                              },
+                            );
+                          },
                         );
                       },
                     );

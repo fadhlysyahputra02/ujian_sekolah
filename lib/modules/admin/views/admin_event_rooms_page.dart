@@ -41,6 +41,12 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
     return '$dayName, ${dt.day} $monthName ${dt.year}';
   }
 
+  String get effectiveSchoolId {
+    if (widget.schoolId.isNotEmpty) return widget.schoolId;
+    final authService = Provider.of<AuthService>(context, listen: false);
+    return authService.schoolId ?? '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -57,24 +63,34 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
     final db = FirebaseFirestore.instance;
     final eventRef = db.collection('schools').doc(effectiveSchoolId).collection('events').doc(widget.eventId);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 1,
-        shadowColor: Colors.black12,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          tooltip: 'Kembali',
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/admin/ujian');
-            }
-          },
-        ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/admin/eventujian');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          shadowColor: Colors.black12,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Kembali',
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/admin/eventujian');
+              }
+            },
+          ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -304,128 +320,283 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
                           return nameA.compareTo(nameB);
                         });
 
-                      // Live Streams: attendances, realtime_control, submissions
+                      // Live Streams: timetable, attendances, realtime_control, submissions
                       return StreamBuilder<QuerySnapshot>(
-                        stream: eventRef.collection('attendances').snapshots(),
-                        builder: (context, attSnap) {
-                          final attDocs = attSnap.data?.docs ?? [];
-                          final attendedKeys = <String>{};
-                          for (var d in attDocs) {
+                        stream: eventRef.collection('timetable').snapshots(),
+                        builder: (context, timetableSnap) {
+                          final timetableDocs = timetableSnap.data?.docs ?? [];
+                          final timetableList = <Map<String, dynamic>>[];
+                          for (var d in timetableDocs) {
                             final data = d.data() as Map<String, dynamic>;
-                            final sId = (data['studentId'] ?? '').toString().toLowerCase().trim();
-                            final nis = (data['nis'] ?? '').toString().toLowerCase().trim();
-                            final name = (data['studentName'] ?? '').toString().toLowerCase().trim();
-                            if (sId.isNotEmpty) attendedKeys.add(sId);
-                            if (nis.isNotEmpty) attendedKeys.add(nis);
-                            if (name.isNotEmpty) attendedKeys.add(name);
+                            data['_docId'] = d.id;
+                            timetableList.add(data);
+                          }
+                          if (draftState != null && draftState['timetable'] is List) {
+                            for (var item in (draftState['timetable'] as List)) {
+                              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+                            }
+                          }
+                          if (evData['timetable'] is List) {
+                            for (var item in (evData['timetable'] as List)) {
+                              if (item is Map) timetableList.add(Map<String, dynamic>.from(item));
+                            }
+                          }
+
+                          // Matched subjects for current day and session
+                          final currentSessionId = (currentSession['id'] ?? currentSession['sessionId'] ?? '').toString();
+                          final activeSubjectNames = <String>{};
+                          final activeSubjectIds = <String>{};
+
+                          for (var tItem in timetableList) {
+                            final tSessionId = (tItem['sessionId'] ?? tItem['session_id'] ?? '').toString();
+                            final tDay = (tItem['dayIndex'] ?? tItem['day'] as num?)?.toInt();
+                            final tSession = (tItem['sessionIndex'] ?? tItem['session'] as num?)?.toInt();
+
+                            bool isMatch = false;
+                            if (tDay != null && tDay != _selectedDayIndex) {
+                              isMatch = false;
+                            } else if (tSessionId == 'day_${_selectedDayIndex}_session_$_selectedSessionIndex' ||
+                                (currentSessionId.isNotEmpty && tSessionId == currentSessionId)) {
+                              isMatch = true;
+                            } else if (tSessionId.isNotEmpty) {
+                              if (tDay == _selectedDayIndex &&
+                                  (tSessionId == 'session_$_selectedSessionIndex' || tSessionId == '$_selectedSessionIndex')) {
+                                isMatch = true;
+                              }
+                            } else if (tSession != null) {
+                              bool dayMatch = tDay == null || tDay == _selectedDayIndex;
+                              bool sessMatch = tSession == _selectedSessionIndex;
+                              isMatch = dayMatch && sessMatch;
+                            }
+
+                            if (isMatch) {
+                              final sName = (tItem['subjectName'] ?? tItem['subject'] ?? tItem['name'] ?? '').toString().trim().toLowerCase();
+                              final sId = (tItem['subjectId'] ?? tItem['id'] ?? '').toString().trim().toLowerCase();
+                              if (sName.isNotEmpty) activeSubjectNames.add(sName);
+                              if (sId.isNotEmpty) activeSubjectIds.add(sId);
+                            }
+                          }
+
+                          // Fallback from scheduleGrid
+                          if (activeSubjectNames.isEmpty && activeSubjectIds.isEmpty) {
+                            final scheduleGrid = draftState?['step6']?['scheduleGrid'] as Map? ??
+                                draftState?['scheduleGrid'] as Map? ??
+                                evData['scheduleGrid'] as Map? ??
+                                {};
+                            final gridKeys = [
+                              'day_${_selectedDayIndex}_session_$_selectedSessionIndex',
+                              'day_${_selectedDayIndex}_session_${_selectedSessionIndex + 1}',
+                              'session_$_selectedSessionIndex',
+                              'session_${_selectedSessionIndex + 1}',
+                              '${_selectedSessionIndex + 1}',
+                            ];
+                            final subjectsList = draftState?['subjects'] as List? ?? evData['subjects'] as List? ?? [];
+                            for (var gk in gridKeys) {
+                              final schedSubjectIds = scheduleGrid[gk];
+                              if (schedSubjectIds is List && schedSubjectIds.isNotEmpty) {
+                                for (var sId in schedSubjectIds) {
+                                  final cleanSId = sId.toString().toLowerCase().trim();
+                                  if (cleanSId.isNotEmpty) activeSubjectIds.add(cleanSId);
+                                  for (var sItem in subjectsList) {
+                                    if (sItem is Map && (sItem['id'] == sId || sItem['code'] == sId || sItem['name'] == sId)) {
+                                      final sItemCode = (sItem['code'] ?? '').toString().toLowerCase().trim();
+                                      final sItemName = (sItem['name'] ?? '').toString().toLowerCase().trim();
+                                      if (sItemCode.isNotEmpty) activeSubjectIds.add(sItemCode);
+                                      if (sItemName.isNotEmpty) activeSubjectNames.add(sItemName);
+                                      break;
+                                    }
+                                  }
+                                }
+                              }
+                            }
                           }
 
                           return StreamBuilder<QuerySnapshot>(
-                            stream: eventRef.collection('realtime_control').snapshots(),
-                            builder: (context, rtSnap) {
-                              final rtDocs = rtSnap.data?.docs ?? [];
-                              final realtimeMap = <String, Map<String, dynamic>>{};
-                              for (var d in rtDocs) {
+                            stream: eventRef.collection('attendances').snapshots(),
+                            builder: (context, attSnap) {
+                              final attDocs = attSnap.data?.docs ?? [];
+                              final attendedKeys = <String>{};
+                              for (var d in attDocs) {
                                 final data = d.data() as Map<String, dynamic>;
-                                final sId = (data['studentId'] ?? '').toString().toLowerCase().trim();
-                                final nis = (data['nis'] ?? '').toString().toLowerCase().trim();
-                                final docId = d.id.toLowerCase().trim();
-                                final docPrefix = docId.contains('_') ? docId.substring(0, docId.lastIndexOf('_')) : docId;
+                                final isAtt = data['isAttended'] == true || data['attended'] == true;
+                                if (!isAtt) continue;
 
-                                if (sId.isNotEmpty) realtimeMap[sId] = data;
-                                if (nis.isNotEmpty) realtimeMap[nis] = data;
-                                if (docPrefix.isNotEmpty) realtimeMap[docPrefix] = data;
-                                realtimeMap[docId] = data;
+                                final aDay = (data['dayIndex'] as num?)?.toInt();
+                                final aSess = (data['sessionIndex'] as num?)?.toInt();
+                                final aDate = (data['date'] ?? data['sessionDate'] ?? '').toString().trim();
+                                final aSessId = (data['sessionId'] ?? '').toString().trim();
+
+                                if (aDay != null && aDay != _selectedDayIndex) continue;
+                                if (aSess != null && aSess != _selectedSessionIndex) continue;
+                                if (aDate.isNotEmpty && activeDateStr.isNotEmpty && aDate != activeDateStr) continue;
+                                if (aSessId.isNotEmpty && currentSessionId.isNotEmpty && aSessId != currentSessionId && aSessId != 'session_$_selectedSessionIndex' && aSessId != 'day_${_selectedDayIndex}_session_$_selectedSessionIndex') {
+                                  continue;
+                                }
+
+                                final sId = (data['studentId'] ?? data['id'] ?? '').toString().toLowerCase().trim();
+                                final nis = (data['nis'] ?? '').toString().toLowerCase().trim();
+                                final name = (data['studentName'] ?? data['displayName'] ?? '').toString().toLowerCase().trim();
+                                if (sId.isNotEmpty) attendedKeys.add(sId);
+                                if (nis.isNotEmpty) attendedKeys.add(nis);
+                                if (name.isNotEmpty) attendedKeys.add(name);
                               }
 
                               return StreamBuilder<QuerySnapshot>(
-                                stream: eventRef.collection('submissions').snapshots(),
-                                builder: (context, subSnap) {
-                                  final subDocs = subSnap.data?.docs ?? [];
-                                  final submissionsMap = <String, Map<String, dynamic>>{};
-                                  for (var d in subDocs) {
+                                stream: eventRef.collection('realtime_control').snapshots(),
+                                builder: (context, rtSnap) {
+                                  final rtDocs = rtSnap.data?.docs ?? [];
+                                  final realtimeMap = <String, Map<String, dynamic>>{};
+                                  for (var d in rtDocs) {
                                     final data = d.data() as Map<String, dynamic>;
+                                    final rtDay = (data['dayIndex'] as num?)?.toInt();
+                                    final rtSess = (data['sessionIndex'] as num?)?.toInt();
+                                    final rtDate = (data['date'] ?? data['sessionDate'] ?? '').toString().trim();
+                                    final rtSessId = (data['sessionId'] ?? '').toString().trim();
+                                    final rtSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
+                                    final rtSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
+
+                                    if (rtDay != null && rtDay != _selectedDayIndex) continue;
+                                    if (rtSess != null && rtSess != _selectedSessionIndex) continue;
+                                    if (rtDate.isNotEmpty && activeDateStr.isNotEmpty && rtDate != activeDateStr) continue;
+                                    if (rtSessId.isNotEmpty && currentSessionId.isNotEmpty && rtSessId != currentSessionId && rtSessId != 'session_$_selectedSessionIndex' && rtSessId != 'day_${_selectedDayIndex}_session_$_selectedSessionIndex') {
+                                      continue;
+                                    }
+
+                                    if (activeSubjectNames.isNotEmpty || activeSubjectIds.isNotEmpty) {
+                                      bool subjMatch = activeSubjectIds.contains(rtSubjId) ||
+                                          activeSubjectIds.contains(rtSubjName) ||
+                                          activeSubjectNames.contains(rtSubjName) ||
+                                          activeSubjectNames.contains(rtSubjId);
+                                      if (!subjMatch && (rtSubjId.isNotEmpty || rtSubjName.isNotEmpty)) {
+                                        continue;
+                                      }
+                                    }
+
                                     final sId = (data['studentId'] ?? '').toString().toLowerCase().trim();
                                     final nis = (data['nis'] ?? '').toString().toLowerCase().trim();
                                     final docId = d.id.toLowerCase().trim();
                                     final docPrefix = docId.contains('_') ? docId.substring(0, docId.lastIndexOf('_')) : docId;
 
-                                    if (sId.isNotEmpty) submissionsMap[sId] = data;
-                                    if (nis.isNotEmpty) submissionsMap[nis] = data;
-                                    if (docPrefix.isNotEmpty) submissionsMap[docPrefix] = data;
-                                    submissionsMap[docId] = data;
+                                    if (sId.isNotEmpty) realtimeMap[sId] = data;
+                                    if (nis.isNotEmpty) realtimeMap[nis] = data;
+                                    if (docPrefix.isNotEmpty) realtimeMap[docPrefix] = data;
+                                    realtimeMap[docId] = data;
                                   }
 
                                   return StreamBuilder<QuerySnapshot>(
-                                    stream: db.collection('schools').doc(effectiveSchoolId).collection('teachers').snapshots(),
-                                    builder: (context, teacherSnap) {
+                                    stream: eventRef.collection('submissions').snapshots(),
+                                    builder: (context, subSnap) {
+                                      final subDocs = subSnap.data?.docs ?? [];
+                                      final submissionsMap = <String, Map<String, dynamic>>{};
+                                      for (var d in subDocs) {
+                                        final data = d.data() as Map<String, dynamic>;
+                                        final subDay = (data['dayIndex'] as num?)?.toInt();
+                                        final subSess = (data['sessionIndex'] as num?)?.toInt();
+                                        final subDate = (data['date'] ?? data['sessionDate'] ?? '').toString().trim();
+                                        final subSessId = (data['sessionId'] ?? '').toString().trim();
+                                        final subSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
+                                        final subSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
+
+                                        if (subDay != null && subDay != _selectedDayIndex) continue;
+                                        if (subSess != null && subSess != _selectedSessionIndex) continue;
+                                        if (subDate.isNotEmpty && activeDateStr.isNotEmpty && subDate != activeDateStr) continue;
+                                        if (subSessId.isNotEmpty && currentSessionId.isNotEmpty && subSessId != currentSessionId && subSessId != 'session_$_selectedSessionIndex' && subSessId != 'day_${_selectedDayIndex}_session_$_selectedSessionIndex') {
+                                          continue;
+                                        }
+
+                                        if (activeSubjectNames.isNotEmpty || activeSubjectIds.isNotEmpty) {
+                                          bool subjMatch = activeSubjectIds.contains(subSubjId) ||
+                                              activeSubjectIds.contains(subSubjName) ||
+                                              activeSubjectNames.contains(subSubjName) ||
+                                              activeSubjectNames.contains(subSubjId);
+                                          if (!subjMatch && (subSubjId.isNotEmpty || subSubjName.isNotEmpty)) {
+                                            continue;
+                                          }
+                                        }
+
+                                        final sId = (data['studentId'] ?? '').toString().toLowerCase().trim();
+                                        final nis = (data['nis'] ?? '').toString().toLowerCase().trim();
+                                        final docId = d.id.toLowerCase().trim();
+                                        final docPrefix = docId.contains('_') ? docId.substring(0, docId.lastIndexOf('_')) : docId;
+
+                                        if (sId.isNotEmpty) submissionsMap[sId] = data;
+                                        if (nis.isNotEmpty) submissionsMap[nis] = data;
+                                        if (docPrefix.isNotEmpty) submissionsMap[docPrefix] = data;
+                                        submissionsMap[docId] = data;
+                                      }
+
                                       return StreamBuilder<QuerySnapshot>(
-                                        stream: db.collection('schools').doc(effectiveSchoolId).collection('users').where('role', isEqualTo: 'teacher').snapshots(),
-                                        builder: (context, userTeacherSnap) {
-                                          final teacherDocs = teacherSnap.data?.docs ?? [];
-                                          final userTeacherDocs = userTeacherSnap.data?.docs ?? [];
-                                          final teachersMap = <String, String>{};
-
-                                          void registerTeacher(String docId, Map<String, dynamic> tData) {
-                                            final tName = (tData['displayName'] ?? tData['name'] ?? tData['fullName'] ?? '').toString().trim();
-                                            if (tName.isNotEmpty) {
-                                              teachersMap[docId] = tName;
-                                              teachersMap[docId.toLowerCase()] = tName;
-                                              if (tData['uid'] != null) {
-                                                final uid = tData['uid'].toString().trim();
-                                                teachersMap[uid] = tName;
-                                                teachersMap[uid.toLowerCase()] = tName;
-                                              }
-                                              if (tData['id'] != null) {
-                                                final id = tData['id'].toString().trim();
-                                                teachersMap[id] = tName;
-                                                teachersMap[id.toLowerCase()] = tName;
-                                              }
-                                              if (tData['teacherId'] != null) {
-                                                final tid = tData['teacherId'].toString().trim();
-                                                teachersMap[tid] = tName;
-                                                teachersMap[tid.toLowerCase()] = tName;
-                                              }
-                                              if (tData['nip'] != null) {
-                                                final nip = tData['nip'].toString().trim();
-                                                teachersMap[nip] = tName;
-                                              }
-                                              teachersMap[tName.toLowerCase()] = tName;
-                                            }
-                                          }
-
-                                          for (var tDoc in teacherDocs) {
-                                            registerTeacher(tDoc.id, tDoc.data() as Map<String, dynamic>);
-                                          }
-                                          for (var uDoc in userTeacherDocs) {
-                                            registerTeacher(uDoc.id, uDoc.data() as Map<String, dynamic>);
-                                          }
-
+                                        stream: db.collection('schools').doc(effectiveSchoolId).collection('teachers').snapshots(),
+                                        builder: (context, teacherSnap) {
                                           return StreamBuilder<QuerySnapshot>(
-                                            stream: eventRef.collection('proctors').snapshots(),
-                                            builder: (context, proctorSnap) {
-                                              final proctorDocs = proctorSnap.data?.docs ?? [];
+                                            stream: db.collection('schools').doc(effectiveSchoolId).collection('users').where('role', isEqualTo: 'teacher').snapshots(),
+                                            builder: (context, userTeacherSnap) {
+                                              final teacherDocs = teacherSnap.data?.docs ?? [];
+                                              final userTeacherDocs = userTeacherSnap.data?.docs ?? [];
+                                              final teachersMap = <String, String>{};
 
-                                              return _buildBodyContent(
-                                                context: context,
-                                                sortedDates: sortedDates,
-                                                dateGroups: dateGroups,
-                                                daySessions: daySessions,
-                                                currentDayDate: currentDayDate,
-                                                currentSession: currentSession,
-                                                currentSessionTime: currentSessionTime,
-                                                currentSessionStatus: currentSessionStatus,
-                                                sortedRoomIds: sortedRoomIds,
-                                                roomsInfoMap: roomsInfoMap,
-                                                roomSeatsMap: roomSeatsMap,
-                                                proctorGrid: proctorGrid,
-                                                proctorDocs: proctorDocs,
-                                                teachersMap: teachersMap,
-                                                attendedKeys: attendedKeys,
-                                                realtimeMap: realtimeMap,
-                                                submissionsMap: submissionsMap,
-                                                evData: evData,
-                                                draftState: draftState,
+                                              void registerTeacher(String docId, Map<String, dynamic> tData) {
+                                                final tName = (tData['displayName'] ?? tData['name'] ?? tData['fullName'] ?? '').toString().trim();
+                                                if (tName.isNotEmpty) {
+                                                  teachersMap[docId] = tName;
+                                                  teachersMap[docId.toLowerCase()] = tName;
+                                                  if (tData['uid'] != null) {
+                                                    final uid = tData['uid'].toString().trim();
+                                                    teachersMap[uid] = tName;
+                                                    teachersMap[uid.toLowerCase()] = tName;
+                                                  }
+                                                  if (tData['id'] != null) {
+                                                    final id = tData['id'].toString().trim();
+                                                    teachersMap[id] = tName;
+                                                    teachersMap[id.toLowerCase()] = tName;
+                                                  }
+                                                  if (tData['teacherId'] != null) {
+                                                    final tid = tData['teacherId'].toString().trim();
+                                                    teachersMap[tid] = tName;
+                                                    teachersMap[tid.toLowerCase()] = tName;
+                                                  }
+                                                  if (tData['nip'] != null) {
+                                                    final nip = tData['nip'].toString().trim();
+                                                    teachersMap[nip] = tName;
+                                                  }
+                                                  teachersMap[tName.toLowerCase()] = tName;
+                                                }
+                                              }
+
+                                              for (var tDoc in teacherDocs) {
+                                                registerTeacher(tDoc.id, tDoc.data() as Map<String, dynamic>);
+                                              }
+                                              for (var uDoc in userTeacherDocs) {
+                                                registerTeacher(uDoc.id, uDoc.data() as Map<String, dynamic>);
+                                              }
+
+                                              return StreamBuilder<QuerySnapshot>(
+                                                stream: eventRef.collection('proctors').snapshots(),
+                                                builder: (context, proctorSnap) {
+                                                  final proctorDocs = proctorSnap.data?.docs ?? [];
+
+                                                  return _buildBodyContent(
+                                                    context: context,
+                                                    sortedDates: sortedDates,
+                                                    dateGroups: dateGroups,
+                                                    daySessions: daySessions,
+                                                    currentDayDate: currentDayDate,
+                                                    currentSession: currentSession,
+                                                    currentSessionTime: currentSessionTime,
+                                                    currentSessionStatus: currentSessionStatus,
+                                                    sortedRoomIds: sortedRoomIds,
+                                                    roomsInfoMap: roomsInfoMap,
+                                                    roomSeatsMap: roomSeatsMap,
+                                                    proctorGrid: proctorGrid,
+                                                    proctorDocs: proctorDocs,
+                                                    teachersMap: teachersMap,
+                                                    attendedKeys: attendedKeys,
+                                                    realtimeMap: realtimeMap,
+                                                    submissionsMap: submissionsMap,
+                                                    evData: evData,
+                                                    draftState: draftState,
+                                                  );
+                                                },
                                               );
                                             },
                                           );
@@ -447,8 +618,9 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
           );
         },
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildBodyContent({
     required BuildContext context,
@@ -1012,12 +1184,11 @@ class _AdminEventRoomsPageState extends State<AdminEventRoomsPage> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () {
-                  final roomUrl = '/admin/event/${widget.eventId}/room/$roomId'
-                      '?dayIndex=$_selectedDayIndex'
-                      '&sessionIndex=$_selectedSessionIndex'
+                  final roomUrl = '/admin/eventujian/${widget.eventId}/hari/$_selectedDayIndex/ruangan/$roomId/sesi/$_selectedSessionIndex'
+                      '?schoolId=${Uri.encodeComponent(effectiveSchoolId)}'
                       '&eventName=${Uri.encodeComponent(widget.eventName)}'
                       '&roomName=${Uri.encodeComponent(roomName)}';
-                  context.push(roomUrl);
+                  context.go(roomUrl);
                 },
                 icon: const Icon(Icons.visibility_rounded, size: 15),
                 label: Text('Pantau Denah Ruangan', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700)),
