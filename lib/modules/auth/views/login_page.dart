@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/platform_helper.dart';
 import '../../../core/utils/web_reload.dart';
@@ -44,6 +45,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _loadLastSchoolCode();
     _fetchSchools();
     _initAnimations();
   }
@@ -158,6 +160,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         });
         removeSessionItem('fs_reloaded');
         debugPrint('[LOGIN] Loaded ${_schools.length} schools (sorted by activeUserCount)');
+
+        // Auto-match school if code was loaded from last login
+        if (_schoolCodeController.text.trim().isNotEmpty && _selectedSchool == null) {
+          _matchAndSelectSchool(_schoolCodeController.text.trim());
+        }
       }
     } catch (e) {
       debugPrint('[LOGIN] Fetch gagal: $e');
@@ -166,6 +173,84 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         debugPrint('[LOGIN] Auto reloading browser page due to web hot-restart Firestore corruption...');
         reloadPage();
       }
+    }
+  }
+
+  Future<void> _loadLastSchoolCode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastCode = prefs.getString('last_school_code');
+      if (lastCode != null && lastCode.trim().isNotEmpty && mounted) {
+        final codeTrimmed = lastCode.trim();
+        if (_schoolCodeController.text.trim().isEmpty) {
+          setState(() {
+            _schoolCodeController.text = codeTrimmed;
+          });
+          await _matchAndSelectSchool(codeTrimmed);
+        }
+      }
+    } catch (e) {
+      debugPrint('[LOGIN] Error loading last school code: $e');
+    }
+  }
+
+  Future<void> _matchAndSelectSchool(String text) async {
+    final term = text.trim().toLowerCase();
+    if (term.isEmpty || term == 'sadmin') return;
+
+    Map<String, dynamic>? found;
+    if (_schools.isNotEmpty) {
+      found = _schools.cast<Map<String, dynamic>?>().firstWhere(
+        (s) =>
+            (s?['code'] ?? '').toString().trim().toLowerCase() == term ||
+            (s?['id'] ?? '').toString().trim().toLowerCase() == term,
+        orElse: () => null,
+      );
+    }
+
+    if (found == null) {
+      try {
+        final querySnap = await FirebaseFirestore.instance
+            .collection('schools')
+            .where('code', isEqualTo: text.trim())
+            .limit(1)
+            .get();
+        if (querySnap.docs.isNotEmpty) {
+          final doc = querySnap.docs.first;
+          final data = doc.data();
+          found = {
+            'id': doc.id,
+            'name': (data['name'] ?? '').toString(),
+            'adminEmail': (data['adminEmail'] ?? '').toString(),
+            'code': (data['code'] ?? '').toString(),
+            'logoUrl': data['logoUrl'] ?? data['logoBase64'] ?? data['logo'],
+          };
+        } else {
+          final docSnap = await FirebaseFirestore.instance
+              .collection('schools')
+              .doc(text.trim())
+              .get();
+          if (docSnap.exists && docSnap.data()?['deleted'] != true) {
+            final data = docSnap.data()!;
+            found = {
+              'id': docSnap.id,
+              'name': (data['name'] ?? '').toString(),
+              'adminEmail': (data['adminEmail'] ?? '').toString(),
+              'code': (data['code'] ?? '').toString(),
+              'logoUrl': data['logoUrl'] ?? data['logoBase64'] ?? data['logo'],
+            };
+          }
+        }
+      } catch (e) {
+        debugPrint('[LOGIN] Direct school lookup error: $e');
+      }
+    }
+
+    if (found != null && mounted) {
+      setState(() {
+        _selectedSchool = found;
+      });
+      _fetchSchoolLogoDirectly(found['id']);
     }
   }
 
@@ -361,6 +446,17 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     try {
       await authService.signIn(emailOrUsername, password);
+
+      // Simpan kode sekolah terakhir login untuk otomatis terisi saat keluar akun
+      if (!isSuperAdminLogin && typedText.isNotEmpty) {
+        final codeToSave = (_selectedSchool?['code'] ?? typedText).toString().trim();
+        if (codeToSave.isNotEmpty && codeToSave.toLowerCase() != 'sadmin') {
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('last_school_code', codeToSave);
+          } catch (_) {}
+        }
+      }
 
       // Auth state and GoRouter refreshListenable automatically handle redirect
       // to /blocked if student is inactive, or to /student/ringkasan if active.

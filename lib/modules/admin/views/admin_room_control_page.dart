@@ -1,0 +1,1831 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'package:sys_exam_school/core/services/auth_service.dart';
+import 'package:sys_exam_school/modules/teacher/views/teacher_proctor_room_page.dart';
+
+class AdminRoomControlPage extends StatefulWidget {
+  final String schoolId;
+  final String eventId;
+  final String eventName;
+
+  const AdminRoomControlPage({
+    super.key,
+    required this.schoolId,
+    required this.eventId,
+    required this.eventName,
+  });
+
+  @override
+  State<AdminRoomControlPage> createState() => _AdminRoomControlPageState();
+}
+
+class _DayTabInfo {
+  final int dayIndex;
+  final String label;
+  final String dateStr;
+  final String shortDateStr;
+  final DateTime? date;
+
+  _DayTabInfo({
+    required this.dayIndex,
+    required this.label,
+    required this.dateStr,
+    required this.shortDateStr,
+    this.date,
+  });
+}
+
+class _SessionTabInfo {
+  final int sessionIndex;
+  final String id;
+  final String name;
+  final String startTime;
+  final String endTime;
+  final String timeRange;
+
+  _SessionTabInfo({
+    required this.sessionIndex,
+    required this.id,
+    required this.name,
+    required this.startTime,
+    required this.endTime,
+    required this.timeRange,
+  });
+}
+
+class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  Map<String, dynamic>? _eventData;
+  List<Map<String, dynamic>> _sessions = [];
+  List<Map<String, dynamic>> _rooms = [];
+  List<Map<String, dynamic>> _seats = [];
+  List<Map<String, dynamic>> _timetable = [];
+  List<Map<String, dynamic>> _proctorList = [];
+  final Map<String, String> _proctorGrid = {};
+  final Map<String, String> _teacherMap = {};
+  final Map<String, String> _classMap = {};
+  final Map<String, String> _subjectMap = {};
+
+  int _selectedDayIndex = 0;
+  int _selectedSessionIndex = 0;
+
+  List<_DayTabInfo> _dayTabs = [];
+  List<_SessionTabInfo> _currentSessionTabs = [];
+
+  // Data mapping date string -> list of sessions
+  final Map<String, List<Map<String, dynamic>>> _dateGroups = {};
+  final List<String> _sortedDates = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEventData();
+  }
+
+  String _getNamaHari(int weekday) {
+    switch (weekday) {
+      case 1:
+        return 'Senin';
+      case 2:
+        return 'Selasa';
+      case 3:
+        return 'Rabu';
+      case 4:
+        return 'Kamis';
+      case 5:
+        return 'Jumat';
+      case 6:
+        return 'Sabtu';
+      case 7:
+        return 'Minggu';
+      default:
+        return '';
+    }
+  }
+
+  String _getNamaBulan(int month) {
+    const months = [
+      '',
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
+    ];
+    if (month >= 1 && month <= 12) return months[month];
+    return '';
+  }
+
+  String _getNamaBulanSingkat(int month) {
+    const months = [
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+    if (month >= 1 && month <= 12) return months[month];
+    return '';
+  }
+
+  Future<void> _loadEventData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final effectiveSchoolId = widget.schoolId.isNotEmpty
+          ? widget.schoolId
+          : (auth.schoolId ?? '');
+
+      if (effectiveSchoolId.isEmpty) {
+        throw Exception('ID Sekolah tidak ditemukan.');
+      }
+
+      final db = FirebaseFirestore.instance;
+      final schoolRef = db.collection('schools').doc(effectiveSchoolId);
+      final eventRef = schoolRef.collection('events').doc(widget.eventId);
+
+      // 1. Ambil dokumen event
+      final eventSnap = await eventRef.get();
+      if (!eventSnap.exists) {
+        throw Exception('Event ujian tidak ditemukan.');
+      }
+      _eventData = eventSnap.data();
+
+      // Proctor grid dari event doc
+      if (_eventData!['proctorGrid'] is Map) {
+        (_eventData!['proctorGrid'] as Map).forEach((k, v) {
+          _proctorGrid[k.toString()] = v.toString();
+        });
+      }
+      final rLayouts = _eventData!['roomLayouts'] as Map<String, dynamic>?;
+      if (rLayouts != null && rLayouts['proctorGrid'] is Map) {
+        (rLayouts['proctorGrid'] as Map).forEach((k, v) {
+          _proctorGrid[k.toString()] = v.toString();
+        });
+      }
+
+      // 2. Ambil master guru, kelas, mapel
+      try {
+        final teacherSnap = await schoolRef.collection('teachers').get();
+        for (var doc in teacherSnap.docs) {
+          final data = doc.data();
+          final name =
+              (data['displayName'] ?? data['name'] ?? doc.id).toString();
+          _teacherMap[doc.id] = name;
+        }
+      } catch (_) {}
+
+      try {
+        final userSnap = await schoolRef
+            .collection('users')
+            .where('role', isEqualTo: 'teacher')
+            .get();
+        for (var doc in userSnap.docs) {
+          final data = doc.data();
+          final name =
+              (data['displayName'] ?? data['name'] ?? doc.id).toString();
+          _teacherMap[doc.id] = name;
+        }
+      } catch (_) {}
+
+      try {
+        final classSnap = await schoolRef.collection('classes').get();
+        for (var doc in classSnap.docs) {
+          final data = doc.data();
+          final name = (data['name'] ?? doc.id).toString();
+          _classMap[doc.id] = name;
+        }
+      } catch (_) {}
+
+      try {
+        final subjectSnap = await schoolRef.collection('subjects').get();
+        for (var doc in subjectSnap.docs) {
+          final data = doc.data();
+          final name = (data['name'] ?? doc.id).toString();
+          _subjectMap[doc.id] = name;
+        }
+      } catch (_) {}
+
+      // 3. Ambil subkoleksi sesi
+      try {
+        final sessionSnap =
+            await eventRef.collection('sessions').orderBy('order').get();
+        _sessions = sessionSnap.docs.map((d) {
+          final data = d.data();
+          data['id'] = d.id;
+          return data;
+        }).toList();
+      } catch (_) {
+        try {
+          final sessionSnap = await eventRef.collection('sessions').get();
+          _sessions = sessionSnap.docs.map((d) {
+            final data = d.data();
+            data['id'] = d.id;
+            return data;
+          }).toList();
+          _sessions.sort((a, b) => ((a['order'] as num?) ?? 0)
+              .compareTo((b['order'] as num?) ?? 0));
+        } catch (_) {}
+      }
+
+      if (_sessions.isEmpty &&
+          _eventData != null &&
+          _eventData!['sessions'] is List) {
+        _sessions = (_eventData!['sessions'] as List)
+            .map((s) => Map<String, dynamic>.from(s as Map))
+            .toList();
+      }
+
+      // 4. Ambil timetable
+      final timetableSnap = await eventRef.collection('timetable').get();
+      _timetable = timetableSnap.docs.map((d) {
+        final data = d.data();
+        data['id'] = d.id;
+        return data;
+      }).toList();
+
+      if (_timetable.isEmpty && _eventData != null) {
+        final rawTt = _eventData!['timetable'] ??
+            _eventData!['draftState']?['timetable'] ??
+            _eventData!['draftState']?['step3']?['timetable'];
+        if (rawTt is List) {
+          _timetable =
+              rawTt.map((t) => Map<String, dynamic>.from(t as Map)).toList();
+        }
+      }
+
+      // 5. Ambil pengawas dari subkoleksi proctors
+      try {
+        final proctorSnap = await eventRef.collection('proctors').get();
+        _proctorList = proctorSnap.docs.map((d) {
+          final data = d.data();
+          data['id'] = d.id;
+          return data;
+        }).toList();
+      } catch (_) {}
+
+      // 6. Ambil alokasi ruangan & seats aktif
+      final allocSnap = await eventRef
+          .collection('allocations')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      if (allocSnap.docs.isNotEmpty) {
+        final allocData = allocSnap.docs.first.data();
+        final allocId = allocSnap.docs.first.id;
+
+        final roomLayouts =
+            allocData['roomLayouts'] as Map<String, dynamic>? ?? {};
+        final pGrid = roomLayouts['proctorGrid'] as Map<String, dynamic>? ?? {};
+        pGrid.forEach((k, v) {
+          _proctorGrid[k.toString()] = v.toString();
+        });
+
+        // Seats
+        final seatSnap = await eventRef
+            .collection('allocations')
+            .doc(allocId)
+            .collection('seats')
+            .get();
+        _seats = seatSnap.docs.map((d) {
+          final data = d.data();
+          data['id'] = d.id;
+          return data;
+        }).toList();
+
+        // Ambil data ruangan unik dari seats
+        final roomMap = <String, Map<String, dynamic>>{};
+        for (var seat in _seats) {
+          final rId = (seat['roomId'] ??
+                  seat['roomCode'] ??
+                  seat['roomName'] ??
+                  '')
+              .toString();
+          final rName =
+              (seat['roomName'] ?? seat['roomCode'] ?? rId).toString();
+          final rCode = (seat['roomCode'] ?? rName).toString();
+          if (rId.isNotEmpty) {
+            roomMap.putIfAbsent(rId, () => {
+                  'id': rId,
+                  'name': rName,
+                  'code': rCode,
+                });
+          }
+        }
+        _rooms = roomMap.values.toList();
+      }
+
+      // Fallback data ruangan dari event doc
+      if (_rooms.isEmpty && _eventData != null) {
+        final rList = _eventData!['rooms'] ??
+            _eventData!['draftState']?['rooms'] ??
+            _eventData!['draftState']?['step4']?['rooms'];
+        if (rList is List) {
+          _rooms =
+              rList.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+        }
+      }
+
+      // Fallback data ruangan dari sekolah
+      if (_rooms.isEmpty) {
+        try {
+          final roomSnap = await schoolRef.collection('rooms').get();
+          _rooms = roomSnap.docs.map((d) {
+            final data = d.data();
+            data['id'] = d.id;
+            return data;
+          }).toList();
+        } catch (_) {}
+      }
+
+      // Hitung tab hari dan tab sesi
+      _buildDayAndSessionTabs();
+    } catch (e, stack) {
+      debugPrint('Error loading room control data: $e\n$stack');
+      _errorMessage = e.toString();
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _buildDayAndSessionTabs() {
+    _dateGroups.clear();
+    _sortedDates.clear();
+
+    // 1. Group sessions by date jika ada field date/startDate pada sesi
+    for (var s in _sessions) {
+      final dStr = (s['date'] ?? s['startDate'] ?? '').toString();
+      if (dStr.isNotEmpty) {
+        _dateGroups.putIfAbsent(dStr, () => []).add(s);
+      }
+    }
+    for (var k in _dateGroups.keys) {
+      _dateGroups[k]!.sort((a, b) {
+        final oA = (a['order'] as num?) ?? 0;
+        final oB = (b['order'] as num?) ?? 0;
+        if (oA != oB) return oA.compareTo(oB);
+        final stA = (a['startTime'] ?? '').toString();
+        final stB = (b['startTime'] ?? '').toString();
+        return stA.compareTo(stB);
+      });
+    }
+    _sortedDates.addAll(_dateGroups.keys.toList()..sort());
+
+    DateTime? startDt;
+    DateTime? endDt;
+
+    if (_eventData != null) {
+      final sd = _eventData!['startDate'];
+      final ed = _eventData!['endDate'];
+      if (sd != null) {
+        startDt = sd is Timestamp
+            ? sd.toDate()
+            : (sd is String ? DateTime.tryParse(sd) : null);
+      }
+      if (ed != null) {
+        endDt = ed is Timestamp
+            ? ed.toDate()
+            : (ed is String ? DateTime.tryParse(ed) : null);
+      }
+    }
+
+    final List<_DayTabInfo> generatedDays = [];
+
+    if (_sortedDates.isNotEmpty) {
+      // Jika sesi memiliki tanggal eksplisit
+      for (int i = 0; i < _sortedDates.length; i++) {
+        final dateKey = _sortedDates[i];
+        final dt = DateTime.tryParse(dateKey) ??
+            startDt?.add(Duration(days: i));
+
+        String namaHari = '';
+        String namaBulan = '';
+        String shortDate = '';
+        String fullDateStr = dateKey;
+
+        if (dt != null) {
+          namaHari = _getNamaHari(dt.weekday);
+          namaBulan = _getNamaBulan(dt.month);
+          final namaBulanSingkat = _getNamaBulanSingkat(dt.month);
+          shortDate = '${dt.day} $namaBulanSingkat';
+          fullDateStr = '$namaHari, ${dt.day} $namaBulan ${dt.year}';
+        }
+
+        generatedDays.add(
+          _DayTabInfo(
+            dayIndex: i,
+            label: 'Hari ${i + 1}',
+            dateStr: fullDateStr,
+            shortDateStr: shortDate.isNotEmpty ? shortDate : 'Hari ${i + 1}',
+            date: dt,
+          ),
+        );
+      }
+    } else {
+      // Hitung dari rentang startDate - endDate
+      int calculatedDays = 1;
+      if (startDt != null && endDt != null) {
+        final diff = endDt.difference(startDt).inDays + 1;
+        if (diff > 0) calculatedDays = diff;
+      }
+
+      int maxDayIndex = 0;
+      for (var t in _timetable) {
+        final tDay = (t['dayIndex'] as num?)?.toInt();
+        if (tDay != null && tDay > maxDayIndex) maxDayIndex = tDay;
+        final tsId = (t['sessionId'] ?? '').toString();
+        if (tsId.startsWith('day_')) {
+          final parts = tsId.split('_');
+          if (parts.length >= 2) {
+            final d = int.tryParse(parts[1]);
+            if (d != null && d > maxDayIndex) maxDayIndex = d;
+          }
+        }
+      }
+
+      for (var s in _sessions) {
+        final sDay = (s['dayIndex'] as num?)?.toInt();
+        if (sDay != null && sDay > maxDayIndex) maxDayIndex = sDay;
+      }
+
+      final totalDays = (maxDayIndex + 1) > calculatedDays
+          ? (maxDayIndex + 1)
+          : calculatedDays;
+
+      final baseDate = startDt ?? DateTime.now();
+
+      for (int i = 0; i < totalDays; i++) {
+        final dayDate = DateTime(baseDate.year, baseDate.month, baseDate.day)
+            .add(Duration(days: i));
+        final namaHari = _getNamaHari(dayDate.weekday);
+        final namaBulan = _getNamaBulan(dayDate.month);
+        final namaBulanSingkat = _getNamaBulanSingkat(dayDate.month);
+
+        generatedDays.add(
+          _DayTabInfo(
+            dayIndex: i,
+            label: 'Hari ${i + 1}',
+            dateStr: '$namaHari, ${dayDate.day} $namaBulan ${dayDate.year}',
+            shortDateStr: '${dayDate.day} $namaBulanSingkat',
+            date: dayDate,
+          ),
+        );
+      }
+    }
+
+    _dayTabs = generatedDays;
+
+    if (_selectedDayIndex >= _dayTabs.length) {
+      _selectedDayIndex = 0;
+    }
+
+    _updateSessionTabsForSelectedDay();
+  }
+
+  void _updateSessionTabsForSelectedDay() {
+    List<Map<String, dynamic>> matchedSessions = [];
+
+    // 1. Cek dari _sortedDates & _dateGroups jika ada
+    if (_sortedDates.isNotEmpty && _selectedDayIndex < _sortedDates.length) {
+      final dateKey = _sortedDates[_selectedDayIndex];
+      matchedSessions = List.from(_dateGroups[dateKey] ?? []);
+    }
+
+    // 2. Cek sesi yang punya dayIndex spesifik
+    if (matchedSessions.isEmpty) {
+      matchedSessions = _sessions.where((s) {
+        final dIdx = (s['dayIndex'] as num?)?.toInt();
+        return dIdx == _selectedDayIndex;
+      }).toList();
+    }
+
+    // 3. Jika tidak ada sesi spesifik hari, gunakan seluruh template sesi
+    if (matchedSessions.isEmpty) {
+      matchedSessions = List.from(_sessions);
+    }
+
+    // 4. Jika sesi masih kosong, buat fallback sesi standar
+    if (matchedSessions.isEmpty) {
+      matchedSessions = [
+        {
+          'id': 'session_1',
+          'name': 'Sesi 1',
+          'startTime': '07:30',
+          'endTime': '09:30',
+          'order': 1,
+        },
+        {
+          'id': 'session_2',
+          'name': 'Sesi 2',
+          'startTime': '10:00',
+          'endTime': '12:00',
+          'order': 2,
+        },
+      ];
+    }
+
+    matchedSessions.sort((a, b) {
+      final oA = (a['order'] as num?) ?? 0;
+      final oB = (b['order'] as num?) ?? 0;
+      if (oA != oB) return oA.compareTo(oB);
+      final stA = (a['startTime'] ?? '').toString();
+      final stB = (b['startTime'] ?? '').toString();
+      return stA.compareTo(stB);
+    });
+
+    final List<_SessionTabInfo> sessionTabs = [];
+    for (int idx = 0; idx < matchedSessions.length; idx++) {
+      final s = matchedSessions[idx];
+      final sId = (s['id'] ?? s['docId'] ?? 'session_${idx + 1}').toString();
+      final sName =
+          (s['name'] ?? s['sessionName'] ?? 'Sesi ${idx + 1}').toString();
+      final sStart = (s['startTime'] ?? s['start'] ?? '').toString();
+      final sEnd = (s['endTime'] ?? s['end'] ?? '').toString();
+      final timeRange = (sStart.isNotEmpty && sEnd.isNotEmpty)
+          ? '$sStart - $sEnd'
+          : (sStart.isNotEmpty ? sStart : 'Waktu Fleksibel');
+
+      sessionTabs.add(
+        _SessionTabInfo(
+          sessionIndex: idx,
+          id: sId,
+          name: sName,
+          startTime: sStart,
+          endTime: sEnd,
+          timeRange: timeRange,
+        ),
+      );
+    }
+
+    _currentSessionTabs = sessionTabs;
+    if (_selectedSessionIndex >= _currentSessionTabs.length) {
+      _selectedSessionIndex = 0;
+    }
+  }
+
+  List<Map<String, dynamic>> _getRoomsForCurrentSelection() {
+    final activeRooms = _rooms.isNotEmpty
+        ? _rooms
+        : [
+            {'id': 'R1', 'name': 'Ruang 01', 'code': '01', 'capacity': 30}
+          ];
+
+    final currentSession = _currentSessionTabs.isNotEmpty &&
+            _selectedSessionIndex < _currentSessionTabs.length
+        ? _currentSessionTabs[_selectedSessionIndex]
+        : null;
+
+    final sId = currentSession?.id ?? 'session_${_selectedSessionIndex + 1}';
+    final daySessKey = 'day_${_selectedDayIndex}_session_$_selectedSessionIndex';
+
+    // Cari jadwal mapel yang match dengan hari & sesi ini
+    final List<Map<String, dynamic>> matchingTimetable = _timetable.where((t) {
+      final tsId = (t['sessionId'] ?? '').toString().trim();
+      final tDay = (t['dayIndex'] as num?)?.toInt() ??
+          (t['day'] != null ? int.tryParse(t['day'].toString()) : null);
+      final tSlot = (t['sessionIndex'] ?? t['slotIndex'] as num?)?.toInt();
+
+      if (tDay != null && tSlot != null) {
+        return tDay == _selectedDayIndex && tSlot == _selectedSessionIndex;
+      }
+      if (tsId == daySessKey) return true;
+      if (tsId.startsWith('day_')) {
+        final parts = tsId.split('_');
+        if (parts.length >= 4) {
+          final d = int.tryParse(parts[1]);
+          final s = int.tryParse(parts[3]);
+          if (d != null && s != null) {
+            return d == _selectedDayIndex && s == _selectedSessionIndex;
+          }
+        }
+      }
+      if (tDay != null) {
+        if (tDay == _selectedDayIndex) {
+          if (tSlot != null) { return tSlot == _selectedSessionIndex; }
+          if (tsId == sId ||
+              tsId == 'session_${_selectedSessionIndex + 1}' ||
+              tsId == 'session_$_selectedSessionIndex') { return true; }
+          if (tsId.isEmpty) { return _selectedSessionIndex == 0; }
+        }
+        return false;
+      }
+      if (tsId == sId ||
+          tsId == 'session_${_selectedSessionIndex + 1}' ||
+          tsId == 'session_$_selectedSessionIndex') {
+        return _selectedDayIndex == 0;
+      }
+      return false;
+    }).toList();
+
+    final List<Map<String, dynamic>> roomDetails = [];
+
+    for (var rMap in activeRooms) {
+      final rId = (rMap['id'] ?? rMap['code'] ?? rMap['name'] ?? '').toString();
+      final rName = (rMap['name'] ?? rMap['code'] ?? rId).toString();
+      final rCode = (rMap['code'] ?? rName).toString();
+      final rCapacity = (rMap['capacity'] as num?)?.toInt() ?? 0;
+
+      // 1. Kelas yang dialokasikan ke ruangan ini
+      final Set<String> roomClassSet = {};
+      int actualSeatCount = 0;
+      for (var s in _seats) {
+        final seatRoom =
+            (s['roomId'] ?? s['roomName'] ?? s['roomCode'] ?? '').toString();
+        if (seatRoom == rId || seatRoom == rName || seatRoom == rCode) {
+          actualSeatCount++;
+          final cName =
+              (s['className'] ?? s['classId'] ?? '').toString().trim();
+          if (cName.isNotEmpty) roomClassSet.add(cName);
+        }
+      }
+
+      if (roomClassSet.isEmpty && _seats.isEmpty) {
+        for (var t in matchingTimetable) {
+          final cId = (t['classId'] ?? '').toString().trim();
+          final cName = (t['className'] ?? '').toString().trim().isNotEmpty
+              ? t['className'].toString().trim()
+              : (_classMap[cId] ?? cId);
+          if (cName.isNotEmpty) roomClassSet.add(cName);
+        }
+      }
+
+      // 2. Mata pelajaran di sesi ini
+      final Set<String> subjectSet = {};
+      for (var t in matchingTimetable) {
+        final cId = (t['classId'] ?? '').toString().trim();
+        final cName = (t['className'] ?? '').toString().trim().isNotEmpty
+            ? t['className'].toString().trim()
+            : (_classMap[cId] ?? cId);
+
+        final cleanId = cId.toLowerCase().replaceAll(' ', '');
+        final cleanName = cName.toLowerCase().replaceAll(' ', '');
+        bool classMatched = roomClassSet.isEmpty;
+        if (!classMatched) {
+          for (var rc in roomClassSet) {
+            final cleanRc = rc.toLowerCase().replaceAll(' ', '');
+            if (cleanRc == cleanId || cleanRc == cleanName) {
+              classMatched = true;
+              break;
+            }
+            if (cleanName.isNotEmpty &&
+                (cleanName.contains(cleanRc) || cleanRc.contains(cleanName))) {
+              classMatched = true;
+              break;
+            }
+          }
+        }
+
+        if (classMatched) {
+          final sId = (t['subjectId'] ?? '').toString().trim();
+          final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
+              ? t['subjectName'].toString().trim()
+              : (_subjectMap[sId] ?? sId);
+          if (subName.isNotEmpty) subjectSet.add(subName);
+        }
+      }
+
+      if (subjectSet.isEmpty && roomClassSet.isEmpty) {
+        for (var t in matchingTimetable) {
+          final sId = (t['subjectId'] ?? '').toString().trim();
+          final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
+              ? t['subjectName'].toString().trim()
+              : (_subjectMap[sId] ?? sId);
+          if (subName.isNotEmpty) subjectSet.add(subName);
+        }
+      }
+
+      // 3. Pengawas ruangan
+      String proctorName = '';
+
+      for (var p in _proctorList) {
+        final pSId = (p['sessionId'] ?? '').toString();
+        final pRId = (p['roomId'] ?? '').toString();
+        final pDayIdx = (p['dayIndex'] as num?)?.toInt();
+        final pSessIdx = (p['sessionIndex'] as num?)?.toInt();
+
+        final bool dayMatch = pDayIdx == null || pDayIdx == _selectedDayIndex;
+        final bool sessMatch = pSessIdx != null
+            ? pSessIdx == _selectedSessionIndex
+            : (pSId == sId ||
+                pSId == 'session_${_selectedSessionIndex + 1}' ||
+                pSId == daySessKey);
+        final bool roomMatch =
+            (pRId == rId || pRId == rCode || pRId == rName);
+
+        if (dayMatch && sessMatch && roomMatch) {
+          final tId = (p['teacherId'] ?? p['teacherName'] ?? '').toString();
+          proctorName = p['teacherName'] ?? _teacherMap[tId] ?? tId;
+          break;
+        }
+      }
+
+      if (proctorName.isEmpty) {
+        final keysToTry = [
+          'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rId',
+          'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rCode',
+          'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rName',
+          'day_${_selectedDayIndex}_session_0_room_$rId',
+          'day_${_selectedDayIndex}_session_0_room_$rCode',
+          'day_${_selectedDayIndex}_session_0_room_$rName',
+        ];
+        for (final k in keysToTry) {
+          if (_proctorGrid.containsKey(k)) {
+            final pVal = _proctorGrid[k]!;
+            proctorName = _teacherMap[pVal] ?? pVal;
+            break;
+          }
+        }
+      }
+
+      roomDetails.add({
+        'id': rId,
+        'name': rName,
+        'code': rCode,
+        'capacity': actualSeatCount > 0
+            ? actualSeatCount
+            : (rCapacity > 0 ? rCapacity : 30),
+        'classes': roomClassSet.toList(),
+        'subjects': subjectSet.toList(),
+        'proctorName': proctorName,
+      });
+    }
+
+    return roomDetails;
+  }
+
+  void _openRoomMonitoring(String roomId) {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final effectiveSchoolId = widget.schoolId.isNotEmpty
+        ? widget.schoolId
+        : (auth.schoolId ?? '');
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TeacherProctorRoomPage(
+          eventId: widget.eventId,
+          roomId: roomId,
+          dayIndex: _selectedDayIndex,
+          sessionIndex: _selectedSessionIndex,
+          isAdminView: true,
+          schoolId: effectiveSchoolId,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/admin/eventujian');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF0F172A),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            tooltip: 'Kembali',
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/admin/eventujian');
+              }
+            },
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Kontrol Ruangan',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D9488),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Admin',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                widget.eventName,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: const Color(0xFF94A3B8),
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'Segarkan Data',
+              onPressed: _loadEventData,
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: _isLoading
+            ? const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Color(0xFF0D9488)),
+                    SizedBox(height: 16),
+                    Text(
+                      'Memuat Kontrol Ruangan...',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : _errorMessage != null
+                ? _buildErrorView()
+                : _buildMainBody(),
+      ),
+    );
+  }
+
+  Widget _buildErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded,
+                size: 48, color: Color(0xFFEF4444)),
+            const SizedBox(height: 16),
+            Text(
+              'Gagal Memuat Data',
+              style: GoogleFonts.inter(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage ?? 'Terjadi kesalahan saat memuat kontrol ruangan.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: _loadEventData,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Coba Lagi'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0D9488),
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainBody() {
+    final activeDay = _dayTabs.isNotEmpty && _selectedDayIndex < _dayTabs.length
+        ? _dayTabs[_selectedDayIndex]
+        : null;
+
+    final activeSession = _currentSessionTabs.isNotEmpty &&
+            _selectedSessionIndex < _currentSessionTabs.length
+        ? _currentSessionTabs[_selectedSessionIndex]
+        : null;
+
+    final roomDetails = _getRoomsForCurrentSelection();
+
+    final totalRooms = roomDetails.length;
+    int totalSeats = 0;
+    int assignedProctors = 0;
+
+    for (var r in roomDetails) {
+      totalSeats += (r['capacity'] as int? ?? 0);
+      if ((r['proctorName'] as String? ?? '').isNotEmpty) {
+        assignedProctors++;
+      }
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Tab Bar Hari (Level 1)
+          _buildDayTabBar(),
+          const SizedBox(height: 16),
+
+          // 2. Tab Bar Sesi (Level 2 - di bawah Tab Hari)
+          _buildSessionTabBar(),
+          const SizedBox(height: 20),
+
+          // 3. Banner Ringkasan Hari & Sesi Terpilih
+          _buildActiveInfoBanner(activeDay, activeSession),
+          const SizedBox(height: 16),
+
+          // 4. Kartu Metrik Ringkas
+          _buildKpiCards(
+            totalRooms: totalRooms,
+            totalSeats: totalSeats,
+            assignedProctors: assignedProctors,
+          ),
+          const SizedBox(height: 24),
+
+          // 5. Header Daftar Ruangan
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.meeting_room_rounded,
+                      size: 20, color: Color(0xFF0D9488)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Daftar Ruangan Ujian',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Text(
+                  '$totalRooms Ruangan',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF475569),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // 6. Grid / List Kartu Ruangan
+          if (roomDetails.isEmpty)
+            _buildEmptyRoomsState()
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isDesktop = constraints.maxWidth >= 900;
+                final isTablet =
+                    constraints.maxWidth >= 600 && constraints.maxWidth < 900;
+
+                final crossAxisCount = isDesktop ? 3 : (isTablet ? 2 : 1);
+
+                return GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: roomDetails.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: 14,
+                    mainAxisSpacing: 14,
+                    mainAxisExtent: 220,
+                  ),
+                  itemBuilder: (context, idx) {
+                    final room = roomDetails[idx];
+                    return _buildRoomCard(room);
+                  },
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// TAB BAR HARI (Level 1)
+  Widget _buildDayTabBar() {
+    if (_dayTabs.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.calendar_month_rounded,
+                size: 15, color: Color(0xFF64748B)),
+            const SizedBox(width: 6),
+            Text(
+              'PILIH HARI UJIAN',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF64748B),
+                letterSpacing: 0.8,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 48,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _dayTabs.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final day = _dayTabs[index];
+              final isSelected = _selectedDayIndex == day.dayIndex;
+
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      if (_selectedDayIndex != day.dayIndex) {
+                        setState(() {
+                          _selectedDayIndex = day.dayIndex;
+                          _updateSessionTabsForSelectedDay();
+                        });
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFF0D9488)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF0F766E)
+                              : const Color(0xFFCBD5E1),
+                          width: isSelected ? 1.5 : 1.0,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: const Color(0xFF0D9488)
+                                      .withValues(alpha: 0.25),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.02),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.calendar_today_rounded,
+                            size: 15,
+                            color: isSelected
+                                ? Colors.white
+                                : const Color(0xFF64748B),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            day.label,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.w600,
+                              color: isSelected
+                                  ? Colors.white
+                                  : const Color(0xFF1E293B),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? Colors.white.withValues(alpha: 0.2)
+                                  : const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              day.shortDateStr,
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: isSelected
+                                    ? Colors.white
+                                    : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// TAB BAR SESI (Level 2 - di bawah Tab Hari)
+  Widget _buildSessionTabBar() {
+    if (_currentSessionTabs.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.schedule_rounded,
+                size: 15, color: Color(0xFF64748B)),
+            const SizedBox(width: 6),
+            Text(
+              'PILIH SESI UJIAN',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF64748B),
+                letterSpacing: 0.8,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _currentSessionTabs.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final sess = _currentSessionTabs[index];
+              final isSelected = _selectedSessionIndex == sess.sessionIndex;
+
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      if (_selectedSessionIndex != sess.sessionIndex) {
+                        setState(() {
+                          _selectedSessionIndex = sess.sessionIndex;
+                        });
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFF4F46E5)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF4338CA)
+                              : const Color(0xFFCBD5E1),
+                          width: isSelected ? 1.5 : 1.0,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: const Color(0xFF4F46E5)
+                                      .withValues(alpha: 0.2),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ]
+                            : [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.02),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.alarm_rounded,
+                            size: 14,
+                            color: isSelected
+                                ? Colors.white
+                                : const Color(0xFF64748B),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            sess.name,
+                            style: GoogleFonts.inter(
+                              fontSize: 12.5,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.w600,
+                              color: isSelected
+                                  ? Colors.white
+                                  : const Color(0xFF1E293B),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '(${sess.timeRange})',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: isSelected
+                                  ? Colors.white.withValues(alpha: 0.85)
+                                  : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// BANNER RINGKASAN HARI & SESI TERPILIH
+  Widget _buildActiveInfoBanner(
+      _DayTabInfo? activeDay, _SessionTabInfo? activeSession) {
+    final dayLabel = activeDay?.label ?? 'Hari 1';
+    final dateStr = activeDay?.dateStr ?? '-';
+    final sessionLabel = activeSession?.name ?? 'Sesi 1';
+    final sessionTime = activeSession?.timeRange ?? '-';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isSmall = constraints.maxWidth < 600;
+
+          final dayWidget = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDFA),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF99F6E4)),
+                ),
+                child: const Icon(Icons.event_available_rounded,
+                    color: Color(0xFF0D9488), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    dayLabel,
+                    style: GoogleFonts.inter(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                  Text(
+                    dateStr,
+                    style: GoogleFonts.inter(
+                      fontSize: 11.5,
+                      color: const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+
+          final sessionWidget = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFC7D2FE)),
+                ),
+                child: const Icon(Icons.access_time_filled_rounded,
+                    color: Color(0xFF4F46E5), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    sessionLabel,
+                    style: GoogleFonts.inter(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                  Text(
+                    sessionTime,
+                    style: GoogleFonts.inter(
+                      fontSize: 11.5,
+                      color: const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+
+          if (isSmall) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                dayWidget,
+                const Divider(height: 20, color: Color(0xFFF1F5F9)),
+                sessionWidget,
+              ],
+            );
+          }
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              dayWidget,
+              Container(
+                height: 32,
+                width: 1,
+                color: const Color(0xFFE2E8F0),
+              ),
+              sessionWidget,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// KARTU METRIK RINGKAS
+  Widget _buildKpiCards({
+    required int totalRooms,
+    required int totalSeats,
+    required int assignedProctors,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isSmall = constraints.maxWidth < 650;
+
+        final items = [
+          _buildKpiItem(
+            title: 'Ruangan Aktif',
+            value: '$totalRooms',
+            icon: Icons.meeting_room_outlined,
+            iconColor: const Color(0xFF0D9488),
+            bgColor: const Color(0xFFF0FDFA),
+          ),
+          _buildKpiItem(
+            title: 'Kapasitas Peserta',
+            value: '$totalSeats Kursi',
+            icon: Icons.event_seat_rounded,
+            iconColor: const Color(0xFF3B82F6),
+            bgColor: const Color(0xFFEFF6FF),
+          ),
+          _buildKpiItem(
+            title: 'Pengawas Bertugas',
+            value: '$assignedProctors / $totalRooms',
+            icon: Icons.badge_outlined,
+            iconColor: assignedProctors >= totalRooms && totalRooms > 0
+                ? const Color(0xFF10B981)
+                : const Color(0xFFF59E0B),
+            bgColor: assignedProctors >= totalRooms && totalRooms > 0
+                ? const Color(0xFFECFDF5)
+                : const Color(0xFFFFFBEB),
+          ),
+        ];
+
+        if (isSmall) {
+          return Column(
+            children: items
+                .map((w) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: w,
+                    ))
+                .toList(),
+          );
+        }
+
+        return Row(
+          children: items
+              .map((w) => Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      child: w,
+                    ),
+                  ))
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildKpiItem({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color iconColor,
+    required Color bgColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 11.5,
+                    color: const Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF0F172A),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// KARTU RUANGAN
+  Widget _buildRoomCard(Map<String, dynamic> room) {
+    final rId = (room['id'] ?? '').toString();
+    final rName = (room['name'] ?? 'Ruangan').toString();
+    final rCapacity = (room['capacity'] as int?) ?? 0;
+    final classes = (room['classes'] as List?)?.cast<String>() ?? [];
+    final subjects = (room['subjects'] as List?)?.cast<String>() ?? [];
+    final proctorName = (room['proctorName'] as String?) ?? '';
+
+    final hasProctor = proctorName.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Ruangan
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
+              border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.meeting_room_rounded,
+                        size: 16, color: Color(0xFF0D9488)),
+                    const SizedBox(width: 6),
+                    Text(
+                      rName,
+                      style: GoogleFonts.inter(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                  ],
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFDBEAFE)),
+                  ),
+                  child: Text(
+                    '$rCapacity Kursi',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF2563EB),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Detail Pengawas, Mapel, Kelas
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Info Pengawas
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        hasProctor
+                            ? Icons.verified_user_rounded
+                            : Icons.warning_amber_rounded,
+                        size: 14,
+                        color: hasProctor
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFFF59E0B),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          hasProctor
+                              ? 'Pengawas: $proctorName'
+                              : 'Pengawas: Belum ditentukan',
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: hasProctor
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFFD97706),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Info Mapel
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.book_rounded,
+                          size: 14, color: Color(0xFF64748B)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          subjects.isNotEmpty
+                              ? subjects.join(', ')
+                              : 'Semua Mapel',
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            color: const Color(0xFF475569),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Info Kelas
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.groups_rounded,
+                          size: 14, color: Color(0xFF64748B)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          classes.isNotEmpty
+                              ? 'Kelas: ${classes.join(', ')}'
+                              : 'Kelas: Sesuai Alokasi',
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            color: const Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Tombol Aksi Kontrol Ruangan
+          Padding(
+            padding: const EdgeInsets.only(left: 12, right: 12, bottom: 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _openRoomMonitoring(rId),
+                icon: const Icon(Icons.visibility_rounded, size: 14),
+                label: Text(
+                  'Pantau Denah Ruangan',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D9488),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// EMPTY STATE RUANGAN
+  Widget _buildEmptyRoomsState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.meeting_room_outlined,
+              size: 44, color: Color(0xFF94A3B8)),
+          const SizedBox(height: 12),
+          Text(
+            'Belum Ada Ruangan Terdaftar',
+            style: GoogleFonts.inter(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF1E293B),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Ruangan untuk hari dan sesi ini belum dialokasikan pada event ujian ini.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 12.5,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -18,6 +18,7 @@ import '../../modules/admin/views/class_detail_screen.dart';
 import '../../modules/admin/views/rekap_mapel_list_view.dart';
 import '../../modules/admin/views/rekap_class_list_view.dart';
 import '../../modules/admin/views/rekap_student_grades_view.dart';
+import '../../modules/admin/views/admin_room_control_page.dart';
 
 
 
@@ -117,6 +118,19 @@ class AppRouter {
             final eventName = state.uri.queryParameters['name'] ?? 'Jadwal Lengkap';
             final schoolId = authService.schoolId ?? '';
             return AdminFullSchedulePage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/room-control',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['name'] ?? 'Kontrol Ruangan';
+            final schoolId = authService.schoolId ?? '';
+            return AdminRoomControlPage(
               schoolId: schoolId,
               eventId: eventId,
               eventName: eventName,

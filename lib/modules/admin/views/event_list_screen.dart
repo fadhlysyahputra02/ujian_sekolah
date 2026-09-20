@@ -790,6 +790,22 @@ class _EventListScreenState extends State<EventListScreen> {
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
+                                    // 1.5 Kontrol Ruangan: Modern Emerald/Teal Tint
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        context.push('/admin/event/${e['id']}/room-control?name=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.meeting_room_rounded, size: 15),
+                                      label: Text('Kontrol Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFF0FDFA),
+                                        foregroundColor: const Color(0xFF0D9488),
+                                        elevation: 0,
+                                        side: const BorderSide(color: Color(0xFF99F6E4)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                      ),
+                                    ),
                                     // 2. Rekap Nilai: Soft Indigo Tint
                                     ElevatedButton.icon(
                                       onPressed: () {
@@ -898,6 +914,22 @@ class _EventListScreenState extends State<EventListScreen> {
                                         backgroundColor: const Color(0xFF4F46E5),
                                         foregroundColor: Colors.white,
                                         elevation: 0,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        context.push('/admin/event/${e['id']}/room-control?name=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.meeting_room_rounded, size: 15),
+                                      label: Text('Kontrol Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFF0FDFA),
+                                        foregroundColor: const Color(0xFF0D9488),
+                                        elevation: 0,
+                                        side: const BorderSide(color: Color(0xFF99F6E4)),
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),

@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -12,6 +13,7 @@ class AuthService extends ChangeNotifier {
   User? _user;
   String? _role;
   String? _schoolId;
+  String? _schoolCode;
   bool _isSchoolDisabled = false;
   bool _isStudentInactive = false;
   bool _isLoading = true;
@@ -19,6 +21,7 @@ class AuthService extends ChangeNotifier {
   User? get user => _user;
   String? get role => _role;
   String? get schoolId => _schoolId;
+  String? get schoolCode => _schoolCode;
   bool get isSchoolDisabled => _isSchoolDisabled;
   bool get isStudentInactive => _isStudentInactive;
   bool get isLoading => _isLoading;
@@ -51,6 +54,7 @@ class AuthService extends ChangeNotifier {
     if (user == null) {
       _role = null;
       _schoolId = null;
+      _schoolCode = null;
       _isSchoolDisabled = false;
       _isLoading = false;
       notifyListeners();
@@ -186,6 +190,13 @@ class AuthService extends ChangeNotifier {
           if (snapshot.exists) {
             final data = snapshot.data();
             newDisabled = data?['disabled'] == true;
+            final sc = (data?['code'] ?? '').toString().trim();
+            if (sc.isNotEmpty) {
+              _schoolCode = sc;
+              SharedPreferences.getInstance().then((prefs) {
+                prefs.setString('last_school_code', sc);
+              }).catchError((_) {});
+            }
           } else {
             newDisabled = true; // school doesn't exist anymore, treat as blocked
           }
@@ -235,6 +246,21 @@ class AuthService extends ChangeNotifier {
 
   /// Sign out helper
   Future<void> signOut() async {
+    try {
+      if (_schoolCode != null && _schoolCode!.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_school_code', _schoolCode!);
+      } else if (_schoolId != null && _schoolId!.isNotEmpty) {
+        final snap = await _firestore.collection('schools').doc(_schoolId).get();
+        final sc = (snap.data()?['code'] ?? '').toString().trim();
+        if (sc.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('last_school_code', sc);
+        }
+      }
+    } catch (e) {
+      debugPrint("Error saving last school code on sign out: $e");
+    }
     await _auth.signOut();
   }
 
