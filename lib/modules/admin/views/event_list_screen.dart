@@ -790,6 +790,22 @@ class _EventListScreenState extends State<EventListScreen> {
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
+                                    // 1.5. Lihat Ruangan
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        context.push('/admin/event/${e['id']}/rooms?eventName=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.meeting_room_outlined, size: 15),
+                                      label: Text('Lihat Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFE0F2FE),
+                                        foregroundColor: const Color(0xFF0369A1),
+                                        elevation: 0,
+                                        side: const BorderSide(color: Color(0xFFBAE6FD)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                      ),
+                                    ),
                                     // 2. Rekap Nilai: Soft Indigo Tint
                                     ElevatedButton.icon(
                                       onPressed: () {
@@ -898,6 +914,23 @@ class _EventListScreenState extends State<EventListScreen> {
                                         backgroundColor: const Color(0xFF4F46E5),
                                         foregroundColor: Colors.white,
                                         elevation: 0,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        final evId = e['id'];
+                                        context.push('/admin/event/$evId/rooms?eventName=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.meeting_room_outlined, size: 15),
+                                      label: Text('Lihat Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFE0F2FE),
+                                        foregroundColor: const Color(0xFF0369A1),
+                                        elevation: 0,
+                                        side: const BorderSide(color: Color(0xFFBAE6FD)),
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),

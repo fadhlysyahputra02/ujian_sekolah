@@ -60,6 +60,16 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   final Map<String, int> _queriedSubjectQuestionCounts = {};
   bool _hasQueriedQuestions = false;
 
+  Future<void> _handleRefresh() async {
+    _hasQueriedQuestions = false;
+    _queriedSubjectQuestionCounts.clear();
+    _eventQuestionsCount = null;
+    if (mounted) {
+      setState(() {});
+    }
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+
   void _triggerQuestionCountsQuery(String schoolId, List<String> subjectIds, List<String> subjectNames) {
     if (_hasQueriedQuestions || schoolId.isEmpty || widget.eventId.isEmpty) return;
     _hasQueriedQuestions = true;
@@ -1577,12 +1587,17 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                       final isDesktop = constraints.maxWidth >= 900;
                                       final gridColumns = configuredColumns > 0 ? configuredColumns : 8;
 
-                                      return SingleChildScrollView(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: isDesktop ? 36 : 16,
-                                          vertical: 24,
-                                        ),
-                                        child: Column(
+                                      return RefreshIndicator(
+                                        color: const Color(0xFF10B981),
+                                        backgroundColor: Colors.white,
+                                        onRefresh: _handleRefresh,
+                                        child: SingleChildScrollView(
+                                          physics: const AlwaysScrollableScrollPhysics(),
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: isDesktop ? 36 : 16,
+                                            vertical: 24,
+                                          ),
+                                          child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
                                             // 1. Proctor Header Banner (Gambar 2 exact design)
@@ -1754,8 +1769,36 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                 const double minDeskWidth = 175.0;
                                                 const double deskSpacing = 12.0;
                                                 final double naturalGridWidth = (gridColumns * minDeskWidth) + ((gridColumns - 1) * deskSpacing);
-                                                final bool needsHorizontalScroll = naturalGridWidth > constraints.maxWidth;
-                                                final double actualGridWidth = needsHorizontalScroll ? naturalGridWidth : constraints.maxWidth;
+                                                final bool needsHorizontalScroll = !isDesktop && (naturalGridWidth > constraints.maxWidth);
+
+                                                final Widget gridWidget = GridView.builder(
+                                                  shrinkWrap: true,
+                                                  physics: const NeverScrollableScrollPhysics(),
+                                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                                    crossAxisCount: gridColumns,
+                                                    crossAxisSpacing: deskSpacing,
+                                                    mainAxisSpacing: deskSpacing,
+                                                    childAspectRatio: isDesktop ? 1.3 : 1.15,
+                                                  ),
+                                                  itemCount: totalDisplayItems,
+                                                  itemBuilder: (context, idx) {
+                                                    final seatNum = idx < filteredSeatIndices.length ? filteredSeatIndices[idx] : (idx + 1);
+                                                    final seatData = seatMap[seatNum];
+
+                                                    return ProctorSeatCard(
+                                                      seatNum: seatNum,
+                                                      seatData: seatData,
+                                                      orderedRoomClasses: orderedRoomClasses,
+                                                      schoolId: schoolId,
+                                                      eventId: widget.eventId,
+                                                      roomId: widget.roomId,
+                                                      localAttendedMap: _localAttendedMap,
+                                                      seatNotifier: _seatNotifier,
+                                                      dayIndex: widget.dayIndex,
+                                                      sessionIndex: widget.sessionIndex,
+                                                    );
+                                                  },
+                                                );
 
                                                 return Column(
                                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1787,53 +1830,29 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                           ],
                                                         ),
                                                       ),
-                                                    ],
-                                                    SingleChildScrollView(
-                                                      scrollDirection: Axis.horizontal,
-                                                      physics: const BouncingScrollPhysics(),
-                                                      child: SizedBox(
-                                                        width: actualGridWidth,
-                                                        child: GridView.builder(
-                                                          shrinkWrap: true,
-                                                          physics: const NeverScrollableScrollPhysics(),
-                                                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                                            crossAxisCount: gridColumns,
-                                                            crossAxisSpacing: deskSpacing,
-                                                            mainAxisSpacing: deskSpacing,
-                                                            childAspectRatio: 1.15,
-                                                          ),
-                                                          itemCount: totalDisplayItems,
-                                                          itemBuilder: (context, idx) {
-                                                            final seatNum = idx < filteredSeatIndices.length ? filteredSeatIndices[idx] : (idx + 1);
-                                                            final seatData = seatMap[seatNum];
-
-                                                            return ProctorSeatCard(
-                                                              seatNum: seatNum,
-                                                              seatData: seatData,
-                                                              orderedRoomClasses: orderedRoomClasses,
-                                                              schoolId: schoolId,
-                                                              eventId: widget.eventId,
-                                                              roomId: widget.roomId,
-                                                              localAttendedMap: _localAttendedMap,
-                                                              seatNotifier: _seatNotifier,
-                                                              dayIndex: widget.dayIndex,
-                                                              sessionIndex: widget.sessionIndex,
-                                                            );
-                                                          },
+                                                      SingleChildScrollView(
+                                                        scrollDirection: Axis.horizontal,
+                                                        physics: const BouncingScrollPhysics(),
+                                                        child: SizedBox(
+                                                          width: naturalGridWidth,
+                                                          child: gridWidget,
                                                         ),
                                                       ),
-                                                    ),
+                                                    ] else ...[
+                                                      gridWidget,
+                                                    ],
                                                   ],
                                                 );
                                               },
                                             ),
                                           ],
                                         ),
-                                      );
-                                    },
-                                  );
-                                },
-                              );
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            );
                             },
                           );
                         },

@@ -18,6 +18,8 @@ import '../../modules/admin/views/class_detail_screen.dart';
 import '../../modules/admin/views/rekap_mapel_list_view.dart';
 import '../../modules/admin/views/rekap_class_list_view.dart';
 import '../../modules/admin/views/rekap_student_grades_view.dart';
+import '../../modules/admin/views/admin_event_rooms_page.dart';
+import '../../modules/admin/views/admin_room_monitoring_page.dart';
 
 class AppRouter {
   static GoRouter createRouter(AuthService authService) {
@@ -169,6 +171,40 @@ class AppRouter {
               eventName: eventName,
               subjectName: subjectName,
               className: className,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/rooms',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['eventName'] ?? 'Event Ujian';
+            final schoolId = authService.schoolId ?? '';
+            return AdminEventRoomsPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/room/:roomId',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final roomId = state.pathParameters['roomId']!;
+            final dayIndex = int.tryParse(state.uri.queryParameters['dayIndex'] ?? '0') ?? 0;
+            final sessionIndex = int.tryParse(state.uri.queryParameters['sessionIndex'] ?? '0') ?? 0;
+            final eventName = state.uri.queryParameters['eventName'];
+            final roomName = state.uri.queryParameters['roomName'];
+            final schoolId = authService.schoolId ?? '';
+            return AdminRoomMonitoringPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              roomId: roomId,
+              dayIndex: dayIndex,
+              sessionIndex: sessionIndex,
+              eventName: eventName,
+              roomName: roomName,
             );
           },
         ),

@@ -449,6 +449,18 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
     }
   }
 
+  Future<void> _refreshAllData() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final uid = authService.user?.uid ?? '';
+    final cacheKey = '${_schoolId}_${widget.eventId}_$uid';
+    _detailCache.remove(cacheKey);
+    _detailCacheTime.remove(cacheKey);
+    await _checkPermissions();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -508,15 +520,30 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
             : TabBarView(
                 controller: _tabController,
                 children: [
-                  _isPembuatSoal
-                      ? _buildBuatSoalTab()
-                      : _buildLockedTab('Buat Soal', 'Anda tidak ditugaskan sebagai pembuat soal pada event ujian ini.'),
-                  _isPengawas
-                      ? _buildPengawasTab()
-                      : _buildLockedTab('Pengawas Ruangan', 'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.'),
-                  _isPembuatSoal
-                      ? _buildKoreksiTab()
-                      : _buildLockedTab('Koreksi Ujian', 'Anda tidak ditugaskan sebagai penilai/korektor soal pada event ujian ini.'),
+                  RefreshIndicator(
+                    color: const Color(0xFF10B981),
+                    backgroundColor: Colors.white,
+                    onRefresh: _refreshAllData,
+                    child: _isPembuatSoal
+                        ? _buildBuatSoalTab()
+                        : _buildLockedTab('Buat Soal', 'Anda tidak ditugaskan sebagai pembuat soal pada event ujian ini.'),
+                  ),
+                  RefreshIndicator(
+                    color: const Color(0xFF10B981),
+                    backgroundColor: Colors.white,
+                    onRefresh: _refreshAllData,
+                    child: _isPengawas
+                        ? _buildPengawasTab()
+                        : _buildLockedTab('Pengawas Ruangan', 'Anda tidak ditugaskan sebagai pengawas ruangan pada event ujian ini.'),
+                  ),
+                  RefreshIndicator(
+                    color: const Color(0xFF10B981),
+                    backgroundColor: Colors.white,
+                    onRefresh: _refreshAllData,
+                    child: _isPembuatSoal
+                        ? _buildKoreksiTab()
+                        : _buildLockedTab('Koreksi Ujian', 'Anda tidak ditugaskan sebagai penilai/korektor soal pada event ujian ini.'),
+                  ),
                 ],
               ),
       ),
@@ -524,55 +551,59 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
   }
 
   Widget _buildLockedTab(String tabTitle, String customMessage) {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF3C7),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFFCD34D), width: 2),
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: Container(
+        constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 200),
+        padding: const EdgeInsets.all(32),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFCD34D), width: 2),
+                ),
+                child: const Icon(
+                  Icons.lock_outline_rounded,
+                  size: 64,
+                  color: Color(0xFFD97706),
+                ),
               ),
-              child: const Icon(
-                Icons.lock_outline_rounded,
-                size: 64,
-                color: Color(0xFFD97706),
+              const SizedBox(height: 24),
+              Text(
+                'Akses Terkunci — $tabTitle',
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF1E293B),
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Akses Terkunci — $tabTitle',
-              style: GoogleFonts.inter(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF1E293B),
+              const SizedBox(height: 8),
+              Text(
+                customMessage,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: const Color(0xFF64748B),
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              customMessage,
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                color: const Color(0xFF64748B),
-                height: 1.5,
+              const SizedBox(height: 6),
+              Text(
+                'Silakan hubungi admin sekolah jika terdapat perubahan tugas.',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: const Color(0xFF94A3B8),
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Silakan hubungi admin sekolah jika terdapat perubahan tugas.',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                color: const Color(0xFF94A3B8),
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -669,30 +700,36 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final subjectList = subjectGroups.values.toList();
 
         if (subjectList.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFEF3C7),
-                    shape: BoxShape.circle,
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Container(
+              constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 200),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFEF3C7),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.assignment_ind_outlined, size: 48, color: Color(0xFFD97706)),
                   ),
-                  child: const Icon(Icons.assignment_ind_outlined, size: 48, color: Color(0xFFD97706)),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Belum Ada Mapel Ditugaskan',
-                  style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Admin belum menugaskan Anda sebagai pembuat soal pada event ujian ini.',
-                  style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  Text(
+                    'Belum Ada Mapel Ditugaskan',
+                    style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Admin belum menugaskan Anda sebagai pembuat soal pada event ujian ini.',
+                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -700,6 +737,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         final isMobile = MediaQuery.of(context).size.width < 600;
 
         return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.all(isMobile ? 14 : 24),
           children: [
             Row(
@@ -3220,9 +3258,12 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                 });
 
                 if (assignedDutyList.isEmpty) {
-                  return Container(
-                    padding: const EdgeInsets.all(32),
-                    child: Center(
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Container(
+                      constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 200),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.all(32),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -3269,6 +3310,7 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                     }
 
                     return ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.all(20),
                       itemCount: assignedDutyList.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 18),

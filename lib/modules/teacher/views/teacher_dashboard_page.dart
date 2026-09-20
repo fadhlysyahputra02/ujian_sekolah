@@ -938,6 +938,16 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
     );
   }
 
+  Future<void> _handleRefresh() async {
+    _statsLoaded = false;
+    _lastEventsKey = null;
+    _lastTeacherId = null;
+    if (mounted) {
+      setState(() {});
+    }
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // TAB 1: RINGKASAN (OVERVIEW)
   // ─────────────────────────────────────────────────────────────────────────
@@ -953,25 +963,30 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 600;
 
-        return SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Container(
-            width: double.infinity,
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            padding: EdgeInsets.all(isMobile ? 14.0 : 28.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildTeacherWelcomeBanner(teacher),
-                SizedBox(height: isMobile ? 16 : 24),
-                _buildSectionLabel('Tugas & Statistik Anda', subtitle: 'Metrik tugas pembuat soal & pengawas ujian real-time.'),
-                SizedBox(height: isMobile ? 10 : 12),
-                _buildStatsGrid(schoolId, teacher.id),
-                SizedBox(height: isMobile ? 20 : 28),
-                _buildSectionLabel('Daftar Event Ujian Semester', subtitle: 'Pilih event ujian aktif untuk kelola soal & pengawasan.'),
-                SizedBox(height: isMobile ? 10 : 12),
-                _buildEventsList(schoolId, teacher.id),
-              ],
+        return RefreshIndicator(
+          color: const Color(0xFF10B981),
+          backgroundColor: Colors.white,
+          onRefresh: _handleRefresh,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Container(
+              width: double.infinity,
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              padding: EdgeInsets.all(isMobile ? 14.0 : 28.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildTeacherWelcomeBanner(teacher),
+                  SizedBox(height: isMobile ? 16 : 24),
+                  _buildSectionLabel('Tugas & Statistik Anda', subtitle: 'Metrik tugas pembuat soal & pengawas ujian real-time.'),
+                  SizedBox(height: isMobile ? 10 : 12),
+                  _buildStatsGrid(schoolId, teacher.id),
+                  SizedBox(height: isMobile ? 20 : 28),
+                  _buildSectionLabel('Daftar Event Ujian Semester', subtitle: 'Pilih event ujian aktif untuk kelola soal & pengawasan.'),
+                  SizedBox(height: isMobile ? 10 : 12),
+                  _buildEventsList(schoolId, teacher.id),
+                ],
+              ),
             ),
           ),
         );
@@ -1754,49 +1769,65 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
         });
 
         if (docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFECFDF5),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFFA7F3D0), width: 2),
-                  ),
-                  child: const Icon(
-                    Icons.event_note_rounded,
-                    size: 64,
-                    color: Color(0xFF10B981),
-                  ),
+          return RefreshIndicator(
+            color: const Color(0xFF10B981),
+            backgroundColor: Colors.white,
+            onRefresh: _handleRefresh,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Container(
+                constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 200),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFFA7F3D0), width: 2),
+                      ),
+                      child: const Icon(
+                        Icons.event_note_rounded,
+                        size: 64,
+                        color: Color(0xFF10B981),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Belum Ada Event Ujian',
+                      style: GoogleFonts.inter(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Admin belum membuat event ujian untuk sekolah ini.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  'Belum Ada Event Ujian',
-                  style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1E293B),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Admin belum membuat event ujian untuk sekolah ini.',
-                  style: GoogleFonts.inter(
-                    fontSize: 13,
-                    color: const Color(0xFF64748B),
-                  ),
-                ),
-              ],
+              ),
             ),
           );
         }
 
         final isMobile = MediaQuery.of(context).size.width < 600;
 
-        return ListView(
-          padding: EdgeInsets.all(isMobile ? 14 : 24),
+        return RefreshIndicator(
+          color: const Color(0xFF10B981),
+          backgroundColor: Colors.white,
+          onRefresh: _handleRefresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.all(isMobile ? 14 : 24),
           children: [
             Container(
               padding: EdgeInsets.all(isMobile ? 14 : 18),
@@ -2085,8 +2116,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage>
               );
             }),
           ],
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 }

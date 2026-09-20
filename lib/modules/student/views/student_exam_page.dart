@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/utils/web_exam_monitor.dart';
 import '../../../core/widgets/app_refresh_indicator.dart';
 import '../services/student_exam_cache_service.dart';
@@ -70,6 +71,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
   // Countdown Timer (ValueNotifier to avoid rebuilding the entire page every second!)
   Timer? _timer;
   late final ValueNotifier<int> _remainingSecondsNotifier = ValueNotifier<int>(3600);
+  DateTime? _targetEndDateTime;
   bool _isSubmitting = false;
 
   // Draft Debounce & Periodic Sync Timers
@@ -97,6 +99,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       onReturned: () {
         if (!_isSubmitting) {
           debugPrint('✅ WebExamMonitor trigger: Student focused browser tab/window!');
+          _recalibrateTimer();
           _updateRealtimeControlStatus('in_progress');
         }
       },
@@ -110,6 +113,9 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
   @override
   void dispose() {
+    if (_currentRealtimeStatus != 'completed') {
+      _markLeftAppDirectly();
+    }
     _webExamMonitor.stop();
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
@@ -122,6 +128,67 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       controller.dispose();
     }
     super.dispose();
+  }
+
+  void _markLeftAppDirectly() {
+    if (widget.schoolId.isEmpty || widget.eventId.isEmpty) return;
+    String studentDocId = widget.studentId.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
+    if (studentDocId.isEmpty) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final logEntry = <String, dynamic>{
+        'event': 'left_app',
+        'timestamp': DateTime.now().toIso8601String(),
+        'subjectId': widget.subjectId,
+        'subjectName': widget.subjectName,
+        'sessionName': widget.sessionName,
+        'isMakeup': widget.isMakeup,
+      };
+
+      final data = <String, dynamic>{
+        'studentId': widget.studentId,
+        'studentName': widget.studentName,
+        'nis': widget.nis,
+        'className': widget.className,
+        'subjectId': widget.subjectId,
+        'subjectName': widget.subjectName,
+        'sessionName': widget.sessionName,
+        'isMakeup': widget.isMakeup,
+        'status': 'left_app',
+        'isLeftApp': true,
+        'isWorking': false,
+        'isCompleted': false,
+        'lastLeftAppAt': FieldValue.serverTimestamp(),
+        'leftAppCount': FieldValue.increment(1),
+        'answeredCount': _answeredCount,
+        'totalQuestions': _questions.length,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'logs': FieldValue.arrayUnion([logEntry]),
+      };
+
+      final String cleanSubjId = widget.subjectId.trim().toLowerCase();
+      final String sessionDocId = cleanSubjId.isNotEmpty
+          ? '${studentDocId}_$cleanSubjId'
+          : '${studentDocId}_${widget.sessionName.trim().toLowerCase()}';
+
+      final realtimeColl = db
+          .collection('schools')
+          .doc(widget.schoolId)
+          .collection('events')
+          .doc(widget.eventId)
+          .collection('realtime_control');
+
+      realtimeColl.doc(sessionDocId).set(data, SetOptions(merge: true));
+      if (sessionDocId != studentDocId) {
+        realtimeColl.doc(studentDocId).set(data, SetOptions(merge: true));
+      }
+      debugPrint('⚡ Left app directly recorded on dispose for $sessionDocId');
+    } catch (e) {
+      debugPrint('❌ Error in _markLeftAppDirectly: $e');
+    }
   }
 
   void _goToQuestion(int index) {
@@ -150,6 +217,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       _updateRealtimeControlStatus('left_app');
     } else if (state == AppLifecycleState.resumed) {
       debugPrint('✅ Lifecycle trigger (Observer): Student returned to app!');
+      _recalibrateTimer();
       _updateRealtimeControlStatus('in_progress');
     }
   }
@@ -162,11 +230,12 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       return;
     }
 
-    // Cooldown guard: Prevent duplicate burst triggers within 1000ms
+    // Cooldown guard: Prevent duplicate burst triggers within 1000ms (bypass for left_app & completed)
     final now = DateTime.now();
     if (_lastRealtimeStatusUpdate != null &&
         now.difference(_lastRealtimeStatusUpdate!).inMilliseconds < 1000 &&
-        status != 'completed') {
+        status != 'completed' &&
+        status != 'left_app') {
       return;
     }
 
@@ -398,11 +467,35 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     return count;
   }
 
-  /// Calculates remaining seconds from current time until endTimeStr (e.g. "14:30")
-  void _calculateDurationAndStartTimer() {
+  /// Recalibrates remaining seconds based on absolute target end time
+  void _recalibrateTimer() {
+    if (_targetEndDateTime != null) {
+      final remaining = _targetEndDateTime!.difference(DateTime.now()).inSeconds;
+      if (remaining > 0) {
+        _remainingSecondsNotifier.value = remaining;
+      } else {
+        _remainingSecondsNotifier.value = 0;
+        _timer?.cancel();
+        _handleTimeExpired();
+      }
+    }
+  }
+
+  /// Calculates remaining seconds from current time until endTimeStr (e.g. "14:30") or stored target end time
+  Future<void> _calculateDurationAndStartTimer() async {
     int totalSecs = 3600; // Default 60 mins fallback
+    final now = DateTime.now();
+
+    String studentDocId = widget.studentId.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
+    if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
+
+    final String cleanSubjId = widget.subjectId.trim().toLowerCase();
+    final String cacheKey = 'exam_target_end_${widget.schoolId}_${widget.eventId}_${cleanSubjId}_$studentDocId';
 
     try {
+      DateTime? targetEnd;
+
       if (widget.endTimeStr.isNotEmpty) {
         final endParts = widget.endTimeStr.split(':');
         if (endParts.length >= 2) {
@@ -413,24 +506,44 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
             es = int.tryParse(endParts[2].trim()) ?? 0;
           }
 
-          final now = DateTime.now();
-          final endDateTime = DateTime(now.year, now.month, now.day, eh, em, es);
-
-          final remaining = endDateTime.difference(now).inSeconds;
-
-          if (remaining > 0) {
-            totalSecs = remaining;
-          } else {
-            // Untuk ujian susulan: gunakan 2 jam penuh sebagai batas waktu
-            totalSecs = widget.isMakeup ? 7200 : 0;
+          final scheduledEnd = DateTime(now.year, now.month, now.day, eh, em, es);
+          if (scheduledEnd.isAfter(now)) {
+            targetEnd = scheduledEnd;
+          } else if (!widget.isMakeup) {
+            targetEnd = scheduledEnd; // Already past scheduled end
           }
         }
       }
+
+      // For makeup exams or if endTimeStr was not set or already past in makeup
+      if (targetEnd == null || (widget.isMakeup && targetEnd.isBefore(now))) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final savedIso = prefs.getString(cacheKey);
+          if (savedIso != null && savedIso.isNotEmpty) {
+            final parsed = DateTime.tryParse(savedIso);
+            if (parsed != null) {
+              targetEnd = parsed;
+            }
+          }
+
+          if (targetEnd == null) {
+            targetEnd = now.add(const Duration(hours: 2));
+            await prefs.setString(cacheKey, targetEnd.toIso8601String());
+          }
+        } catch (_) {
+          targetEnd ??= now.add(const Duration(hours: 2));
+        }
+      }
+
+      _targetEndDateTime = targetEnd;
+      final remaining = targetEnd.difference(now).inSeconds;
+      totalSecs = remaining > 0 ? remaining : 0;
     } catch (e) {
       debugPrint("Error calculating remaining time: $e");
       totalSecs = 3600;
+      _targetEndDateTime = now.add(Duration(seconds: totalSecs));
     }
-
 
     _remainingSecondsNotifier.value = totalSecs;
 
@@ -441,12 +554,24 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       return;
     }
 
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingSecondsNotifier.value > 0) {
-        _remainingSecondsNotifier.value--;
+      if (_targetEndDateTime != null) {
+        final remaining = _targetEndDateTime!.difference(DateTime.now()).inSeconds;
+        if (remaining > 0) {
+          _remainingSecondsNotifier.value = remaining;
+        } else {
+          _remainingSecondsNotifier.value = 0;
+          _timer?.cancel();
+          _handleTimeExpired();
+        }
       } else {
-        _timer?.cancel();
-        _handleTimeExpired();
+        if (_remainingSecondsNotifier.value > 0) {
+          _remainingSecondsNotifier.value--;
+        } else {
+          _timer?.cancel();
+          _handleTimeExpired();
+        }
       }
     });
   }
@@ -859,6 +984,16 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
     await _updateRealtimeControlStatus('completed');
 
+    try {
+      String studentDocId = widget.studentId.trim();
+      if (studentDocId.isEmpty) studentDocId = widget.nis.trim();
+      if (studentDocId.isEmpty) studentDocId = widget.studentName.trim().replaceAll(' ', '_');
+      final String cleanSubjId = widget.subjectId.trim().toLowerCase();
+      final String cacheKey = 'exam_target_end_${widget.schoolId}_${widget.eventId}_${cleanSubjId}_$studentDocId';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(cacheKey);
+    } catch (_) {}
+
     if (!mounted) return;
 
     if (!success) {
@@ -1238,6 +1373,11 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       if (mounted) {
         Navigator.of(context).pop();
       }
+    } else {
+      // User cancelled leaving, restore in_progress status
+      if (!_isSubmitting) {
+        _updateRealtimeControlStatus('in_progress');
+      }
     }
   }
 
@@ -1605,6 +1745,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
+        _updateRealtimeControlStatus('left_app');
         await _showBackNavigationWarningDialog();
       },
       child: Scaffold(

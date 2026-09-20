@@ -15,6 +15,8 @@ class WebExamMonitor {
   StreamSubscription? _blurSub;
   StreamSubscription? _focusSub;
   StreamSubscription? _beforeUnloadSub;
+  StreamSubscription? _popStateSub;
+  StreamSubscription? _hashChangeSub;
 
   WebExamMonitor({
     required this.onLeft,
@@ -52,6 +54,14 @@ class WebExamMonitor {
         }
         onLeft();
       });
+
+      // 5. PopState & HashChange (User clicks browser back/forward buttons or changes URL)
+      _popStateSub = html.window.onPopState.listen((_) {
+        onLeft();
+      });
+      _hashChangeSub = html.window.onHashChange.listen((_) {
+        onLeft();
+      });
     } catch (e) {
       debugPrint('⚠️ WebExamMonitor init error: $e');
     }
@@ -63,6 +73,8 @@ class WebExamMonitor {
       _blurSub?.cancel();
       _focusSub?.cancel();
       _beforeUnloadSub?.cancel();
+      _popStateSub?.cancel();
+      _hashChangeSub?.cancel();
     } catch (_) {}
   }
 }

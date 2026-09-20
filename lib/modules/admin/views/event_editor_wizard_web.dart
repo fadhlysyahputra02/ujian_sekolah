@@ -1380,7 +1380,7 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
                                 onPressed: () {
-                                  self.updateState(() => self._rooms.removeAt(idx));
+                                  self.updateState(() => self._deleteRoomAt(idx));
                                   self._autoSaveDraft();
                                 },
                               ),
@@ -1998,15 +1998,19 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
 
   Widget _buildWebStep5Tab3(List<Map<String, dynamic>> classes) {
     final self = this;
-    if (self._selectedRoomId == null) {
-      return const Center(
-        child: Text('Silakan pilih ruangan di Tab "Ruangan" terlebih dahulu.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-      );
+    if (self._selectedRoomId == null || !self._rooms.any((r) => r['id'] == self._selectedRoomId)) {
+      if (self._rooms.isNotEmpty) {
+        self._selectedRoomId = self._rooms.first['id'] as String?;
+      } else {
+        return const Center(
+          child: Text('Silakan pilih ruangan di Tab "Ruangan" terlebih dahulu.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        );
+      }
     }
 
-    final selectedRoom = self._rooms.firstWhere((r) => r['id'] == self._selectedRoomId);
+    final selectedRoom = self._rooms.firstWhere((r) => r['id'] == self._selectedRoomId, orElse: () => self._rooms.first);
 
     final sortedClasses = List<Map<String, dynamic>>.from(classes);
     sortedClasses.sort((a, b) => (a['name'] as String? ?? '').compareTo(b['name'] as String? ?? ''));
@@ -2069,16 +2073,19 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
               int allocElsewhere = 0;
               String? otherRoomName;
               self._roomAssignments.forEach((roomId, list) {
-                if (roomId != self._selectedRoomId) {
+                final rm = self._rooms.firstWhere(
+                  (r) => r['id'] == roomId || r['name'] == roomId || r['code'] == roomId,
+                  orElse: () => {},
+                );
+                if (rm.isEmpty) return; // Skip deleted rooms
+
+                if (roomId != self._selectedRoomId && rm['id'] != self._selectedRoomId) {
                   final found = list.firstWhere((a) => a['classId'] == cid, orElse: () => {});
                   if (found.isNotEmpty) {
                     final cnt = (found['count'] as num).toInt();
                     allocElsewhere += cnt;
                     if (cnt > 0 && otherRoomName == null) {
-                      final rm = self._rooms.firstWhere((r) => r['id'] == roomId, orElse: () => {});
-                      if (rm.isNotEmpty) {
-                        otherRoomName = rm['name'] as String?;
-                      }
+                      otherRoomName = (rm['name'] ?? rm['code'] ?? roomId).toString();
                     }
                   }
                 }

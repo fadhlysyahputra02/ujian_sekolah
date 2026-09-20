@@ -164,6 +164,62 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     }
   }
 
+  /// Clean up room assignments, layouts, and proctor assignments for any rooms that no longer exist
+  void _cleanOrphanedRoomData() {
+    final Set<String> validRoomIds = {};
+    for (var r in _rooms) {
+      final id = (r['id'] ?? '').toString();
+      final name = (r['name'] ?? '').toString();
+      final code = (r['code'] ?? '').toString();
+      if (id.isNotEmpty) validRoomIds.add(id);
+      if (name.isNotEmpty) validRoomIds.add(name);
+      if (code.isNotEmpty) validRoomIds.add(code);
+    }
+
+    _roomAssignments.removeWhere((key, _) => !validRoomIds.contains(key));
+    _addState.removeWhere((key, _) {
+      if (!key.startsWith('layout_')) return false;
+      final rKey = key.substring('layout_'.length);
+      return !validRoomIds.contains(rKey);
+    });
+
+    if (_selectedRoomId != null && !validRoomIds.contains(_selectedRoomId)) {
+      _selectedRoomId = _rooms.isNotEmpty ? (_rooms.first['id'] as String?) : null;
+    }
+  }
+
+  /// Remove a room at [index] in Step 4, and remove all associated student allocations, layouts, and proctors
+  void _deleteRoomAt(int idx) {
+    if (idx < 0 || idx >= _rooms.length) return;
+    final removed = _rooms.removeAt(idx);
+    final rId = (removed['id'] ?? '').toString();
+    final rName = (removed['name'] ?? '').toString();
+    final rCode = (removed['code'] ?? '').toString();
+
+    // 1. Remove assignments for this room
+    if (rId.isNotEmpty) _roomAssignments.remove(rId);
+    if (rName.isNotEmpty) _roomAssignments.remove(rName);
+    if (rCode.isNotEmpty) _roomAssignments.remove(rCode);
+
+    // 2. Remove layout config for this room
+    if (rId.isNotEmpty) _addState.remove('layout_$rId');
+    if (rName.isNotEmpty) _addState.remove('layout_$rName');
+    if (rCode.isNotEmpty) _addState.remove('layout_$rCode');
+
+    // 3. Remove proctor assignments for this room
+    _proctorGrid.removeWhere((k, v) =>
+        (rId.isNotEmpty && k.endsWith('_room_$rId')) ||
+        (rName.isNotEmpty && k.endsWith('_room_$rName')) ||
+        (rCode.isNotEmpty && k.endsWith('_room_$rCode')));
+
+    // 4. Reset _selectedRoomId if pointing to the deleted room
+    if (_selectedRoomId == rId || _selectedRoomId == rName || _selectedRoomId == rCode) {
+      _selectedRoomId = _rooms.isNotEmpty ? (_rooms.first['id'] as String?) : null;
+    }
+
+    _cleanOrphanedRoomData();
+  }
+
   /// Returns the list of students for a class who have NOT yet been allocated to any room (excluding excludeRoomId)
   List<Map<String, dynamic>> _getUnallocatedStudentsForClass(
     String classId,
@@ -183,7 +239,18 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
 
     final Set<String> allocatedStudentIds = {};
 
+    final Set<String> validRoomIds = {};
+    for (var r in _rooms) {
+      final id = (r['id'] ?? '').toString();
+      final name = (r['name'] ?? '').toString();
+      final code = (r['code'] ?? '').toString();
+      if (id.isNotEmpty) validRoomIds.add(id);
+      if (name.isNotEmpty) validRoomIds.add(name);
+      if (code.isNotEmpty) validRoomIds.add(code);
+    }
+
     _roomAssignments.forEach((rId, assignments) {
+      if (!validRoomIds.contains(rId)) return; // Skip allocations belonging to deleted rooms
       if (excludeRoomId != null && rId == excludeRoomId) return;
       for (var a in assignments) {
         final aClassId = (a['classId'] ?? '').toString();
@@ -323,13 +390,15 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     final Map<String, String> studentRoomMap = {};
     final Map<String, String> studentRoomIdMap = {};
     _roomAssignments.forEach((rId, list) {
-      final rObj = _rooms.firstWhere((r) => r['id'] == rId, orElse: () => {'name': rId});
-      final rN = (rObj['name'] ?? rId).toString();
+      final rObj = _rooms.firstWhere((r) => r['id'] == rId || r['name'] == rId || r['code'] == rId, orElse: () => {});
+      if (rObj.isEmpty) return; // Ignore deleted room
+      final rN = (rObj['name'] ?? rObj['code'] ?? rId).toString();
+      final actualRoomId = (rObj['id'] ?? rId).toString();
       for (var a in list) {
         if (a['classId'] == cid && a['studentIds'] is List) {
           for (var sId in (a['studentIds'] as List)) {
             studentRoomMap[sId.toString()] = rN;
-            studentRoomIdMap[sId.toString()] = rId;
+            studentRoomIdMap[sId.toString()] = actualRoomId;
           }
         }
       }
@@ -1256,6 +1325,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             _rooms.addAll(roomsList);
             _roomAssignments.clear();
             _roomAssignments.addAll(roomAssignments);
+            _cleanOrphanedRoomData();
             _scheduleGrid.clear();
             _scheduleGrid.addAll(scheduleGrid);
             _proctorGrid.clear();
@@ -1377,6 +1447,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
           }
         });
       }
+      _cleanOrphanedRoomData();
       
       _scheduleGrid.clear();
       if (s6['scheduleGrid'] is Map) {
