@@ -898,7 +898,20 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     int? dayIndex,
     int? sessionIndex,
     bool isMakeup = false,
+    bool isAlreadyAttended = false,
   }) {
+    if (isAlreadyAttended) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Presensi untuk sesi ${sessionName ?? ""} sudah berhasil.'),
+          backgroundColor: const Color(0xFF059669),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (dialogCtx) {
@@ -1978,11 +1991,24 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Tooltip(
-                              message: hasApprovedMakeup
-                                  ? 'Klik untuk memperbesar QR Code Ujian Susulan'
-                                  : 'Klik untuk memperbesar QR Code Sesi',
+                              message: isAttendedByProctor
+                                  ? 'Presensi sudah diverifikasi'
+                                  : (hasApprovedMakeup
+                                      ? 'Klik untuk memperbesar QR Code Ujian Susulan'
+                                      : 'Klik untuk memperbesar QR Code Sesi'),
                               child: GestureDetector(
                                 onTap: () {
+                                  if (isAttendedByProctor) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('✅ Presensi untuk sesi ${hasApprovedMakeup ? "Ujian Susulan" : sName} sudah berhasil diverifikasi.'),
+                                        backgroundColor: const Color(0xFF059669),
+                                        behavior: SnackBarBehavior.floating,
+                                        duration: const Duration(seconds: 2),
+                                      ),
+                                    );
+                                    return;
+                                  }
                                   _showEnlargedQrDialog(
                                     context: context,
                                     qrData: itemQrDataString,
@@ -1997,6 +2023,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                     dayIndex: hasApprovedMakeup ? 0 : resolvedDayIndex,
                                     sessionIndex: hasApprovedMakeup ? 0 : resolvedSessionIndex,
                                     isMakeup: hasApprovedMakeup,
+                                    isAlreadyAttended: isAttendedByProctor,
                                   );
                                 },
                                 child: Container(

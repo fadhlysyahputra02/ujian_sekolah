@@ -95,8 +95,14 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   Stream<List<Student>>? _studentsStream;
   Stream<List<Map<String, dynamic>>>? _classesStream;
   Stream<List<Map<String, dynamic>>>? _subjectsStream;
-  Stream<DocumentSnapshot>? _schoolStream;
   String? _initializedSchoolId;
+
+  // Cached data in memory so tabs render immediately without waiting spinners upon tab switching
+  DocumentSnapshot? _cachedSchoolSnapshot;
+  List<Map<String, dynamic>>? _cachedClasses;
+  List<Map<String, dynamic>>? _cachedSubjects;
+  List<Teacher>? _cachedTeachers;
+  List<Student>? _cachedStudents;
 
   void _initStreams(String schoolId) {
     if (_initializedSchoolId == schoolId && _teachersStream != null) return;
@@ -105,7 +111,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     _studentsStream = _adminUserService.streamStudents(schoolId);
     _classesStream = _adminUserService.streamClasses(schoolId);
     _subjectsStream = _adminUserService.streamSubjects(schoolId);
-    _schoolStream = FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots();
   }
 
   // Pagination states
@@ -1568,12 +1573,10 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       ),
     );
 
-    final mainWidget = StreamBuilder<DocumentSnapshot>(
-      stream: _schoolStream ?? FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
-      builder: (context, schoolSnapshot) {
-        if (isDesktop) {
-          // Desktop Layout
-          return Scaffold(
+    final Widget mainWidget;
+    if (isDesktop) {
+      // Desktop Layout
+      mainWidget = Scaffold(
             body: Row(
               children: [
                 // Custom Premium Sidebar
@@ -1799,8 +1802,6 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         ),
       );
     }
-  },
-);
 
     return PopScope(
       canPop: false,
@@ -1901,9 +1902,13 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
   Widget _buildClassesTab(String schoolId, bool isDesktop) {
     return StreamBuilder<List<Map<String, dynamic>>>(
+      initialData: _cachedClasses,
       stream: _classesStream ?? _adminUserService.streamClasses(schoolId),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+        if (snapshot.hasData) {
+          _cachedClasses = snapshot.data;
+        }
+        if (snapshot.hasError && !snapshot.hasData) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const AppContentLoader(
             title: 'Memuat Data Kelas...',
@@ -2285,8 +2290,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
   Widget _buildQuotaWarningBanner(String schoolId) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: _schoolStream ?? FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
+      initialData: _cachedSchoolSnapshot,
+      stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          _cachedSchoolSnapshot = snapshot.data;
+        }
         if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox.shrink();
         final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
         final meta = data['meta'] as Map<String, dynamic>? ?? {};
@@ -2363,9 +2372,13 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
   Widget _buildOverviewTab(String schoolId) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: _schoolStream ?? FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
+      initialData: _cachedSchoolSnapshot,
+      stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
+        if (snapshot.hasData) {
+          _cachedSchoolSnapshot = snapshot.data;
+        }
+        if (snapshot.hasError && !snapshot.hasData) {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
@@ -2736,9 +2749,13 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
   Widget _buildTeachersTab(String schoolId, bool isDesktop) {
     return StreamBuilder<List<Teacher>>(
+      initialData: _cachedTeachers,
       stream: _teachersStream ?? _adminUserService.streamTeachers(schoolId),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+        if (snapshot.hasData) {
+          _cachedTeachers = snapshot.data;
+        }
+        if (snapshot.hasError && !snapshot.hasData) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const AppContentLoader(
             title: 'Memuat Data Guru...',
@@ -3091,8 +3108,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
   Widget _buildStudentsTab(String schoolId, bool isDesktop) {
     return StreamBuilder<List<Map<String, dynamic>>>(
+      initialData: _cachedClasses,
       stream: _classesStream ?? _adminUserService.streamClasses(schoolId),
       builder: (context, classesSnapshot) {
+        if (classesSnapshot.hasData) {
+          _cachedClasses = classesSnapshot.data;
+        }
         final classes = classesSnapshot.data ?? [];
         final Map<String, String> studentClassMap = {};
         for (var c in classes) {
@@ -3106,9 +3127,13 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         }
 
         return StreamBuilder<List<Student>>(
+          initialData: _cachedStudents,
           stream: _studentsStream ?? _adminUserService.streamStudents(schoolId),
           builder: (context, snapshot) {
-            if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+            if (snapshot.hasData) {
+              _cachedStudents = snapshot.data;
+            }
+            if (snapshot.hasError && !snapshot.hasData) return Center(child: Text('Error: ${snapshot.error}'));
             if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
               return const AppContentLoader(
                 title: 'Memuat Data Murid...',
@@ -3883,9 +3908,13 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
   Widget _buildSubjectsTab(String schoolId, bool isDesktop) {
     return StreamBuilder<List<Map<String, dynamic>>>(
+      initialData: _cachedSubjects,
       stream: _subjectsStream ?? _adminUserService.streamSubjects(schoolId),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+        if (snapshot.hasData) {
+          _cachedSubjects = snapshot.data;
+        }
+        if (snapshot.hasError && !snapshot.hasData) return Center(child: Text('Error: ${snapshot.error}'));
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const AppContentLoader(
             title: 'Memuat Mata Pelajaran...',
@@ -4229,8 +4258,12 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     final initialLetter = userEmail.isNotEmpty ? userEmail[0].toUpperCase() : 'A';
 
     return StreamBuilder<DocumentSnapshot>(
-      stream: _schoolStream ?? FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
+      initialData: _cachedSchoolSnapshot,
+      stream: FirebaseFirestore.instance.collection('schools').doc(schoolId).snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          _cachedSchoolSnapshot = snapshot.data;
+        }
         final schoolData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
         final schoolName = schoolData['name'] ?? 'Sekolah';
         final schoolCode = schoolData['code'] ?? '-';

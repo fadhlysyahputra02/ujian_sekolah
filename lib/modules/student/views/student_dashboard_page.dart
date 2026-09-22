@@ -310,22 +310,17 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
           opacity: _fadeAnim,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-            padding: const EdgeInsets.all(20.0),
-            child: Center(
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 900),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Card Utama: Profile Banner & Details
-                    _buildStudentHeaderCard(),
-                    const SizedBox(height: 28),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Card Utama: Profile Banner & Details
+                _buildStudentHeaderCard(),
+                const SizedBox(height: 28),
 
-                    // Event Cards Section
-                    _buildEventCardsList(schoolId),
-                  ],
-                ),
-              ),
+                // Event Cards Section
+                _buildEventCardsList(schoolId),
+              ],
             ),
           ),
         ),

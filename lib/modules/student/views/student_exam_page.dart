@@ -112,7 +112,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     _calculateDurationAndStartTimer();
     _loadQuestions();
     _startPeriodicSyncTimer();
-    _updateRealtimeControlStatus('in_progress');
+    _updateRealtimeControlStatus('in_progress', customEvent: 'started');
     _listenForForceCompletion();
   }
 
@@ -191,9 +191,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           .collection('realtime_control');
 
       realtimeColl.doc(sessionDocId).set(data, SetOptions(merge: true));
-      if (sessionDocId != studentDocId) {
-        realtimeColl.doc(studentDocId).set(data, SetOptions(merge: true));
-      }
       debugPrint('⚡ Left app directly recorded on dispose for $sessionDocId');
     } catch (e) {
       debugPrint('❌ Error in _markLeftAppDirectly: $e');
@@ -218,17 +215,33 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         .collection('events')
         .doc(widget.eventId);
 
-    void checkData(Map<String, dynamic>? data) {
+    void checkData(Map<String, dynamic>? data, {bool isGlobalDoc = false}) {
       if (data == null || _isSubmitting || !mounted) return;
 
       // Strict subject check to prevent any cross-session triggers
       final docSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
       final docSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
-      if (docSubjId.isNotEmpty && cleanSubjId.isNotEmpty && docSubjId != cleanSubjId) {
-        return; // Belongs to a different subject/session
-      }
-      if (docSubjName.isNotEmpty && widget.subjectName.isNotEmpty && docSubjName != widget.subjectName.toLowerCase().trim()) {
-        return; // Belongs to a different subject/session
+
+      // Dokumen global HANYA boleh mentrigger jika memiliki identitas mapel yang sama persis
+      if (isGlobalDoc) {
+        if (cleanSubjId.isNotEmpty) {
+          if (docSubjId.isEmpty && docSubjName.isEmpty) {
+            return; // Abaikan dokumen global tanpa identitas mapel (bukan untuk sesi ini)
+          }
+          if (docSubjId.isNotEmpty && docSubjId != cleanSubjId) {
+            return; // Beda mata pelajaran
+          }
+          if (docSubjName.isNotEmpty && widget.subjectName.isNotEmpty && docSubjName != widget.subjectName.toLowerCase().trim()) {
+            return; // Beda nama mata pelajaran
+          }
+        }
+      } else {
+        if (docSubjId.isNotEmpty && cleanSubjId.isNotEmpty && docSubjId != cleanSubjId) {
+          return; // Belongs to a different subject/session
+        }
+        if (docSubjName.isNotEmpty && widget.subjectName.isNotEmpty && docSubjName != widget.subjectName.toLowerCase().trim()) {
+          return; // Belongs to a different subject/session
+        }
       }
 
       final isForce = data['isForceSubmitted'] == true;
@@ -245,7 +258,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         .snapshots()
         .listen((snap) {
       if (snap.exists) {
-        checkData(snap.data());
+        checkData(snap.data(), isGlobalDoc: false);
       }
     });
 
@@ -256,7 +269,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           .snapshots()
           .listen((snap) {
         if (snap.exists) {
-          checkData(snap.data());
+          checkData(snap.data(), isGlobalDoc: true);
         }
       });
     }
@@ -267,7 +280,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         .snapshots()
         .listen((snap) {
       if (snap.exists) {
-        checkData(snap.data());
+        checkData(snap.data(), isGlobalDoc: false);
       }
     });
   }
@@ -365,20 +378,21 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
     }
   }
 
-  Future<void> _updateRealtimeControlStatus(String status) async {
+  Future<void> _updateRealtimeControlStatus(String status, {String? customEvent}) async {
     if (widget.schoolId.isEmpty || widget.eventId.isEmpty) return;
 
-    // Deduplicate: If state is already identical, ignore duplicate calls (except 'completed')
-    if (_currentRealtimeStatus == status && status != 'completed') {
+    // Deduplicate: If state is already identical, ignore duplicate calls (except 'completed' and 'started')
+    if (_currentRealtimeStatus == status && status != 'completed' && customEvent == null) {
       return;
     }
 
-    // Cooldown guard: Prevent duplicate burst triggers within 1000ms (bypass for left_app & completed)
+    // Cooldown guard: Prevent duplicate burst triggers within 1000ms (bypass for left_app, completed, and started)
     final now = DateTime.now();
     if (_lastRealtimeStatusUpdate != null &&
         now.difference(_lastRealtimeStatusUpdate!).inMilliseconds < 1000 &&
         status != 'completed' &&
-        status != 'left_app') {
+        status != 'left_app' &&
+        customEvent == null) {
       return;
     }
 
@@ -412,7 +426,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       };
 
       final logEntry = <String, dynamic>{
-        'event': isLeftApp ? 'left_app' : (isCompleted ? 'completed' : 'returned'),
+        'event': customEvent ?? (isLeftApp ? 'left_app' : (isCompleted ? 'completed' : 'returned')),
         'timestamp': DateTime.now().toIso8601String(),
         'subjectId': widget.subjectId,
         'subjectName': widget.subjectName,
@@ -437,6 +451,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         data['isLeftApp'] = false;
         data['isCompleted'] = false;
         data['isWorking'] = true;
+        data['isForceSubmitted'] = false;
         data['logs'] = FieldValue.arrayUnion([logEntry]);
       }
 
@@ -454,9 +469,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
           .collection('realtime_control');
 
       await realtimeColl.doc(sessionDocId).set(data, SetOptions(merge: true));
-      if (sessionDocId != studentDocId) {
-        await realtimeColl.doc(studentDocId).set(data, SetOptions(merge: true));
-      }
       debugPrint('⚡ Realtime control updated: $status for docId=$sessionDocId');
     } catch (e) {
       debugPrint('❌ Error updating realtime control: $e');
@@ -504,9 +516,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
             .collection('realtime_control');
 
         await realtimeColl.doc(sessionDocId).set(payload, SetOptions(merge: true));
-        if (sessionDocId != studentDocId) {
-          await realtimeColl.doc(studentDocId).set(payload, SetOptions(merge: true));
-        }
         debugPrint('📊 Realtime progress synced: $_answeredCount / ${_questions.length} (doc: $sessionDocId)');
       } catch (e) {
         debugPrint('⚠️ Error syncing realtime progress: $e');
@@ -1190,6 +1199,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
 
   Future<void> _showSubmitConfirmationDialog() async {
     final unansweredCount = _questions.length - _answeredCount;
+    final doubtfulCount = _questions.where((q) => _doubts[q['id'].toString()] == true).length;
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -1250,6 +1260,14 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                       Text('$unansweredCount Soal', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: unansweredCount > 0 ? const Color(0xFFDC2626) : const Color(0xFF64748B))),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Ragu-ragu:', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B))),
+                      Text('$doubtfulCount Soal', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: doubtfulCount > 0 ? const Color(0xFFD97706) : const Color(0xFF64748B))),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1270,6 +1288,29 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                       child: Text(
                         'Masih ada $unansweredCount soal yang belum Anda jawab!',
                         style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF991B1B)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (doubtfulCount > 0) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.help_outline_rounded, color: Color(0xFFD97706), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Masih ada $doubtfulCount soal yang tertanda ragu-ragu!',
+                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFFB45309)),
                       ),
                     ),
                   ],
@@ -2023,6 +2064,7 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                   Expanded(
                     child: FilterChip(
                       selected: _doubts[qId] == true,
+                      showCheckmark: false,
                       label: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
@@ -2033,11 +2075,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                             color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF475569),
                           ),
                         ),
-                      ),
-                      avatar: Icon(
-                        _doubts[qId] == true ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                        size: 16,
-                        color: _doubts[qId] == true ? const Color(0xFFD97706) : const Color(0xFF64748B),
                       ),
                       backgroundColor: const Color(0xFFF1F5F9),
                       selectedColor: const Color(0xFFFEF3C7),

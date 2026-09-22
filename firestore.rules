@@ -137,6 +137,10 @@ service cloud.firestore {
           allow read, write: if true;
         }
 
+        match /proctor_notes/{noteId} {
+          allow read, write: if true;
+        }
+
         match /realtime_control/{controlId} {
           allow read, write: if true;
         }

@@ -20,6 +20,7 @@ class AuthService extends ChangeNotifier {
   bool _isLoading = true;
   String? _sessionTerminatedReason;
   String? _establishedSessionId;
+  bool _isManualSignOut = false;
 
   User? get user => _user;
   String? get role => _role;
@@ -176,6 +177,9 @@ class AuthService extends ChangeNotifier {
             } catch (_) {}
           }
 
+          // Jangan proses pemutusan sesi jika sedang dalam proses logout manual
+          if (_isManualSignOut) return;
+
           // Single device session enforcement for student
           if (studentData != null) {
             final activeSession = studentData['activeSession'] as Map<String, dynamic>?;
@@ -189,13 +193,13 @@ class AuthService extends ChangeNotifier {
 
             // HANYA putuskan sesi jika perangkat ini sebelumnya sudah pernah berhasil membentuk sesi aktif (_establishedSessionId != null)
             // Ini mencegah pemutusan palsu saat murid baru pertama kali login atau saat activeSession masih kosong di database.
-            if (_establishedSessionId != null) {
+            if (_establishedSessionId != null && !_isManualSignOut) {
               if (activeSession == null || remoteSessionId == null) {
                 // Sesi di-reset oleh pengawas atau admin sekolah di tengah aktivitas ujian/belajar
                 debugPrint('[SESSION] Student activeSession was reset by admin/proctor.');
                 _establishedSessionId = null;
                 _sessionTerminatedReason = 'Sesi login Anda telah direset oleh Pengawas Ujian atau Admin Sekolah.';
-                await signOut();
+                await signOut(isForced: true);
                 return;
               } else if (remoteSessionId != _establishedSessionId) {
                 // Sesi terdeteksi telah aktif di perangkat/browser lain
@@ -203,7 +207,7 @@ class AuthService extends ChangeNotifier {
                 debugPrint('[SESSION] Student active session mismatch ($otherDevice, remote=$remoteSessionId vs established=$_establishedSessionId).');
                 _establishedSessionId = null;
                 _sessionTerminatedReason = 'Sesi Anda telah berakhir karena akun ini telah login di perangkat lain ($otherDevice).';
-                await signOut();
+                await signOut(isForced: true);
                 return;
               }
             }
@@ -279,6 +283,7 @@ class AuthService extends ChangeNotifier {
   Future<UserCredential> signIn(String usernameOrEmail, String password) async {
     _sessionTerminatedReason = null;
     _establishedSessionId = null;
+    _isManualSignOut = false;
     String email = usernameOrEmail.trim();
     if (email.toLowerCase() == 'sadmin') {
       email = 'sadmin@sesicermat.com';
@@ -289,8 +294,25 @@ class AuthService extends ChangeNotifier {
     );
   }
 
-  /// Sign out helper
-  Future<void> signOut() async {
+  /// Sign out helper.
+  /// Jika dipanggil secara manual oleh pengguna (logout normal), [isForced] = false.
+  /// [isForced] hanya bernilai true jika pemutusan sesi dipicu secara paksa oleh
+  /// Admin/Pengawas yang mereset sesi atau saat terdeteksi login di perangkat lain.
+  Future<void> signOut({bool isForced = false}) async {
+    if (!isForced) {
+      _isManualSignOut = true;
+      _sessionTerminatedReason = null;
+    }
+    _establishedSessionId = null;
+
+    // 1. Matikan subscription Firestore SEGERA sebelum memanggil clearSession,
+    // agar event update Firestore 'activeSession: null' tidak memicu listener
+    // dan menyangka sesi direset oleh admin!
+    await _studentSubscription?.cancel();
+    _studentSubscription = null;
+    await _schoolSubscription?.cancel();
+    _schoolSubscription = null;
+
     try {
       if (_role == 'student' && _schoolId != null) {
         await StudentSessionService.clearSession(
@@ -317,7 +339,9 @@ class AuthService extends ChangeNotifier {
     } catch (e) {
       debugPrint("Error saving last school code on sign out: $e");
     }
+
     await _auth.signOut();
+    _isManualSignOut = false;
   }
 
   /// Menampilkan modal konfirmasi sebelum keluar (sign out)

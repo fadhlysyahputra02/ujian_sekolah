@@ -20,7 +20,19 @@ bool isWebMobile() {
   final isMobilePlatform = defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
-  return isMobileUA || isMobilePlatform;
+  final isTouchMac = ua.contains('macintosh') &&
+      ((html.window.navigator.maxTouchPoints ?? 0) > 1);
+
+  return isMobileUA || isMobilePlatform || isTouchMac;
+}
+
+/// Helper untuk memeriksa apakah perangkat saat ini adalah mobile (aplikasi mobile atau web mobile)
+bool isMobileDevice() {
+  if (!kIsWeb) {
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+  return isWebMobile();
 }
 
 /// Mendapatkan deskripsi browser dan OS untuk Web

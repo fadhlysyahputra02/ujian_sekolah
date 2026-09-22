@@ -3403,8 +3403,17 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
                         // Deduplicate duties by dayIndex_sessionIndex_roomId
                         final uniqueDutyMap = <String, Map<String, dynamic>>{};
+                        final proctorGridStatusMap = evData['proctorGridStatus'] as Map?;
                         for (var duty in rawDutyList) {
                           final uniqueKey = '${duty['dayIndex']}_${duty['sessionIndex']}_${duty['roomId']}';
+                          if (proctorGridStatusMap != null) {
+                            final gridKey1 = 'day_${duty['dayIndex']}_session_${duty['sessionIndex']}_room_${duty['roomId']}';
+                            final gridKey2 = 'grid_$gridKey1';
+                            final s = proctorGridStatusMap[gridKey1] ?? proctorGridStatusMap[gridKey2];
+                            if (s != null && s.toString().isNotEmpty) {
+                              duty['status'] = s.toString();
+                            }
+                          }
                           if (!uniqueDutyMap.containsKey(uniqueKey) || !uniqueDutyMap[uniqueKey]!['docId'].toString().startsWith('grid_')) {
                             uniqueDutyMap[uniqueKey] = duty;
                           }
@@ -4027,8 +4036,9 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
         _showProctorExpiredDialog(context, cleanRoomName, sessionLabel);
         return;
       }
+      final encSubj = Uri.encodeComponent(subjectText);
       context.go(
-        '/teacher/event/${widget.eventId}/proctor-room/$roomId?dayIndex=$dayIndex&sessionIndex=$sessionIndex&docId=$docId',
+        '/teacher/event/${widget.eventId}/proctor-room/$roomId?dayIndex=$dayIndex&sessionIndex=$sessionIndex&docId=$docId&subject=$encSubj',
       );
     }
 
@@ -5493,20 +5503,58 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
 
     if (proctorNote.isEmpty && (studentId.isNotEmpty || nis.isNotEmpty)) {
       try {
-        final attQuery = await FirebaseFirestore.instance
+        final notesQuery = await FirebaseFirestore.instance
             .collection('schools')
             .doc(_schoolId)
             .collection('events')
             .doc(widget.eventId)
-            .collection('attendances')
+            .collection('proctor_notes')
             .where('studentId', isEqualTo: studentId.isNotEmpty ? studentId : '__none__')
             .get();
 
-        for (var d in attQuery.docs) {
-          final note = (d.data()['proctorNote'] ?? '').toString().trim();
+        for (var d in notesQuery.docs) {
+          final note = (d.data()['note'] ?? d.data()['proctorNote'] ?? '').toString().trim();
           if (note.isNotEmpty) {
             proctorNote = note;
             break;
+          }
+        }
+
+        if (proctorNote.isEmpty && nis.isNotEmpty) {
+          final notesNisQuery = await FirebaseFirestore.instance
+              .collection('schools')
+              .doc(_schoolId)
+              .collection('events')
+              .doc(widget.eventId)
+              .collection('proctor_notes')
+              .where('nis', isEqualTo: nis)
+              .get();
+          for (var d in notesNisQuery.docs) {
+            final note = (d.data()['note'] ?? d.data()['proctorNote'] ?? '').toString().trim();
+            if (note.isNotEmpty) {
+              proctorNote = note;
+              break;
+            }
+          }
+        }
+
+        // Fallback backward compatibility ke koleksi attendances
+        if (proctorNote.isEmpty) {
+          final attQuery = await FirebaseFirestore.instance
+              .collection('schools')
+              .doc(_schoolId)
+              .collection('events')
+              .doc(widget.eventId)
+              .collection('attendances')
+              .where('studentId', isEqualTo: studentId.isNotEmpty ? studentId : '__none__')
+              .get();
+
+          for (var d in attQuery.docs) {
+            final note = (d.data()['proctorNote'] ?? '').toString().trim();
+            if (note.isNotEmpty) {
+              proctorNote = note;
+              break;
+            }
           }
         }
 

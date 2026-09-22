@@ -15,6 +15,7 @@ class ProctorSeatCard extends StatefulWidget {
   final int dayIndex;
   final int sessionIndex;
   final bool isAdminView;
+  final bool isExamEnded;
 
   const ProctorSeatCard({
     super.key,
@@ -29,6 +30,7 @@ class ProctorSeatCard extends StatefulWidget {
     this.dayIndex = 0,
     this.sessionIndex = 0,
     this.isAdminView = false,
+    this.isExamEnded = false,
   });
 
   @override
@@ -182,7 +184,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
             )
           ];
         } else if (isAttended) {
-          // 3. Murid sudah scan / hadir (STANDBY) -> SOLID warna kelasnya
+          // 3. Murid sudah scan / hadir -> SOLID warna kelasnya
           bgColor = scheme['primary']!;
           borderColor = scheme['primary']!.withValues(alpha: 0.8);
           textColor = Colors.white;
@@ -224,6 +226,7 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
               dayIndex: widget.dayIndex,
               sessionIndex: widget.sessionIndex,
               isAdminView: widget.isAdminView,
+              isExamEnded: widget.isExamEnded,
             ),
             borderRadius: BorderRadius.circular(14),
             child: AnimatedContainer(
@@ -418,32 +421,39 @@ class _ProctorSeatCardState extends State<ProctorSeatCard> with SingleTickerProv
                           ),
                         )
                       else if (isAttended)
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                genderSymbol,
+                                style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white),
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
-                                const SizedBox(width: 3),
-                                Text(
-                                  (answeredCount != null && answeredCount > 0 && totalQuestions != null && totalQuestions > 0)
-                                      ? '$answeredCount/$totalQuestions'
-                                      : 'STANDBY',
+                            if (answeredCount != null && answeredCount > 0 && totalQuestions != null && totalQuestions > 0) ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '$answeredCount/$totalQuestions',
                                   style: GoogleFonts.inter(
                                     fontSize: 8.5,
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFF059669),
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
+                            ],
+                          ],
                         )
                       else
                         Row(

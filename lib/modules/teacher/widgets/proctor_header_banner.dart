@@ -273,24 +273,25 @@ class ProctorHeaderBanner extends StatelessWidget {
                           icon: Icon(
                             isEnded ? Icons.check_circle_rounded : Icons.check_circle_outline_rounded,
                             size: 16,
-                            color: isEnded ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                            color: isEnded ? const Color(0xFF94A3B8) : const Color(0xFFDC2626),
                           ),
                           label: Text(
-                            isEnded ? 'Selesai' : 'Selesaikan Ujian',
+                            isEnded ? 'Ujian Selesai' : 'Selesaikan Ujian',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 12,
-                              color: isEnded ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                              color: isEnded ? const Color(0xFF94A3B8) : const Color(0xFFDC2626),
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(
-                              color: isEnded ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
+                              color: isEnded ? const Color(0xFFCBD5E1) : const Color(0xFFFECACA),
                               width: 1.5,
                             ),
-                            backgroundColor: isEnded ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                            backgroundColor: isEnded ? const Color(0xFFF1F5F9) : const Color(0xFFFEF2F2),
+                            disabledForegroundColor: const Color(0xFF94A3B8),
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
@@ -300,33 +301,45 @@ class ProctorHeaderBanner extends StatelessWidget {
                       // Scan QR Presensi Button
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () => ProctorQrScanDialog.show(
-                            context: context,
-                            schoolId: schoolId,
-                            eventId: eventId,
-                            roomId: roomId,
-                            roomAliases: {roomId, roomName},
-                            seatMap: seatMap,
-                            localAttendedMap: localAttendedMap,
-                            seatNotifier: seatNotifier,
-                            dayIndex: dayIndex,
-                            sessionIndex: sessionIndex,
-                            allowedSubjectNames: allowedSubjectNames,
-                            allowedSubjectIds: allowedSubjectIds,
+                          onPressed: isEnded
+                              ? null
+                              : () => ProctorQrScanDialog.show(
+                                  context: context,
+                                  schoolId: schoolId,
+                                  eventId: eventId,
+                                  roomId: roomId,
+                                  roomAliases: {roomId, roomName},
+                                  seatMap: seatMap,
+                                  localAttendedMap: localAttendedMap,
+                                  seatNotifier: seatNotifier,
+                                  dayIndex: dayIndex,
+                                  sessionIndex: sessionIndex,
+                                  allowedSubjectNames: allowedSubjectNames,
+                                  allowedSubjectIds: allowedSubjectIds,
+                                ),
+                          icon: Icon(
+                            Icons.qr_code_scanner_rounded,
+                            size: 16,
+                            color: isEnded ? const Color(0xFF94A3B8) : Colors.white,
                           ),
-                          icon: const Icon(Icons.qr_code_scanner_rounded, size: 16),
-                          label: const Text(
+                          label: Text(
                             'Scan Presensi',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: isEnded ? const Color(0xFF94A3B8) : Colors.white,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF10B981),
-                            foregroundColor: Colors.white,
+                            backgroundColor: isEnded ? const Color(0xFFE2E8F0) : const Color(0xFF10B981),
+                            foregroundColor: isEnded ? const Color(0xFF94A3B8) : Colors.white,
+                            disabledBackgroundColor: const Color(0xFFE2E8F0),
+                            disabledForegroundColor: const Color(0xFF94A3B8),
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            elevation: 1,
+                            elevation: isEnded ? 0 : 1,
                           ),
                         ),
                       ),
@@ -444,21 +457,22 @@ class ProctorHeaderBanner extends StatelessWidget {
                         icon: Icon(
                           isEnded ? Icons.check_circle_rounded : Icons.check_circle_outline_rounded,
                           size: 18,
-                          color: isEnded ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                          color: isEnded ? const Color(0xFF94A3B8) : const Color(0xFFDC2626),
                         ),
                         label: Text(
                           isEnded ? 'Ujian Selesai' : 'Selesaikan Ujian',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: isEnded ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                            color: isEnded ? const Color(0xFF94A3B8) : const Color(0xFFDC2626),
                           ),
                         ),
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
-                            color: isEnded ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
+                            color: isEnded ? const Color(0xFFCBD5E1) : const Color(0xFFFECACA),
                             width: 1.5,
                           ),
-                          backgroundColor: isEnded ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                          backgroundColor: isEnded ? const Color(0xFFF1F5F9) : const Color(0xFFFEF2F2),
+                          disabledForegroundColor: const Color(0xFF94A3B8),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -466,28 +480,42 @@ class ProctorHeaderBanner extends StatelessWidget {
                       const SizedBox(width: 10),
                       // Scan QR Presensi Button
                       ElevatedButton.icon(
-                        onPressed: () => ProctorQrScanDialog.show(
-                          context: context,
-                          schoolId: schoolId,
-                          eventId: eventId,
-                          roomId: roomId,
-                          roomAliases: {roomId, roomName},
-                          seatMap: seatMap,
-                          localAttendedMap: localAttendedMap,
-                          seatNotifier: seatNotifier,
-                          dayIndex: dayIndex,
-                          sessionIndex: sessionIndex,
-                          allowedSubjectNames: allowedSubjectNames,
-                          allowedSubjectIds: allowedSubjectIds,
+                        onPressed: isEnded
+                            ? null
+                            : () => ProctorQrScanDialog.show(
+                                context: context,
+                                schoolId: schoolId,
+                                eventId: eventId,
+                                roomId: roomId,
+                                roomAliases: {roomId, roomName},
+                                seatMap: seatMap,
+                                localAttendedMap: localAttendedMap,
+                                seatNotifier: seatNotifier,
+                                dayIndex: dayIndex,
+                                sessionIndex: sessionIndex,
+                                allowedSubjectNames: allowedSubjectNames,
+                                allowedSubjectIds: allowedSubjectIds,
+                              ),
+                        icon: Icon(
+                          Icons.qr_code_scanner_rounded,
+                          size: 18,
+                          color: isEnded ? const Color(0xFF94A3B8) : Colors.white,
                         ),
-                        icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                        label: const Text('Scan QR Presensi'),
+                        label: Text(
+                          'Scan QR Presensi',
+                          style: TextStyle(
+                            color: isEnded ? const Color(0xFF94A3B8) : Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
+                          backgroundColor: isEnded ? const Color(0xFFE2E8F0) : const Color(0xFF10B981),
+                          foregroundColor: isEnded ? const Color(0xFF94A3B8) : Colors.white,
+                          disabledBackgroundColor: const Color(0xFFE2E8F0),
+                          disabledForegroundColor: const Color(0xFF94A3B8),
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 2,
+                          elevation: isEnded ? 0 : 2,
                         ),
                       ),
                     ],

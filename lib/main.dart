@@ -29,18 +29,7 @@ void main() async {
     return true; // Silence uncaught platform errors on web dev compiler
   };
 
-  // On Flutter Web hot restart, the Firestore JS SDK still holds stale
-  // WebSocket listeners from the previous run, which causes:
-  //   INTERNAL ASSERTION FAILED: Unexpected state (ID: b815 / ca9)
-  // Fix: terminate + clearPersistence before re-initializing.
-  if (kIsWeb) {
-    try {
-      await FirebaseFirestore.instance.terminate();
-    } catch (_) {}
-    try {
-      await FirebaseFirestore.instance.clearPersistence();
-    } catch (_) {}
-  }
+
 
   try {
     await Firebase.initializeApp(

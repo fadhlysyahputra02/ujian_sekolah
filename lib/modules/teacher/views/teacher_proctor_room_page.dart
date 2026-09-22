@@ -21,6 +21,7 @@ class TeacherProctorRoomPage extends StatefulWidget {
   final String docId;
   final bool isAdminView;
   final String? schoolId;
+  final String? initialSubject;
 
   const TeacherProctorRoomPage({
     super.key,
@@ -31,6 +32,7 @@ class TeacherProctorRoomPage extends StatefulWidget {
     this.docId = '',
     this.isAdminView = false,
     this.schoolId,
+    this.initialSubject,
   });
 
   @override
@@ -46,6 +48,8 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   List<Map<String, dynamic>> _sessionsSubcollection = [];
   final Map<String, bool> _localAttendedMap = {};
   final ValueNotifier<int> _seatNotifier = ValueNotifier<int>(0);
+  bool _isExamEndedLocally = false;
+  String? _localOverrideStatus;
 
   Stream<DocumentSnapshot>? _eventStream;
   Stream<QuerySnapshot>? _roomsStream;
@@ -53,10 +57,15 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
   Stream<QuerySnapshot>? _realtimeStream;
   Stream<QuerySnapshot>? _submissionsStream;
   Stream<QuerySnapshot>? _allocationsStream;
+  Stream<QuerySnapshot>? _timetableStream;
+  Stream<QuerySnapshot>? _sessionsStream;
+  StreamSubscription<QuerySnapshot>? _timetableSubscription;
+  StreamSubscription<QuerySnapshot>? _sessionsSubscription;
   Stream<QuerySnapshot>? _classesStream;
   Stream<QuerySnapshot>? _studentsStream;
   Stream<QuerySnapshot>? _teachersStream;
   Stream<QuerySnapshot>? _proctorsStream;
+  Stream<QuerySnapshot>? _proctorNotesStream;
   Stream<QuerySnapshot>? _makeupSessionsStream;
 
   Stream<QuerySnapshot>? _seatsStream;
@@ -301,6 +310,14 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     }
   }
 
+  @override
+  void dispose() {
+    _timetableSubscription?.cancel();
+    _sessionsSubscription?.cancel();
+    _seatNotifier.dispose();
+    super.dispose();
+  }
+
   void _initStreams(String sid) {
     if (sid.isEmpty) return;
     final eventRef = FirebaseFirestore.instance
@@ -312,9 +329,39 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     _eventStream = eventRef.snapshots();
     _roomsStream = eventRef.collection('rooms').snapshots();
     _attendancesStream = eventRef.collection('attendances').snapshots();
+    _proctorNotesStream = eventRef.collection('proctor_notes').snapshots();
     _realtimeStream = eventRef.collection('realtime_control').snapshots();
     _submissionsStream = eventRef.collection('submissions').snapshots();
     _allocationsStream = eventRef.collection('allocations').snapshots();
+    _timetableStream = eventRef.collection('timetable').snapshots();
+    _sessionsStream = eventRef.collection('sessions').snapshots();
+
+    _timetableSubscription?.cancel();
+    _timetableSubscription = _timetableStream?.listen((snap) {
+      if (mounted) {
+        setState(() {
+          _timetableSubcollection = snap.docs.map((d) {
+            final data = d.data() as Map<String, dynamic>;
+            data['_docId'] = d.id;
+            return data;
+          }).toList();
+        });
+      }
+    });
+
+    _sessionsSubscription?.cancel();
+    _sessionsSubscription = _sessionsStream?.listen((snap) {
+      if (mounted) {
+        setState(() {
+          _sessionsSubcollection = snap.docs.map((d) {
+            final data = d.data() as Map<String, dynamic>;
+            data['id'] = d.id;
+            return data;
+          }).toList();
+        });
+      }
+    });
+
     _classesStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('classes').snapshots();
     _studentsStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('students').snapshots();
     _teachersStream = FirebaseFirestore.instance.collection('schools').doc(sid).collection('teachers').snapshots();
@@ -363,7 +410,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
     if (_resolvedSchoolId != null && _resolvedSchoolId!.isNotEmpty) {
       _initStreams(_resolvedSchoolId!);
-      _fetchTimetableSubcollection(shouldSetState: false);
+      _fetchTimetableSubcollection(shouldSetState: true);
     }
 
     if (mounted) {
@@ -1130,11 +1177,30 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 }
               }
 
+              if (matchedSubjects.isEmpty && widget.initialSubject != null && widget.initialSubject!.trim().isNotEmpty && widget.initialSubject != 'Semua Mata Pelajaran') {
+                final initSubj = widget.initialSubject!.trim();
+                matchedSubjects.add(initSubj);
+                matchedSubjectIds.add(initSubj.toLowerCase());
+                for (var sItem in allSubjectsList) {
+                  if (sItem is Map && (sItem['name']?.toString().toLowerCase().trim() == initSubj.toLowerCase() || sItem['code']?.toString().toLowerCase().trim() == initSubj.toLowerCase())) {
+                    final sId = (sItem['id'] ?? '').toString().toLowerCase().trim();
+                    if (sId.isNotEmpty) matchedSubjectIds.add(sId);
+                    break;
+                  }
+                }
+              }
+
               if (!_hasQueriedQuestions && schoolId.isNotEmpty) {
                 _triggerQuestionCountsQuery(schoolId, matchedSubjectIds.toList(), matchedSubjects);
               }
 
-              final matchedSubjectsStr = matchedSubjects.isNotEmpty ? matchedSubjects.join(' • ') : 'Sosiologi • Fisika';
+              final matchedSubjectsStr = matchedSubjects.isNotEmpty
+                  ? matchedSubjects.join(' • ')
+                  : (widget.initialSubject != null && widget.initialSubject!.trim().isNotEmpty && widget.initialSubject != 'Semua Mata Pelajaran'
+                      ? widget.initialSubject!.trim()
+                      : (evData['subjectName']?.toString().trim().isNotEmpty == true
+                          ? evData['subjectName'].toString().trim()
+                          : 'Mata Pelajaran Ujian'));
 
               // Date & Session Time Labels
               DateTime sessionDate = DateTime.now();
@@ -1258,61 +1324,127 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
         builder: (context, attendanceSnap) {
           _localAttendedMap.clear();
 
-          final proctorNotesMap = <String, String>{};
-          final attDocs = attendanceSnap.data?.docs ?? [];
-          for (var aDoc in attDocs) {
-            final aData = aDoc.data() as Map<String, dynamic>;
-            final pNote = (aData['proctorNote'] ?? '').toString().trim();
-            if (pNote.isNotEmpty) {
-              final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
-              final sNis = (aData['nis'] ?? '').toString().toLowerCase();
-              final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
-              final sSubj = (aData['subjectId'] ?? aData['subjectName'] ?? '').toString().toLowerCase();
-              final seatNum = (aData['seatNumber'] as num?)?.toInt();
-              if (sId.isNotEmpty) {
-                proctorNotesMap[sId] = pNote;
-                if (sSubj.isNotEmpty) proctorNotesMap['${sId}_$sSubj'] = pNote;
-              }
-              if (sNis.isNotEmpty) {
-                proctorNotesMap[sNis] = pNote;
-                if (sSubj.isNotEmpty) proctorNotesMap['${sNis}_$sSubj'] = pNote;
-              }
-              if (sName.isNotEmpty) {
-                proctorNotesMap[sName] = pNote;
-                if (sSubj.isNotEmpty) proctorNotesMap['${sName}_$sSubj'] = pNote;
-              }
-              if (seatNum != null && seatNum > 0) {
-                proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
-                proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
-                if (sSubj.isNotEmpty) proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
-              }
-            }
+          return StreamBuilder<QuerySnapshot>(
+            stream: _proctorNotesStream ??
+                FirebaseFirestore.instance
+                    .collection('schools')
+                    .doc(schoolId)
+                    .collection('events')
+                    .doc(widget.eventId)
+                    .collection('proctor_notes')
+                    .snapshots(),
+            builder: (context, proctorNotesSnap) {
+              final noteDocs = proctorNotesSnap.data?.docs ?? [];
+              final proctorNotesMap = <String, String>{};
+              final attDocs = attendanceSnap.data?.docs ?? [];
 
-            final isAtt = aData['isAttended'] == true || aData['attended'] == true;
-            if (isAtt) {
-              final aDay = (aData['dayIndex'] as num?)?.toInt() ?? 0;
-              final aSess = (aData['sessionIndex'] as num?)?.toInt() ?? 0;
-              if (aDay != widget.dayIndex || aSess != widget.sessionIndex) {
-                continue;
+              final cleanWidgetRoom = widget.roomId.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+              final cleanRoomName = roomName.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+
+              bool isAttDocMatch(Map<String, dynamic> aData, String docId) {
+                // 1. Day Check
+                final aDay = (aData['dayIndex'] as num?)?.toInt();
+                if (aDay != null && aDay != widget.dayIndex) return false;
+
+                // 2. Session Check
+                final aSess = (aData['sessionIndex'] as num?)?.toInt();
+                if (aSess != null && aSess != widget.sessionIndex) return false;
+
+                // 3. Fallback: If day/session not in aData, check docId pattern: ${roomId}_${dayIndex}_${sessionIndex}_...
+                final daySessPattern = '_${widget.dayIndex}_${widget.sessionIndex}_';
+                if (aDay == null || aSess == null) {
+                  if (!docId.contains(daySessPattern)) return false;
+                }
+
+                // 4. Room Check
+                final aRoomId = (aData['roomId'] ?? aData['room'] ?? '').toString().trim();
+                String docRoom = aRoomId;
+                if (docRoom.isEmpty && docId.contains(daySessPattern)) {
+                  docRoom = docId.split(daySessPattern).first;
+                }
+                if (docRoom.isEmpty) return false;
+
+                if (docRoom == widget.roomId || docRoom == roomName || roomAliases.contains(docRoom)) return true;
+                final cleanARoom = docRoom.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                if (cleanARoom.isEmpty) return false;
+                if (cleanWidgetRoom.isNotEmpty && cleanARoom == cleanWidgetRoom) return true;
+                if (cleanRoomName.isNotEmpty && cleanARoom == cleanRoomName) return true;
+                for (var alias in roomAliases) {
+                  final cleanAlias = alias.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+                  if (cleanAlias.isNotEmpty && cleanAlias == cleanARoom) return true;
+                }
+                return false;
               }
-              final aRoomId = (aData['roomId'] ?? aData['room'] ?? '').toString().trim();
-              if (aRoomId.isNotEmpty) {
-                final cleanARoom = aRoomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                final cleanWidgetRoom = widget.roomId.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
-                final cleanRoomName = roomName.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
 
-                bool roomMatches = cleanARoom == cleanWidgetRoom ||
-                    cleanARoom == cleanRoomName ||
-                    cleanWidgetRoom.contains(cleanARoom) ||
-                    cleanARoom.contains(cleanWidgetRoom) ||
-                    cleanRoomName.contains(cleanARoom) ||
-                    cleanARoom.contains(cleanRoomName);
+              // 1. Prioritaskan pembacaan catatan dari subkoleksi khusus proctor_notes (terisolasi per ruangan & sesi)
+              for (var nDoc in noteDocs) {
+                final nData = nDoc.data() as Map<String, dynamic>;
+                if (!isAttDocMatch(nData, nDoc.id)) continue;
 
-                if (!roomMatches) {
-                  continue; // Skip attendance document if it belongs to ANOTHER room!
+                final pNote = (nData['note'] ?? nData['proctorNote'] ?? '').toString().trim();
+                if (pNote.isEmpty) continue;
+
+                final sId = (nData['studentId'] ?? '').toString().toLowerCase();
+                final sNis = (nData['nis'] ?? '').toString().toLowerCase();
+                final sName = (nData['studentName'] ?? nData['displayName'] ?? '').toString().toLowerCase();
+                final sSubj = (nData['subjectId'] ?? nData['subjectName'] ?? '').toString().toLowerCase();
+                final seatNum = (nData['seatNumber'] as num?)?.toInt();
+
+                if (sId.isNotEmpty) {
+                  proctorNotesMap[sId] = pNote;
+                  if (sSubj.isNotEmpty) proctorNotesMap['${sId}_$sSubj'] = pNote;
+                }
+                if (sNis.isNotEmpty) {
+                  proctorNotesMap[sNis] = pNote;
+                  if (sSubj.isNotEmpty) proctorNotesMap['${sNis}_$sSubj'] = pNote;
+                }
+                if (sName.isNotEmpty) {
+                  proctorNotesMap[sName] = pNote;
+                  if (sSubj.isNotEmpty) proctorNotesMap['${sName}_$sSubj'] = pNote;
+                }
+                if (seatNum != null && seatNum > 0) {
+                  proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
+                  proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
+                  if (sSubj.isNotEmpty) proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
                 }
               }
 
+              // 2. Fallback backward compatibility: baca catatan legacy dari attendances jika belum ada di proctor_notes
+              for (var aDoc in attDocs) {
+                final aData = aDoc.data() as Map<String, dynamic>;
+                if (!isAttDocMatch(aData, aDoc.id)) {
+                  continue; // STRICT: Only process attendance & notes for THIS room, day, and session!
+                }
+
+                final pNote = (aData['proctorNote'] ?? '').toString().trim();
+                if (pNote.isNotEmpty) {
+                  final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
+                  final sNis = (aData['nis'] ?? '').toString().toLowerCase();
+                  final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
+                  final sSubj = (aData['subjectId'] ?? aData['subjectName'] ?? '').toString().toLowerCase();
+                  final seatNum = (aData['seatNumber'] as num?)?.toInt();
+
+                  if (sId.isNotEmpty && !proctorNotesMap.containsKey(sId)) {
+                    proctorNotesMap[sId] = pNote;
+                    if (sSubj.isNotEmpty) proctorNotesMap['${sId}_$sSubj'] = pNote;
+                  }
+                  if (sNis.isNotEmpty && !proctorNotesMap.containsKey(sNis)) {
+                    proctorNotesMap[sNis] = pNote;
+                    if (sSubj.isNotEmpty) proctorNotesMap['${sNis}_$sSubj'] = pNote;
+                  }
+                  if (sName.isNotEmpty && !proctorNotesMap.containsKey(sName)) {
+                    proctorNotesMap[sName] = pNote;
+                    if (sSubj.isNotEmpty) proctorNotesMap['${sName}_$sSubj'] = pNote;
+                  }
+                  if (seatNum != null && seatNum > 0 && !proctorNotesMap.containsKey('${widget.roomId}_seat_$seatNum')) {
+                    proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
+                    proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
+                    if (sSubj.isNotEmpty) proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
+                  }
+                }
+
+            final isAtt = aData['isAttended'] == true || aData['attended'] == true;
+            if (isAtt) {
               final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
               final sNis = (aData['nis'] ?? '').toString().toLowerCase();
               final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
@@ -1940,8 +2072,12 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                     if (r == widget.roomId || r == roomName || roomAliases.contains(r)) return true;
                                     final cr = cleanStr(r);
                                     if (cr.isEmpty) return false;
-                                    if (cleanRId.isNotEmpty && (cr == cleanRId || cr.contains(cleanRId) || cleanRId.contains(cr))) return true;
-                                    if (cleanRName.isNotEmpty && (cr == cleanRName || cr.contains(cleanRName) || cleanRName.contains(cr))) return true;
+                                    if (cleanRId.isNotEmpty && cr == cleanRId) return true;
+                                    if (cleanRName.isNotEmpty && cr == cleanRName) return true;
+                                    for (var alias in roomAliases) {
+                                      final cleanAlias = cleanStr(alias);
+                                      if (cleanAlias.isNotEmpty && cleanAlias == cr) return true;
+                                    }
                                     return false;
                                   }
 
@@ -1952,13 +2088,6 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                     final pDay = (pData['dayIndex'] as num?)?.toInt();
                                     final pSessIdx = (pData['sessionIndex'] as num?)?.toInt();
 
-                                    if (isRoomMatch(pRoom) || isRoomMatch(pDoc.id)) {
-                                      currentStatus = pData['status'] ?? 'Belum Dimulai';
-                                      if (realProctorDocId.isEmpty || realProctorDocId.startsWith('grid_')) {
-                                        realProctorDocId = pDoc.id;
-                                      }
-                                    }
-
                                     final dayMatches = (pDay == null && !pSess.contains('day_'))
                                         ? true
                                         : (pDay == widget.dayIndex || pDay == widget.dayIndex + 1 || pSess.contains('day_${widget.dayIndex}'));
@@ -1966,7 +2095,40 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                         ? true
                                         : (pSessIdx == widget.sessionIndex || pSessIdx == widget.sessionIndex + 1 || pSess == targetRealSessionId || pSess == 'session_${widget.sessionIndex}');
 
-                                    if ((isRoomMatch(pRoom) || isRoomMatch(pDoc.id)) && dayMatches && sessMatches) {
+                                    // Extract room from docId if docId is a composite key like day_X_session_Y_room_Z
+                                    String pRoomFromDocId = '';
+                                    if (pDoc.id.contains('_room_')) {
+                                      // If docId specifies day and session, verify that they match
+                                      if (pDoc.id.startsWith('day_') || pDoc.id.startsWith('grid_day_')) {
+                                        final prefix = pDoc.id.startsWith('grid_') ? pDoc.id.substring(5) : pDoc.id;
+                                        final parts = prefix.split('_');
+                                        if (parts.length >= 4) {
+                                          final docDay = int.tryParse(parts[1]);
+                                          final docSess = int.tryParse(parts[3]);
+                                          if (docDay != null && docDay != widget.dayIndex && docDay != widget.dayIndex + 1) continue;
+                                          if (docSess != null && docSess != widget.sessionIndex && docSess != widget.sessionIndex + 1) continue;
+                                        }
+                                      }
+                                      pRoomFromDocId = pDoc.id.split('_room_').last;
+                                    } else if (pDoc.id.startsWith('${widget.roomId}_') || pDoc.id.startsWith('${roomName}_')) {
+                                      pRoomFromDocId = widget.roomId;
+                                    }
+
+                                    final bool isDocMatch = isRoomMatch(pRoom) ||
+                                        (pRoomFromDocId.isNotEmpty && isRoomMatch(pRoomFromDocId)) ||
+                                        (widget.docId.isNotEmpty && pDoc.id == widget.docId);
+
+                                    if (isDocMatch) {
+                                      final docStatus = pData['status']?.toString() ?? '';
+                                      if (dayMatches && sessMatches) {
+                                        if (docStatus.isNotEmpty) {
+                                          currentStatus = docStatus;
+                                        }
+                                        realProctorDocId = pDoc.id;
+                                      }
+                                    }
+
+                                    if (isDocMatch && dayMatches && sessMatches) {
                                       final tId = (pData['teacherId'] ?? pData['id'] ?? '').toString().trim();
                                       final tName = (pData['teacherName'] ?? '').toString().trim();
                                       final res = tName.isNotEmpty ? (teachersMap[tName] ?? tName) : (teachersMap[tId] ?? tId);
@@ -1974,6 +2136,28 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                         resolvedProctorName = res;
                                       }
                                     }
+                                  }
+
+                                  final roomStatusMap = evData['roomStatus'] as Map?;
+                                  final proctorGridStatusMap = evData['proctorGridStatus'] as Map?;
+                                  final gridKey1 = 'day_${widget.dayIndex}_session_${widget.sessionIndex}_room_${widget.roomId}';
+                                  final gridKey2 = 'grid_$gridKey1';
+                                  final gridKey3 = 'day_${widget.dayIndex}_session_${widget.sessionIndex}_room_$roomName';
+                                  final gridKey4 = 'grid_$gridKey3';
+                                  final rStatus = proctorGridStatusMap?[gridKey1] ??
+                                      proctorGridStatusMap?[gridKey2] ??
+                                      proctorGridStatusMap?[gridKey3] ??
+                                      proctorGridStatusMap?[gridKey4] ??
+                                      roomStatusMap?[gridKey1] ??
+                                      roomStatusMap?[gridKey3] ??
+                                      roomStatusMap?['${widget.roomId}_${widget.dayIndex}_${widget.sessionIndex}'] ??
+                                      roomStatusMap?['${roomName}_${widget.dayIndex}_${widget.sessionIndex}'];
+                                  if (rStatus != null && rStatus.toString().isNotEmpty) {
+                                    currentStatus = rStatus.toString();
+                                  }
+
+                                  if (_localOverrideStatus != null) {
+                                    currentStatus = _localOverrideStatus!;
                                   }
 
                                   if (resolvedProctorName.isEmpty) {
@@ -2021,7 +2205,11 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                         final k = entry.key.toLowerCase().trim();
                                         final v = entry.value.trim();
                                         if (v.isEmpty) continue;
-                                        if (isRoomMatch(k) && (k.contains('session_${widget.sessionIndex}') || k.contains('session_${widget.sessionIndex + 1}') || !k.contains('session'))) {
+                                        String kRoom = k;
+                                        if (k.contains('_room_')) {
+                                          kRoom = k.split('_room_').last;
+                                        }
+                                        if (isRoomMatch(kRoom) && (k.contains('session_${widget.sessionIndex}') || k.contains('session_${widget.sessionIndex + 1}') || !k.contains('session'))) {
                                           resolvedProctorName = teachersMap[v] ?? v;
                                           break;
                                         }
@@ -2029,25 +2217,35 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                     }
                                   }
 
-                                  if (currentStatus == 'Selesai' || currentStatus == 'Ujian Selesai') {
-                                    seatMap.forEach((seatNum, sData) {
-                                      final bool wasAttended = sData['isAttended'] == true || sData['attended'] == true;
-                                      final bool wasWorking = sData['isWorking'] == true || sData['isLeftApp'] == true;
-                                      final bool hadAnswers = (sData['answeredCount'] as num?) != null && (sData['answeredCount'] as num) > 0;
-                                      if (wasAttended || wasWorking || hadAnswers) {
-                                        sData['isCompleted'] = true;
-                                        sData['isLeftApp'] = false;
-                                        sData['isWorking'] = false;
-                                        sData['status'] = 'completed';
-                                      } else {
-                                        sData['isCompleted'] = false;
-                                        sData['isLeftApp'] = false;
-                                        sData['isWorking'] = false;
-                                        sData['isAttended'] = false;
-                                        sData['status'] = 'normal';
-                                      }
-                                    });
-                                  }
+                                   final bool isEnded = _isExamEndedLocally ||
+                                       _localOverrideStatus == 'Selesai' ||
+                                       _localOverrideStatus == 'Ujian Selesai' ||
+                                       currentStatus == 'Selesai' ||
+                                       currentStatus == 'Ujian Selesai';
+
+                                   if (isEnded) {
+                                     currentStatus = 'Selesai';
+                                   }
+
+                                   if (isEnded) {
+                                     seatMap.forEach((seatNum, sData) {
+                                       final bool wasAttended = sData['isAttended'] == true || sData['attended'] == true;
+                                       final bool wasWorking = sData['isWorking'] == true || sData['isLeftApp'] == true;
+                                       final bool hadAnswers = (sData['answeredCount'] as num?) != null && (sData['answeredCount'] as num) > 0;
+                                       if (wasAttended || wasWorking || hadAnswers) {
+                                         sData['isCompleted'] = true;
+                                         sData['isLeftApp'] = false;
+                                         sData['isWorking'] = false;
+                                         sData['status'] = 'completed';
+                                       } else {
+                                         sData['isCompleted'] = false;
+                                         sData['isLeftApp'] = false;
+                                         sData['isWorking'] = false;
+                                         sData['isAttended'] = false;
+                                         sData['status'] = 'normal';
+                                       }
+                                     });
+                                   }
 
                                   return LayoutBuilder(
                                     builder: (context, constraints) {
@@ -2083,10 +2281,35 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                               sessionIndex: widget.sessionIndex,
                                               allowedSubjectNames: cleanActiveSubjectNames,
                                               allowedSubjectIds: matchedSubjectIds,
-                                              currentStatus: currentStatus,
+                                              currentStatus: isEnded ? 'Selesai' : currentStatus,
                                               proctorDocId: realProctorDocId,
                                               proctorName: resolvedProctorName,
                                               isAdminView: widget.isAdminView,
+                                              onFinishExam: () async {
+                                                setState(() {
+                                                  _isExamEndedLocally = true;
+                                                  _localOverrideStatus = 'Selesai';
+                                                });
+                                                await TeacherProctorController.updateProctorStatus(
+                                                  context: context,
+                                                  schoolId: schoolId,
+                                                  eventId: widget.eventId,
+                                                  proctorDocId: realProctorDocId,
+                                                  newStatus: 'Selesai',
+                                                  roomId: widget.roomId,
+                                                  seatMap: seatMap,
+                                                  allowedSubjectIds: matchedSubjectIds,
+                                                  allowedSubjectNames: cleanActiveSubjectNames,
+                                                  dayIndex: widget.dayIndex,
+                                                  sessionIndex: widget.sessionIndex,
+                                                );
+                                                if (mounted) {
+                                                  setState(() {
+                                                    _isExamEndedLocally = true;
+                                                    _localOverrideStatus = 'Selesai';
+                                                  });
+                                                }
+                                              },
                                             ),
                                             const SizedBox(height: 20),
 
@@ -2179,8 +2402,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                       actualLeft++;
                                                     }
                                                   }
-                                                  final count = actualLeft > 0 ? actualLeft : ((d['leftAppCount'] as num?)?.toInt() ?? 0);
-                                                  if (isLeftApp || count > 0) {
+                                                  if (isLeftApp || actualLeft > 0) {
                                                     final studentKey = sId.isNotEmpty ? sId : (sNis.isNotEmpty ? sNis : docId.split('_').first);
                                                     if (studentKey.isNotEmpty) exitedStudents.add(studentKey);
                                                   }
@@ -2268,6 +2490,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                                       dayIndex: widget.dayIndex,
                                                       sessionIndex: widget.sessionIndex,
                                                       isAdminView: widget.isAdminView,
+                                                      isExamEnded: isEnded,
                                                     );
                                                   },
                                                 );
@@ -2346,7 +2569,9 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
         },
       );
     },
-  ),
+  );
+        },
+      ),
     ),
   );
   }

@@ -461,12 +461,12 @@ class TeacherProctorController {
   }) async {
     try {
       final db = FirebaseFirestore.instance;
-      final proctorColl = db
+      final eventRef = db
           .collection('schools')
           .doc(schoolId)
           .collection('events')
-          .doc(eventId)
-          .collection('proctors');
+          .doc(eventId);
+      final proctorColl = eventRef.collection('proctors');
 
       final bool isEnded = newStatus == 'Selesai' || newStatus == 'Ujian Selesai';
 
@@ -479,33 +479,59 @@ class TeacherProctorController {
         proctorPayload['endedAt'] = FieldValue.serverTimestamp();
       }
 
-      if (proctorDocId.isNotEmpty && !proctorDocId.startsWith('grid_')) {
+      if (proctorDocId.isNotEmpty) {
         await proctorColl.doc(proctorDocId).set(proctorPayload, SetOptions(merge: true));
-      } else if (roomId != null && roomId.isNotEmpty) {
-        final snap = await proctorColl.where('roomId', isEqualTo: roomId).get();
-        if (snap.docs.isNotEmpty) {
-          for (var doc in snap.docs) {
-            await doc.reference.set(proctorPayload, SetOptions(merge: true));
-          }
-        } else {
-          final copy = Map<String, dynamic>.from(proctorPayload);
-          copy['roomId'] = roomId;
-          await proctorColl.doc(roomId).set(copy, SetOptions(merge: true));
+        if (proctorDocId.startsWith('grid_')) {
+          await proctorColl.doc(proctorDocId.substring(5)).set(proctorPayload, SetOptions(merge: true));
         }
+      }
+
+      if (roomId != null && roomId.isNotEmpty) {
+        final dIdx = dayIndex ?? 0;
+        final sIdx = sessionIndex ?? 0;
+        final compositeKey1 = 'day_${dIdx}_session_${sIdx}_room_$roomId';
+        final compositeKey2 = 'grid_day_${dIdx}_session_${sIdx}_room_$roomId';
+        final compositeKey3 = '${roomId}_${dIdx}_$sIdx';
+
+        final roomPayload = {
+          ...proctorPayload,
+          'roomId': roomId,
+          'dayIndex': dIdx,
+          'sessionIndex': sIdx,
+        };
+
+        await proctorColl.doc(compositeKey1).set(roomPayload, SetOptions(merge: true));
+        await proctorColl.doc(compositeKey2).set(roomPayload, SetOptions(merge: true));
+        await proctorColl.doc(compositeKey3).set(roomPayload, SetOptions(merge: true));
+
+        // JANGAN menimpa dokumen proctor sesi lain menggunakan where('roomId', isEqualTo: roomId)
+        // Cukup perbarui status sesi spesifik di dokumen event utama
+        await eventRef.set({
+          'proctorGridStatus': {
+            compositeKey1: newStatus,
+            compositeKey2: newStatus,
+          },
+        }, SetOptions(merge: true));
       }
 
       // If exam is completed by proctor, force finish all active/allocated students in this room
       if (isEnded && seatMap != null && seatMap.isNotEmpty) {
-        final eventRef = db
-            .collection('schools')
-            .doc(schoolId)
-            .collection('events')
-            .doc(eventId);
         final realtimeColl = eventRef.collection('realtime_control');
         final submissionsColl = eventRef.collection('submissions');
 
+        final dIdx = dayIndex ?? 0;
+        final sIdx = sessionIndex ?? 0;
+
         final batch = db.batch();
         int batchCount = 0;
+
+        // Default subject untuk sesi aktif saat ini jika di data kursi belum ada
+        final defaultSubjId = (allowedSubjectIds != null && allowedSubjectIds.isNotEmpty)
+            ? allowedSubjectIds.first.trim()
+            : '';
+        final defaultSubjName = (allowedSubjectNames != null && allowedSubjectNames.isNotEmpty)
+            ? allowedSubjectNames.first.trim()
+            : '';
 
         for (var sData in seatMap.values) {
           final bool isAttended = sData['isAttended'] == true || sData['attended'] == true;
@@ -529,8 +555,12 @@ class TeacherProctorController {
           String studentDocId = sId.isNotEmpty ? sId : (nis.isNotEmpty ? nis : sName.replaceAll(' ', '_'));
           if (studentDocId.isEmpty) continue;
 
+          // Dapatkan subjectId dan subjectName yang valid untuk sesi ini
+          final effectiveSubjId = sSubjId.isNotEmpty ? sSubjId : defaultSubjId;
+          final effectiveSubjName = sSubjName.isNotEmpty ? sSubjName : defaultSubjName;
+
           final subjectIdList = <String>{};
-          if (sSubjId.isNotEmpty) subjectIdList.add(sSubjId.toLowerCase());
+          if (effectiveSubjId.isNotEmpty) subjectIdList.add(effectiveSubjId.toLowerCase());
           if (allowedSubjectIds != null) {
             for (var id in allowedSubjectIds) {
               if (id.trim().isNotEmpty) subjectIdList.add(id.trim().toLowerCase());
@@ -547,21 +577,22 @@ class TeacherProctorController {
             'isWorking': false,
             'isLeftApp': false,
             'isForceSubmitted': true,
+            'dayIndex': dIdx,
+            'sessionIndex': sIdx,
             'updatedAt': FieldValue.serverTimestamp(),
             'completedAt': FieldValue.serverTimestamp(),
           };
-          if (sSubjId.isNotEmpty) rtPayload['subjectId'] = sSubjId;
-          if (sSubjName.isNotEmpty) rtPayload['subjectName'] = sSubjName;
-
-          // Write general student realtime doc
-          batch.set(realtimeColl.doc(studentDocId), rtPayload, SetOptions(merge: true));
-          batchCount++;
-
           // Write session-scoped documents (${studentDocId}_${subjectId})
-          for (var subj in subjectIdList) {
+          final targetSubjects = subjectIdList.isNotEmpty
+              ? subjectIdList
+              : (effectiveSubjId.isNotEmpty ? {effectiveSubjId.toLowerCase()} : <String>{});
+
+          for (var subj in targetSubjects) {
             if (subj.isNotEmpty) {
               final sessionDocId = '${studentDocId}_$subj';
-              batch.set(realtimeColl.doc(sessionDocId), rtPayload, SetOptions(merge: true));
+              final sessionRtPayload = Map<String, dynamic>.from(rtPayload);
+              sessionRtPayload['subjectId'] = subj;
+              batch.set(realtimeColl.doc(sessionDocId), sessionRtPayload, SetOptions(merge: true));
               batchCount++;
 
               // Also ensure submissions doc is marked as completed
@@ -575,9 +606,11 @@ class TeacherProctorController {
                 'isCompleted': true,
                 'autoSubmitted': true,
                 'isForceSubmitted': true,
+                'dayIndex': dIdx,
+                'sessionIndex': sIdx,
                 'submittedAt': FieldValue.serverTimestamp(),
               };
-              if (sSubjName.isNotEmpty) subPayload['subjectName'] = sSubjName;
+              if (effectiveSubjName.isNotEmpty) subPayload['subjectName'] = effectiveSubjName;
               batch.set(submissionsColl.doc(sessionDocId), subPayload, SetOptions(merge: true));
               batchCount++;
             }
@@ -655,6 +688,7 @@ class TeacherProctorController {
     int dayIndex = 0,
     int sessionIndex = 0,
     bool isAdminView = false,
+    bool isExamEnded = false,
   }) {
     final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
     final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
@@ -875,58 +909,56 @@ class TeacherProctorController {
                 style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        Navigator.of(ctx).pop();
-                        final newStatus = !isAttended;
-                        triggerScanFeedback(isSuccess: newStatus);
-                        await markStudentAttendance(
-                          schoolId: schoolId,
-                          eventId: eventId,
-                          roomId: roomId,
-                          seatData: seatData,
-                          isAttended: newStatus,
-                          localAttendedMap: localAttendedMap,
-                          seatNotifier: seatNotifier,
-                          dayIndex: dayIndex,
-                          sessionIndex: sessionIndex,
-                        );
-                      },
-                      icon: Icon(isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded),
-                      label: Text(isAttended ? 'Batalkan Status Hadir' : 'Tandai Hadir Manual'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isAttended ? const Color(0xFFDC2626) : const Color(0xFF059669),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
+              if (isExamEnded)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
-                ],
-              ),
-              if (isLeftApp) ...[
-                const SizedBox(height: 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.lock_rounded, size: 16, color: Color(0xFF64748B)),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Ujian Telah Selesai (Presensi Dinonaktifkan)',
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
                 Row(
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.of(ctx).pop();
-                          await resetRealtimeControlWarning(
+                          final newStatus = !isAttended;
+                          triggerScanFeedback(isSuccess: newStatus);
+                          await markStudentAttendance(
                             schoolId: schoolId,
                             eventId: eventId,
+                            roomId: roomId,
                             seatData: seatData,
+                            isAttended: newStatus,
+                            localAttendedMap: localAttendedMap,
+                            seatNotifier: seatNotifier,
+                            dayIndex: dayIndex,
+                            sessionIndex: sessionIndex,
                           );
-                          seatNotifier.value++;
-                          triggerScanFeedback(isSuccess: true);
                         },
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Reset Peringatan Keluar App'),
+                        icon: Icon(isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded),
+                        label: Text(isAttended ? 'Batalkan Status Hadir' : 'Tandai Hadir Manual'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFD97706),
+                          backgroundColor: isAttended ? const Color(0xFFDC2626) : const Color(0xFF059669),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -935,7 +967,7 @@ class TeacherProctorController {
                     ),
                   ],
                 ),
-              ],
+
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -1097,8 +1129,12 @@ class TeacherProctorController {
                         sessionIndex: sessionIndex,
                       );
                       seatData['proctorNote'] = noteText;
+                      seatNotifier.value++;
                       if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
+                        Navigator.of(ctx).pop();
+                      }
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
                               noteText.isEmpty
@@ -1327,12 +1363,14 @@ class TeacherProctorController {
                       }
                     }
 
+                    // Jumlah keluar aplikasi HANYA dihitung dari peristiwa left_app yang benar-benar tercatat pada sesi ini
                     final leftAppCount = actualLeftCount > 0
                         ? actualLeftCount
-                        : ((data['leftAppCount'] as num?)?.toInt() ?? (isLeftApp ? 1 : 0));
-                    final hasLogs = filteredLogs.isNotEmpty || isLeftApp || leftAppCount > 0;
+                        : (isLeftApp ? 1 : 0);
+                    // HANYA tampilkan murid jika murid benar-benar pernah keluar (atau sedang keluar) di sesi ini
+                    final hasViolations = actualLeftCount > 0 || isLeftApp;
 
-                    if (hasLogs) {
+                    if (hasViolations) {
                       if (studentMap.containsKey(studentKey)) {
                         // Deduplicate: merge logs and keep highest count / active status
                         final existing = studentMap[studentKey]!;
@@ -1365,7 +1403,7 @@ class TeacherProctorController {
                           'nis': sNis,
                           'className': data['className'] ?? '',
                           'isLeftApp': isLeftApp,
-                          'leftAppCount': leftAppCount > 0 ? leftAppCount : 1,
+                          'leftAppCount': leftAppCount,
                           'status': data['status'] ?? (isLeftApp ? 'left_app' : 'in_progress'),
                           'lastLeftAppAt': data['lastLeftAppAt'],
                           'updatedAt': data['updatedAt'],
@@ -1434,6 +1472,14 @@ class TeacherProctorController {
                           });
                         }
                       }
+
+                      // Urutkan secara kronologis (paling awal ke paling baru)
+                      parsedLogs.sort((a, b) {
+                        final dtA = a['dateTime'] as DateTime?;
+                        final dtB = b['dateTime'] as DateTime?;
+                        if (dtA != null && dtB != null) return dtA.compareTo(dtB);
+                        return 0;
+                      });
 
                       if (parsedLogs.isEmpty) {
                         DateTime? fallbackTime;
@@ -1522,16 +1568,36 @@ class TeacherProctorController {
                                             ),
                                           ),
                                           const SizedBox(height: 8),
+                                          // Urutan dibalik (.reversed) agar nomor 1 ada di bagian bawah dan update baru bertambah naik ke atas
                                           ...parsedLogs.asMap().entries.map((e) {
                                             final idx = e.key + 1;
                                             final logItem = e.value;
                                             final event = logItem['event'].toString();
                                             final dt = logItem['dateTime'] as DateTime?;
                                             final isExit = event == 'left_app' || event == 'exited';
+                                            final isStarted = (idx == 1) || event == 'started';
 
                                             final timeText = dt != null
                                                 ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')} WIB'
                                                 : 'Waktu tidak tercatat';
+
+                                            final String eventLabel;
+                                            final Color eventColor;
+                                            final Color dotColor;
+
+                                            if (isStarted) {
+                                              eventLabel = 'Mulai mengerjakan (standby)';
+                                              eventColor = const Color(0xFF059669);
+                                              dotColor = const Color(0xFF10B981);
+                                            } else if (isExit) {
+                                              eventLabel = 'Keluar Aplikasi';
+                                              eventColor = const Color(0xFFDC2626);
+                                              dotColor = const Color(0xFFDC2626);
+                                            } else {
+                                              eventLabel = 'Kembali ke Aplikasi';
+                                              eventColor = const Color(0xFF059669);
+                                              dotColor = const Color(0xFF10B981);
+                                            }
 
                                             return Padding(
                                               padding: const EdgeInsets.only(bottom: 6),
@@ -1541,18 +1607,18 @@ class TeacherProctorController {
                                                     width: 6,
                                                     height: 6,
                                                     decoration: BoxDecoration(
-                                                      color: isExit ? const Color(0xFFDC2626) : const Color(0xFF10B981),
+                                                      color: dotColor,
                                                       shape: BoxShape.circle,
                                                     ),
                                                   ),
                                                   const SizedBox(width: 8),
                                                   Expanded(
                                                     child: Text(
-                                                      '$idx. ${isExit ? "Keluar Aplikasi" : "Kembali ke Aplikasi"}',
+                                                      '$idx. $eventLabel',
                                                       style: GoogleFonts.inter(
                                                         fontSize: 11.5,
                                                         fontWeight: FontWeight.w600,
-                                                        color: isExit ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                                                        color: eventColor,
                                                       ),
                                                     ),
                                                   ),
@@ -1567,7 +1633,7 @@ class TeacherProctorController {
                                                 ],
                                               ),
                                             );
-                                          }),
+                                          }).toList().reversed,
                                         ],
                                       ),
                                     ),
@@ -1589,8 +1655,8 @@ class TeacherProctorController {
     );
   }
 
-  /// Menyimpan catatan pengawas ke dokumen attendance murid di Firestore.
-  /// Menggunakan docKey yang sama dengan [markStudentAttendance] agar konsisten.
+  /// Menyimpan catatan pengawas ke subkoleksi proctor_notes di Firestore secara terisolasi.
+  /// Juga menyelaraskan dengan dokumen attendance untuk kompatibilitas.
   static Future<void> saveProctorNote({
     required String schoolId,
     required String eventId,
@@ -1612,18 +1678,49 @@ class TeacherProctorController {
             ? '${roomId}_${dayIndex}_${sessionIndex}_$nis$docKeySuffix'
             : '${roomId}_${dayIndex}_${sessionIndex}_seat_$seatNum$docKeySuffix');
 
-    final attRef = FirebaseFirestore.instance
+    final eventRef = FirebaseFirestore.instance
         .collection('schools')
         .doc(schoolId)
         .collection('events')
-        .doc(eventId)
-        .collection('attendances')
-        .doc(docKey);
+        .doc(eventId);
+
+    final noteRef = eventRef.collection('proctor_notes').doc(docKey);
+    final attRef = eventRef.collection('attendances').doc(docKey);
 
     if (note.trim().isEmpty) {
+      await noteRef.delete();
       await attRef.set({'proctorNote': FieldValue.delete()}, SetOptions(merge: true));
     } else {
-      await attRef.set({'proctorNote': note.trim()}, SetOptions(merge: true));
+      final payload = <String, dynamic>{
+        'eventId': eventId,
+        'roomId': roomId,
+        'dayIndex': dayIndex,
+        'sessionIndex': sessionIndex,
+        'seatNumber': seatNum,
+        'studentId': studentId,
+        'nis': nis,
+        'studentName': (seatData['displayName'] ?? seatData['studentName'] ?? '').toString(),
+        'className': (seatData['className'] ?? seatData['classId'] ?? '').toString(),
+        if (subjectId.isNotEmpty) 'subjectId': subjectId,
+        'note': note.trim(),
+        'proctorNote': note.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      await noteRef.set(payload, SetOptions(merge: true));
+
+      // Selaraskan juga ke attRef dengan informasi roomId & sesi agar konsisten jika dibaca legacy
+      await attRef.set({
+        'eventId': eventId,
+        'roomId': roomId,
+        'dayIndex': dayIndex,
+        'sessionIndex': sessionIndex,
+        'seatNumber': seatNum,
+        if (studentId.isNotEmpty) 'studentId': studentId,
+        if (nis.isNotEmpty) 'nis': nis,
+        'proctorNote': note.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     }
   }
 }

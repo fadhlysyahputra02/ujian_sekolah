@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:sys_exam_school/core/utils/camera_helper.dart';
+import 'package:sys_exam_school/core/utils/platform_helper.dart';
 import 'package:sys_exam_school/modules/teacher/controllers/teacher_proctor_controller.dart';
 
 class ProctorQrScanDialog extends StatefulWidget {
@@ -53,10 +54,14 @@ class ProctorQrScanDialog extends StatefulWidget {
     Set<String>? allowedSubjectNames,
     Set<String>? allowedSubjectIds,
   }) {
+    // Pada mobile (aplikasi atau web browser di HP/tablet), langsung gunakan kamera belakang.
+    // Kamera depan hanya untuk browser via PC atau laptop.
+    final bool isMobile = isMobileDevice();
+
     final MobileScannerController scannerController = MobileScannerController(
       detectionSpeed: DetectionSpeed.unrestricted,
       detectionTimeoutMs: 50,
-      facing: kIsWeb ? CameraFacing.front : CameraFacing.front,
+      facing: isMobile ? CameraFacing.back : CameraFacing.front,
       torchEnabled: false,
       returnImage: false,
       formats: const [BarcodeFormat.qrCode],
@@ -110,7 +115,7 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _query = '';
   int _activeTab = 0; // 0: Kamera QR, 1: Cari Manual
-  bool _isMirrorMode = true;
+  late bool _isMirrorMode;
   bool _isTorchOn = false;
   DateTime _lastScanTime = DateTime.now().subtract(const Duration(seconds: 5));
 
@@ -118,6 +123,14 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
   Color _feedbackBgColor = const Color(0xFF059669);
   IconData _feedbackIcon = Icons.check_circle_rounded;
   Timer? _feedbackTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default mirror mode: aktif hanya untuk kamera depan di browser PC / laptop.
+    // Untuk kamera belakang di mobile (aplikasi / web), mode mirror nonaktif agar preview tidak terbalik.
+    _isMirrorMode = !isMobileDevice();
+  }
 
   @override
   void deactivate() {
@@ -293,7 +306,7 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.camera_front_rounded, size: 18, color: _activeTab == 0 ? const Color(0xFF059669) : const Color(0xFF64748B)),
+                            Icon(Icons.qr_code_scanner_rounded, size: 18, color: _activeTab == 0 ? const Color(0xFF059669) : const Color(0xFF64748B)),
                             const SizedBox(width: 6),
                             Text(
                               'Kamera QR',
@@ -388,27 +401,52 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                               ),
                             ),
 
-                            // Controls Row (Mirror & Flash Toggles)
+                            // Controls Row (Switch Camera, Mirror & Flash Toggles)
                             Positioned(
                               top: 10,
                               right: 10,
                               child: Row(
                                 children: [
+                                  // Tombol Ganti Kamera Depan / Belakang
                                   IconButton(
-                                    onPressed: () {
-                                      setState(() => _isMirrorMode = !_isMirrorMode);
+                                    onPressed: () async {
+                                      try {
+                                        await widget.scannerController.switchCamera();
+                                        setState(() {
+                                          _isMirrorMode = !_isMirrorMode;
+                                        });
+                                      } catch (e) {
+                                        debugPrint('Error switching camera: $e');
+                                      }
                                     },
-                                    icon: Icon(
-                                      _isMirrorMode ? Icons.flip_camera_ios_rounded : Icons.camera_rear_rounded,
+                                    icon: const Icon(
+                                      Icons.cameraswitch_rounded,
                                       color: Colors.white,
                                       size: 20,
                                     ),
                                     style: IconButton.styleFrom(
                                       backgroundColor: Colors.black45,
                                     ),
-                                    tooltip: _isMirrorMode ? 'Mode Mirror: Aktif' : 'Mode Mirror: Nonaktif',
+                                    tooltip: 'Ganti Kamera Depan/Belakang',
                                   ),
                                   const SizedBox(width: 6),
+                                  // Tombol Mirror Mode
+                                  IconButton(
+                                    onPressed: () {
+                                      setState(() => _isMirrorMode = !_isMirrorMode);
+                                    },
+                                    icon: Icon(
+                                      Icons.swap_horiz_rounded,
+                                      color: _isMirrorMode ? const Color(0xFF10B981) : Colors.white,
+                                      size: 20,
+                                    ),
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: Colors.black45,
+                                    ),
+                                    tooltip: _isMirrorMode ? 'Mode Cermin (Mirror): Aktif' : 'Mode Cermin (Mirror): Nonaktif',
+                                  ),
+                                  const SizedBox(width: 6),
+                                  // Tombol Senter Kamera
                                   IconButton(
                                     onPressed: () async {
                                       await widget.scannerController.toggleTorch();
@@ -437,7 +475,7 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text(
-                                  _isMirrorMode ? '📷 Kamera Mirror Aktif' : '📷 Tampilan Kamera Normal',
+                                  _isMirrorMode ? '📷 Mode Cermin (Mirror) Aktif' : '📷 Tampilan Kamera Normal',
                                   style: GoogleFonts.inter(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.w600),
                                 ),
                               ),
@@ -445,6 +483,7 @@ class _ProctorQrScanDialogState extends State<ProctorQrScanDialog> {
                           ],
                         ),
                       ),
+
                     ),
                   ),
 

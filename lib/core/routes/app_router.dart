@@ -232,12 +232,14 @@ class AppRouter {
             final dayIndex = int.tryParse(state.uri.queryParameters['dayIndex'] ?? '0') ?? 0;
             final sessionIndex = int.tryParse(state.uri.queryParameters['sessionIndex'] ?? '0') ?? 0;
             final docId = state.uri.queryParameters['docId'] ?? '';
+            final subject = state.uri.queryParameters['subject'];
             return TeacherProctorRoomPage(
               eventId: eventId,
               roomId: roomId,
               dayIndex: dayIndex,
               sessionIndex: sessionIndex,
               docId: docId,
+              initialSubject: subject,
             );
           },
         ),
