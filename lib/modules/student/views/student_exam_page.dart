@@ -920,6 +920,11 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         return orderA.compareTo(orderB);
       });
 
+      // Always partition into Choice (PG) questions first and Essay questions last,
+      // regardless of how the teacher created/ordered the questions.
+      final choiceQuestions = filteredQuestions.where((q) => !_isEssayQuestion(q)).toList();
+      final essayQuestions = filteredQuestions.where((q) => _isEssayQuestion(q)).toList();
+
       // Check if questions should be randomized
       bool shouldRandomize = false;
       try {
@@ -941,10 +946,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       }
 
       if (shouldRandomize) {
-        // Separate multiple-choice and essay questions
-        final choiceQuestions = filteredQuestions.where((q) => !_isEssayQuestion(q)).toList();
-        final essayQuestions = filteredQuestions.where((q) => _isEssayQuestion(q)).toList();
-
         // Seed random number generator with studentId's hash to ensure stable random order per student
         final seed = widget.studentId.trim().hashCode;
         final random = Random(seed);
@@ -952,10 +953,10 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         choiceQuestions.shuffle(random);
         essayQuestions.shuffle(random);
 
-        filteredQuestions = [...choiceQuestions, ...essayQuestions];
         debugPrint('🔀 Shuffled questions for student ${widget.studentId}: pilihan ganda (${choiceQuestions.length}), essay (${essayQuestions.length})');
       }
 
+      filteredQuestions = [...choiceQuestions, ...essayQuestions];
       _questions = filteredQuestions;
 
       // Cache loaded questions locally for offline access
@@ -1047,7 +1048,9 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         subjectId: widget.subjectId,
       );
       if (cachedQuestions.isNotEmpty) {
-        _questions = cachedQuestions;
+        final choiceQuestions = cachedQuestions.where((q) => !_isEssayQuestion(q)).toList();
+        final essayQuestions = cachedQuestions.where((q) => _isEssayQuestion(q)).toList();
+        _questions = [...choiceQuestions, ...essayQuestions];
         final localDraft = await StudentExamCacheService.loadDraftLocally(
           studentId: widget.studentId,
           subjectId: widget.subjectId,

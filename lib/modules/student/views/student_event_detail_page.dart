@@ -968,13 +968,17 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   if (isDocMakeup) continue;
                   if (dayIndex == null || sessionIndex == null || aDay != dayIndex || aSess != sessionIndex) continue;
 
+                  final bool isBothReligion = _religionKeywords.values.expand((l) => l).any((kw) => aSubjName.contains(kw)) &&
+                      _religionKeywords.values.expand((l) => l).any((kw) => targetSubjName.contains(kw));
+
                   bool subjectMatches = aSubjId.isEmpty ||
                       aSubjId == targetSubjId ||
                       aSubjName == targetSubjName ||
                       targetSubjId.contains(aSubjId) ||
                       aSubjId.contains(targetSubjId) ||
                       (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
-                      (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName));
+                      (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)) ||
+                      isBothReligion;
                   if (!subjectMatches) continue;
                 }
 
@@ -1942,6 +1946,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                           final aSubjName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
                           final targetSubjId = (item['subjectId'] ?? subjectName).toString().trim();
                           final targetSubjName = subjectName.toString().trim().toLowerCase();
+                          final bool isBothReligion = _religionKeywords.values.expand((l) => l).any((kw) => aSubjName.contains(kw)) &&
+                              _religionKeywords.values.expand((l) => l).any((kw) => targetSubjName.contains(kw));
                           final bool hasSubjectInDoc = aSubjId.isNotEmpty || aSubjName.isNotEmpty;
                           final bool subjectMatches = hasSubjectInDoc
                               ? (aSubjId == targetSubjId ||
@@ -1949,7 +1955,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                   (targetSubjId.isNotEmpty && targetSubjId.contains(aSubjId)) ||
                                   (aSubjId.isNotEmpty && aSubjId.contains(targetSubjId)) ||
                                   (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
-                                  (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)))
+                                  (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)) ||
+                                  isBothReligion)
                               : (doc.id.toLowerCase().contains(targetSubjId.toLowerCase()) ||
                                   doc.id.toLowerCase().contains(targetSubjName.toLowerCase()));
 

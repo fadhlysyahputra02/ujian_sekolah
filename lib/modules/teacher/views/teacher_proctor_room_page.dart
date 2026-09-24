@@ -170,6 +170,51 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
     return false;
   }
 
+  bool _isReligionMatch(String subjectName, String subjectReligion, String studentReligion) {
+    if (studentReligion.trim().isEmpty) return false;
+    final sName = subjectName.toLowerCase().trim();
+    final sRel = subjectReligion.toLowerCase().trim();
+    final stRel = studentReligion.toLowerCase().trim();
+
+    final Map<String, List<String>> keywords = {
+      'islam': ['islam', 'muslim', 'pai', 'paibp'],
+      'kristen': ['kristen', 'kristiani', 'protestan', 'protestant', 'christian', 'pakbp', 'keguruan kristen'],
+      'katolik': ['katolik', 'katholik', 'catholic', 'pkkp'],
+      'hindu': ['hindu', 'parisada'],
+      'buddha': ['buddha', 'budha', 'pabud'],
+      'konghucu': ['konghucu', 'khonghucu', 'pakhong'],
+    };
+
+    String? studentKey;
+    for (var entry in keywords.entries) {
+      if (entry.value.any((kw) => stRel.contains(kw))) {
+        studentKey = entry.key;
+        break;
+      }
+    }
+    if (studentKey == null) return false;
+
+    String? subjectKey;
+    if (sRel.isNotEmpty) {
+      for (var entry in keywords.entries) {
+        if (entry.value.any((kw) => sRel.contains(kw))) {
+          subjectKey = entry.key;
+          break;
+        }
+      }
+    }
+    if (subjectKey == null) {
+      for (var entry in keywords.entries) {
+        if (entry.value.any((kw) => sName.contains(kw))) {
+          subjectKey = entry.key;
+          break;
+        }
+      }
+    }
+
+    return subjectKey == studentKey;
+  }
+
   bool _isSubjectForRoomClasses(String sId, String sName, Set<String> roomClasses, List<Map<String, dynamic>> timetableList) {
     if (roomClasses.isEmpty) return true;
     final cleanSId = sId.toLowerCase().trim();
@@ -1889,9 +1934,23 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                       if (singleCName.isNotEmpty) tClasses.add(singleCName);
 
                                       if (sClassName.isEmpty || _isClassMatched(tClasses, {sClassName})) {
-                                        seatSubjName = (t['subjectName'] ?? t['subject'] ?? '').toString().trim();
-                                        seatSubjId = (t['subjectId'] ?? t['id'] ?? '').toString().trim();
-                                        if (seatSubjName.isNotEmpty) break;
+                                        final tSubName = (t['subjectName'] ?? t['subject'] ?? '').toString().trim();
+                                        final tSubId = (t['subjectId'] ?? t['id'] ?? '').toString().trim();
+                                        final tSubRel = (t['religion'] ?? t['agama'] ?? '').toString().trim();
+                                        final sReligion = (s['religion'] ?? s['agama'] ?? '').toString().trim();
+
+                                        if (sReligion.isNotEmpty) {
+                                          if (_isReligionMatch(tSubName, tSubRel, sReligion)) {
+                                            seatSubjName = tSubName;
+                                            seatSubjId = tSubId;
+                                            break;
+                                          }
+                                        } else {
+                                          if (seatSubjName.isEmpty) {
+                                            seatSubjName = tSubName;
+                                            seatSubjId = tSubId;
+                                          }
+                                        }
                                       }
                                     }
 

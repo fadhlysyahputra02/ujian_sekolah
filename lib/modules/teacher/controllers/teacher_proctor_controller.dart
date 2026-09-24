@@ -356,10 +356,23 @@ class TeacherProctorController {
       }
 
       if (isMatch) {
+        final cleanScannedName = scannedSubjectName.toLowerCase().trim();
+        final cleanScannedId = scannedSubjectId.toLowerCase().trim();
+
+        final isAllowedInRoom = (allowedSubjectNames != null && allowedSubjectNames.isNotEmpty &&
+            allowedSubjectNames.any((allowed) {
+              final cleanAllowed = allowed.toLowerCase().trim();
+              return cleanAllowed == cleanScannedName ||
+                  cleanAllowed.contains(cleanScannedName) ||
+                  cleanScannedName.contains(cleanAllowed) ||
+                  (allowedSubjectIds != null && allowedSubjectIds.contains(cleanScannedId));
+            })) ||
+            (allowedSubjectIds != null && cleanScannedId.isNotEmpty && allowedSubjectIds.contains(cleanScannedId));
+
         if ((scannedSubjectId.isNotEmpty || scannedSubjectName.isNotEmpty) && (sSubjId.isNotEmpty || sSubjName.isNotEmpty)) {
           final subMatch = (scannedSubjectId.isNotEmpty && (sSubjId.toLowerCase() == scannedSubjectId.toLowerCase() || sSubjId.toLowerCase().contains(scannedSubjectId.toLowerCase()) || scannedSubjectId.toLowerCase().contains(sSubjId.toLowerCase()))) ||
               (scannedSubjectName.isNotEmpty && (sSubjName.toLowerCase() == scannedSubjectName.toLowerCase() || sSubjName.toLowerCase().contains(scannedSubjectName.toLowerCase()) || scannedSubjectName.toLowerCase().contains(sSubjName.toLowerCase())));
-          if (subMatch) {
+          if (subMatch || isAllowedInRoom) {
             matchedSeat = s;
             matchedSeatNum = entry.key;
             hasSubjectMismatch = false;
@@ -399,6 +412,12 @@ class TeacherProctorController {
     final isAlreadyAttended = matchedSeat['isAttended'] == true;
 
     if (!isAlreadyAttended) {
+      if (scannedSubjectName.isNotEmpty) {
+        matchedSeat['subjectName'] = scannedSubjectName;
+      }
+      if (scannedSubjectId.isNotEmpty) {
+        matchedSeat['subjectId'] = scannedSubjectId;
+      }
       setDialogState(() {
         matchedSeat!['isAttended'] = true;
       });
