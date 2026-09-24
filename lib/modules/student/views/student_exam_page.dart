@@ -1568,6 +1568,9 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) {
+          final modalWidth = MediaQuery.of(context).size.width;
+          final crossCount = modalWidth > 600 ? 8 : (modalWidth > 400 ? 6 : 5);
+
           return Container(
             decoration: const BoxDecoration(
               color: Colors.white,
@@ -1628,11 +1631,11 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                   child: GridView.builder(
                     shrinkWrap: true,
                     itemCount: _questions.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 5,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                      childAspectRatio: 1.0,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossCount,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                      mainAxisExtent: 42,
                     ),
                     itemBuilder: (context, idx) {
                       final itemQ = _questions[idx];
@@ -1671,17 +1674,17 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
                           _goToQuestion(idx);
                           Navigator.of(context).pop();
                         },
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                         child: Container(
                           decoration: BoxDecoration(
                             color: boxColor,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                             border: border,
                           ),
                           child: Center(
                             child: Text(
                               '${idx + 1}',
-                              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 15, color: textColor),
+                              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 14, color: textColor),
                             ),
                           ),
                         ),

@@ -17,6 +17,7 @@ class AuthService extends ChangeNotifier {
   String? _schoolCode;
   bool _isSchoolDisabled = false;
   bool _isStudentInactive = false;
+  bool _isStudentGraduated = false;
   bool _isLoading = true;
   String? _sessionTerminatedReason;
   String? _establishedSessionId;
@@ -28,6 +29,7 @@ class AuthService extends ChangeNotifier {
   String? get schoolCode => _schoolCode;
   bool get isSchoolDisabled => _isSchoolDisabled;
   bool get isStudentInactive => _isStudentInactive;
+  bool get isStudentGraduated => _isStudentGraduated;
   bool get isLoading => _isLoading;
   String? get sessionTerminatedReason => _sessionTerminatedReason;
 
@@ -35,7 +37,7 @@ class AuthService extends ChangeNotifier {
     _sessionTerminatedReason = null;
   }
 
-  bool get isBlocked => _user != null && _role != 'super_admin' && (_isSchoolDisabled || _isStudentInactive);
+  bool get isBlocked => _user != null && _role != 'super_admin' && (_isSchoolDisabled || _isStudentInactive || _isStudentGraduated);
 
   StreamSubscription<User?>? _authSubscription;
   StreamSubscription<DocumentSnapshot>? _schoolSubscription;
@@ -57,6 +59,7 @@ class AuthService extends ChangeNotifier {
     _isLoading = true;
     _user = user;
     _isStudentInactive = false;
+    _isStudentGraduated = false;
     _schoolSubscription?.cancel();
     _studentSubscription?.cancel();
 
@@ -85,6 +88,7 @@ class AuthService extends ChangeNotifier {
       if (_role == 'super_admin') {
         _isSchoolDisabled = false;
         _isStudentInactive = false;
+        _isStudentGraduated = false;
         _isLoading = false;
         notifyListeners();
         return;
@@ -156,10 +160,14 @@ class AuthService extends ChangeNotifier {
 
         _studentSubscription = studentStream.listen((snapshot) async {
           bool newInactive = false;
+          bool newGraduated = false;
           Map<String, dynamic>? studentData;
           if (snapshot.docs.isNotEmpty) {
             studentData = snapshot.docs.first.data() as Map<String, dynamic>?;
             newInactive = studentData?['status'] == 'inactive' || studentData?['disabled'] == true;
+            newGraduated = studentData?['graduated'] == true ||
+                studentData?['status'] == 'graduated' ||
+                studentData?['status'] == 'lulus';
           } else if (_schoolId != null && user.email != null) {
             // Fallback check by email if uid query returned empty
             try {
@@ -173,6 +181,9 @@ class AuthService extends ChangeNotifier {
               if (emailSnap.docs.isNotEmpty) {
                 studentData = emailSnap.docs.first.data();
                 newInactive = studentData['status'] == 'inactive' || studentData['disabled'] == true;
+                newGraduated = studentData['graduated'] == true ||
+                    studentData['status'] == 'graduated' ||
+                    studentData['status'] == 'lulus';
               }
             } catch (_) {}
           }
@@ -214,8 +225,9 @@ class AuthService extends ChangeNotifier {
           }
 
           final bool wasLoading = _isLoading;
-          if (wasLoading || newInactive != _isStudentInactive) {
+          if (wasLoading || newInactive != _isStudentInactive || newGraduated != _isStudentGraduated) {
             _isStudentInactive = newInactive;
+            _isStudentGraduated = newGraduated;
             _isLoading = false;
             notifyListeners();
           }
@@ -265,6 +277,7 @@ class AuthService extends ChangeNotifier {
       if (_studentSubscription == null && _schoolSubscription == null) {
         _isSchoolDisabled = false;
         _isStudentInactive = false;
+        _isStudentGraduated = false;
         _isLoading = false;
         notifyListeners();
       }
@@ -274,6 +287,7 @@ class AuthService extends ChangeNotifier {
       _schoolId = null;
       _isSchoolDisabled = false;
       _isStudentInactive = false;
+      _isStudentGraduated = false;
       _isLoading = false;
       notifyListeners();
     }

@@ -978,6 +978,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
               final matchedSubjectIds = <String>{};
               // For makeup rooms: also collect student IDs so realtime docs can be matched by student ID
               final makeupStudentIds = <String>{};
+              List<Map<String, dynamic>> matchingTimetable = [];
 
               if (isMakeupRoom) {
                 for (var st in approvedStudents) {
@@ -1035,7 +1036,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
                 final int targetOrder = widget.dayIndex * sessionsPerDay + widget.sessionIndex + 1;
 
-                final List<Map<String, dynamic>> matchingTimetable = timetableList.where((t) {
+                matchingTimetable = timetableList.where((t) {
                   final tsId = (t['sessionId'] ?? t['session_id'] ?? '').toString().trim();
                   final tDay = (t['dayIndex'] as num?)?.toInt() ?? (t['day'] != null ? int.tryParse(t['day'].toString()) : null);
                   final tSlot = (t['sessionIndex'] ?? t['slotIndex'] ?? t['session'] as num?)?.toInt();
@@ -1340,6 +1341,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
 
               final cleanWidgetRoom = widget.roomId.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
               final cleanRoomName = roomName.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+              final cleanActiveSubjectNames = matchedSubjects.map((s) => s.toLowerCase().trim()).toSet();
 
               bool isAttDocMatch(Map<String, dynamic> aData, String docId) {
                 // 1. Day Check
@@ -1376,7 +1378,7 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 return false;
               }
 
-              // 1. Prioritaskan pembacaan catatan dari subkoleksi khusus proctor_notes (terisolasi per ruangan & sesi)
+              // 1. Prioritaskan pembacaan catatan dari subkoleksi khusus proctor_notes (terisolasi per ruangan, sesi, dan mapel)
               for (var nDoc in noteDocs) {
                 final nData = nDoc.data() as Map<String, dynamic>;
                 if (!isAttDocMatch(nData, nDoc.id)) continue;
@@ -1384,28 +1386,42 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 final pNote = (nData['note'] ?? nData['proctorNote'] ?? '').toString().trim();
                 if (pNote.isEmpty) continue;
 
-                final sId = (nData['studentId'] ?? '').toString().toLowerCase();
-                final sNis = (nData['nis'] ?? '').toString().toLowerCase();
-                final sName = (nData['studentName'] ?? nData['displayName'] ?? '').toString().toLowerCase();
-                final sSubj = (nData['subjectId'] ?? nData['subjectName'] ?? '').toString().toLowerCase();
+                final sId = (nData['studentId'] ?? '').toString().toLowerCase().trim();
+                final sNis = (nData['nis'] ?? '').toString().toLowerCase().trim();
+                final sName = (nData['studentName'] ?? nData['displayName'] ?? '').toString().toLowerCase().trim();
+                final sSubj = (nData['subjectId'] ?? nData['subjectName'] ?? '').toString().toLowerCase().trim();
                 final seatNum = (nData['seatNumber'] as num?)?.toInt();
 
-                if (sId.isNotEmpty) {
-                  proctorNotesMap[sId] = pNote;
-                  if (sSubj.isNotEmpty) proctorNotesMap['${sId}_$sSubj'] = pNote;
+                // Check subject match! Notes for other subjects must not leak
+                if (sSubj.isNotEmpty && cleanActiveSubjectNames.isNotEmpty) {
+                  final bool matchesSubj = cleanActiveSubjectNames.contains(sSubj) ||
+                      matchedSubjectIds.contains(sSubj);
+                  if (!matchesSubj) continue;
                 }
-                if (sNis.isNotEmpty) {
-                  proctorNotesMap[sNis] = pNote;
-                  if (sSubj.isNotEmpty) proctorNotesMap['${sNis}_$sSubj'] = pNote;
-                }
-                if (sName.isNotEmpty) {
-                  proctorNotesMap[sName] = pNote;
-                  if (sSubj.isNotEmpty) proctorNotesMap['${sName}_$sSubj'] = pNote;
-                }
-                if (seatNum != null && seatNum > 0) {
-                  proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
-                  proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
-                  if (sSubj.isNotEmpty) proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
+
+                if (sSubj.isNotEmpty) {
+                  if (sId.isNotEmpty) proctorNotesMap['${sId}_$sSubj'] = pNote;
+                  if (sNis.isNotEmpty) proctorNotesMap['${sNis}_$sSubj'] = pNote;
+                  if (sName.isNotEmpty) proctorNotesMap['${sName}_$sSubj'] = pNote;
+                  if (seatNum != null && seatNum > 0) {
+                    proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
+                  }
+                } else {
+                  for (var actSubj in cleanActiveSubjectNames) {
+                    if (sId.isNotEmpty) proctorNotesMap['${sId}_$actSubj'] = pNote;
+                    if (sNis.isNotEmpty) proctorNotesMap['${sNis}_$actSubj'] = pNote;
+                    if (sName.isNotEmpty) proctorNotesMap['${sName}_$actSubj'] = pNote;
+                    if (seatNum != null && seatNum > 0) {
+                      proctorNotesMap['${widget.roomId}_seat_${seatNum}_$actSubj'] = pNote;
+                    }
+                  }
+                  if (sId.isNotEmpty) proctorNotesMap[sId] = pNote;
+                  if (sNis.isNotEmpty) proctorNotesMap[sNis] = pNote;
+                  if (sName.isNotEmpty) proctorNotesMap[sName] = pNote;
+                  if (seatNum != null && seatNum > 0) {
+                    proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
+                    proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
+                  }
                 }
               }
 
@@ -1417,60 +1433,81 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                 }
 
                 final pNote = (aData['proctorNote'] ?? '').toString().trim();
-                if (pNote.isNotEmpty) {
-                  final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
-                  final sNis = (aData['nis'] ?? '').toString().toLowerCase();
-                  final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
-                  final sSubj = (aData['subjectId'] ?? aData['subjectName'] ?? '').toString().toLowerCase();
+                final sSubj = (aData['subjectId'] ?? aData['subjectName'] ?? '').toString().toLowerCase().trim();
+
+                // Check subject match! Notes for other subjects must not leak
+                bool matchesSubj = true;
+                if (sSubj.isNotEmpty && cleanActiveSubjectNames.isNotEmpty) {
+                  matchesSubj = cleanActiveSubjectNames.contains(sSubj) ||
+                      matchedSubjectIds.contains(sSubj);
+                }
+
+                if (pNote.isNotEmpty && matchesSubj) {
+                  final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase().trim();
+                  final sNis = (aData['nis'] ?? '').toString().toLowerCase().trim();
+                  final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase().trim();
                   final seatNum = (aData['seatNumber'] as num?)?.toInt();
 
-                  if (sId.isNotEmpty && !proctorNotesMap.containsKey(sId)) {
-                    proctorNotesMap[sId] = pNote;
-                    if (sSubj.isNotEmpty) proctorNotesMap['${sId}_$sSubj'] = pNote;
-                  }
-                  if (sNis.isNotEmpty && !proctorNotesMap.containsKey(sNis)) {
-                    proctorNotesMap[sNis] = pNote;
-                    if (sSubj.isNotEmpty) proctorNotesMap['${sNis}_$sSubj'] = pNote;
-                  }
-                  if (sName.isNotEmpty && !proctorNotesMap.containsKey(sName)) {
-                    proctorNotesMap[sName] = pNote;
-                    if (sSubj.isNotEmpty) proctorNotesMap['${sName}_$sSubj'] = pNote;
-                  }
-                  if (seatNum != null && seatNum > 0 && !proctorNotesMap.containsKey('${widget.roomId}_seat_$seatNum')) {
-                    proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
-                    proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
-                    if (sSubj.isNotEmpty) proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
+                  if (sSubj.isNotEmpty) {
+                    if (sId.isNotEmpty && !proctorNotesMap.containsKey('${sId}_$sSubj')) proctorNotesMap['${sId}_$sSubj'] = pNote;
+                    if (sNis.isNotEmpty && !proctorNotesMap.containsKey('${sNis}_$sSubj')) proctorNotesMap['${sNis}_$sSubj'] = pNote;
+                    if (sName.isNotEmpty && !proctorNotesMap.containsKey('${sName}_$sSubj')) proctorNotesMap['${sName}_$sSubj'] = pNote;
+                    if (seatNum != null && seatNum > 0 && !proctorNotesMap.containsKey('${widget.roomId}_seat_${seatNum}_$sSubj')) {
+                      proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = pNote;
+                    }
+                  } else {
+                    for (var actSubj in cleanActiveSubjectNames) {
+                      if (sId.isNotEmpty && !proctorNotesMap.containsKey('${sId}_$actSubj')) proctorNotesMap['${sId}_$actSubj'] = pNote;
+                      if (sNis.isNotEmpty && !proctorNotesMap.containsKey('${sNis}_$actSubj')) proctorNotesMap['${sNis}_$actSubj'] = pNote;
+                      if (sName.isNotEmpty && !proctorNotesMap.containsKey('${sName}_$actSubj')) proctorNotesMap['${sName}_$actSubj'] = pNote;
+                      if (seatNum != null && seatNum > 0 && !proctorNotesMap.containsKey('${widget.roomId}_seat_${seatNum}_$actSubj')) {
+                        proctorNotesMap['${widget.roomId}_seat_${seatNum}_$actSubj'] = pNote;
+                      }
+                    }
+                    if (sId.isNotEmpty && !proctorNotesMap.containsKey(sId)) proctorNotesMap[sId] = pNote;
+                    if (sNis.isNotEmpty && !proctorNotesMap.containsKey(sNis)) proctorNotesMap[sNis] = pNote;
+                    if (sName.isNotEmpty && !proctorNotesMap.containsKey(sName)) proctorNotesMap[sName] = pNote;
+                    if (seatNum != null && seatNum > 0 && !proctorNotesMap.containsKey('${widget.roomId}_seat_$seatNum')) {
+                      proctorNotesMap['${widget.roomId}_seat_$seatNum'] = pNote;
+                      proctorNotesMap['seat_${widget.roomId}_$seatNum'] = pNote;
+                    }
                   }
                 }
 
-            final isAtt = aData['isAttended'] == true || aData['attended'] == true;
-            if (isAtt) {
-              final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase();
-              final sNis = (aData['nis'] ?? '').toString().toLowerCase();
-              final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase();
-              final sSubj = (aData['subjectId'] ?? aData['subjectName'] ?? '').toString().toLowerCase();
-              final seatNum = (aData['seatNumber'] as num?)?.toInt();
-              if (sId.isNotEmpty) {
-                _localAttendedMap[sId] = true;
-                if (sSubj.isNotEmpty) _localAttendedMap['${sId}_$sSubj'] = true;
-              }
-              if (sNis.isNotEmpty) {
-                _localAttendedMap[sNis] = true;
-                if (sSubj.isNotEmpty) _localAttendedMap['${sNis}_$sSubj'] = true;
-              }
-              if (sName.isNotEmpty) {
-                _localAttendedMap[sName] = true;
-                if (sSubj.isNotEmpty) _localAttendedMap['${sName}_$sSubj'] = true;
-              }
-              if (seatNum != null && seatNum > 0) {
-                _localAttendedMap['${widget.roomId}_seat_$seatNum'] = true;
-                _localAttendedMap['seat_${widget.roomId}_$seatNum'] = true;
-                if (sSubj.isNotEmpty) {
-                  _localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = true;
+                // Check attendance subject match! Attendance for other subjects must not leak
+                if (sSubj.isNotEmpty && cleanActiveSubjectNames.isNotEmpty) {
+                  final bool attMatchesSubj = cleanActiveSubjectNames.contains(sSubj) ||
+                      matchedSubjectIds.contains(sSubj);
+                  if (!attMatchesSubj) continue;
+                }
+
+                final isAtt = aData['isAttended'] == true || aData['attended'] == true;
+                if (isAtt) {
+                  final sId = (aData['studentId'] ?? aData['id'] ?? '').toString().toLowerCase().trim();
+                  final sNis = (aData['nis'] ?? '').toString().toLowerCase().trim();
+                  final sName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().toLowerCase().trim();
+                  final seatNum = (aData['seatNumber'] as num?)?.toInt();
+                  if (sId.isNotEmpty) {
+                    _localAttendedMap[sId] = true;
+                    if (sSubj.isNotEmpty) _localAttendedMap['${sId}_$sSubj'] = true;
+                  }
+                  if (sNis.isNotEmpty) {
+                    _localAttendedMap[sNis] = true;
+                    if (sSubj.isNotEmpty) _localAttendedMap['${sNis}_$sSubj'] = true;
+                  }
+                  if (sName.isNotEmpty) {
+                    _localAttendedMap[sName] = true;
+                    if (sSubj.isNotEmpty) _localAttendedMap['${sName}_$sSubj'] = true;
+                  }
+                  if (seatNum != null && seatNum > 0) {
+                    _localAttendedMap['${widget.roomId}_seat_$seatNum'] = true;
+                    _localAttendedMap['seat_${widget.roomId}_$seatNum'] = true;
+                    if (sSubj.isNotEmpty) {
+                      _localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubj'] = true;
+                    }
+                  }
                 }
               }
-            }
-          }
 
           return StreamBuilder<QuerySnapshot>(
             stream: _realtimeStream ??
@@ -1830,12 +1867,55 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 );
                                 for (var s in synthesizedSeats) {
                                   final numVal = (s['seatNumber'] as num?)?.toInt() ?? 0;
-                                  if (numVal > 0) seatMap[numVal] = s;
+                                  if (numVal > 0) {
+                                    final sClassName = (s['className'] ?? s['classId'] ?? '').toString().trim();
+                                    String seatSubjName = '';
+                                    String seatSubjId = '';
+
+                                    for (var t in matchingTimetable) {
+                                      final tClasses = <String>{};
+                                      final rawClassIds = t['classIds'] as List? ??
+                                          t['classNames'] as List? ??
+                                          t['classes'] as List? ??
+                                          t['targetClasses'] as List?;
+                                      if (rawClassIds != null) {
+                                        for (var c in rawClassIds) {
+                                          if (c != null && c.toString().trim().isNotEmpty) tClasses.add(c.toString().trim());
+                                        }
+                                      }
+                                      final singleCId = (t['classId'] ?? '').toString().trim();
+                                      final singleCName = (t['className'] ?? '').toString().trim();
+                                      if (singleCId.isNotEmpty) tClasses.add(singleCId);
+                                      if (singleCName.isNotEmpty) tClasses.add(singleCName);
+
+                                      if (sClassName.isEmpty || _isClassMatched(tClasses, {sClassName})) {
+                                        seatSubjName = (t['subjectName'] ?? t['subject'] ?? '').toString().trim();
+                                        seatSubjId = (t['subjectId'] ?? t['id'] ?? '').toString().trim();
+                                        if (seatSubjName.isNotEmpty) break;
+                                      }
+                                    }
+
+                                    if (seatSubjName.isEmpty && matchedSubjects.isNotEmpty) {
+                                      seatSubjName = matchedSubjects.first;
+                                      seatSubjId = matchedSubjectIds.isNotEmpty ? matchedSubjectIds.first : '';
+                                    }
+
+                                    s['subjectName'] = seatSubjName;
+                                    s['subjectId'] = seatSubjId;
+                                    seatMap[numVal] = s;
+                                  }
                                 }
                               }
 
                               // Ensure attendance state & realtime control synced into seatMap entries
                               seatMap.forEach((seatNum, sData) {
+                                if ((sData['subjectName'] ?? '').toString().isEmpty && matchedSubjects.isNotEmpty) {
+                                  sData['subjectName'] = matchedSubjects.first;
+                                }
+                                if ((sData['subjectId'] ?? '').toString().isEmpty && matchedSubjectIds.isNotEmpty) {
+                                  sData['subjectId'] = matchedSubjectIds.first;
+                                }
+
                                 final sId = (sData['studentId'] ?? sData['id'] ?? '').toString().toLowerCase().trim();
                                 final sNis = (sData['nis'] ?? '').toString().toLowerCase().trim();
                                 final sName = (sData['displayName'] ?? sData['studentName'] ?? '').toString().toLowerCase().trim();
@@ -1858,14 +1938,32 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                     isAttended = true;
                                   }
                                 } else {
-                                  if (sId.isNotEmpty && _localAttendedMap[sId] == true) {
-                                    isAttended = true;
-                                  } else if (sNis.isNotEmpty && _localAttendedMap[sNis] == true) {
-                                    isAttended = true;
-                                  } else if (sName.isNotEmpty && _localAttendedMap[sName] == true) {
-                                    isAttended = true;
-                                  } else if (sId.isEmpty && sNis.isEmpty && sName.isEmpty) {
-                                    if (_localAttendedMap['${widget.roomId}_seat_$seatNum'] == true ||
+                                  // Normal room: check attendance with subject preference
+                                  if (sSubjId.isNotEmpty || sSubjName.isNotEmpty) {
+                                    if (sId.isNotEmpty && sSubjId.isNotEmpty && _localAttendedMap['${sId}_$sSubjId'] == true) {
+                                      isAttended = true;
+                                    } else if (sId.isNotEmpty && sSubjName.isNotEmpty && _localAttendedMap['${sId}_$sSubjName'] == true) {
+                                      isAttended = true;
+                                    } else if (sNis.isNotEmpty && sSubjId.isNotEmpty && _localAttendedMap['${sNis}_$sSubjId'] == true) {
+                                      isAttended = true;
+                                    } else if (sNis.isNotEmpty && sSubjName.isNotEmpty && _localAttendedMap['${sNis}_$sSubjName'] == true) {
+                                      isAttended = true;
+                                    } else if (sName.isNotEmpty && sSubjName.isNotEmpty && _localAttendedMap['${sName}_$sSubjName'] == true) {
+                                      isAttended = true;
+                                    } else if (sSubjName.isNotEmpty && _localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubjName'] == true) {
+                                      isAttended = true;
+                                    } else if (sSubjId.isNotEmpty && _localAttendedMap['${widget.roomId}_seat_${seatNum}_$sSubjId'] == true) {
+                                      isAttended = true;
+                                    }
+                                  }
+                                  if (!isAttended) {
+                                    if (sId.isNotEmpty && _localAttendedMap[sId] == true) {
+                                      isAttended = true;
+                                    } else if (sNis.isNotEmpty && _localAttendedMap[sNis] == true) {
+                                      isAttended = true;
+                                    } else if (sName.isNotEmpty && _localAttendedMap[sName] == true) {
+                                      isAttended = true;
+                                    } else if (_localAttendedMap['${widget.roomId}_seat_$seatNum'] == true ||
                                         _localAttendedMap['seat_${widget.roomId}_$seatNum'] == true) {
                                       isAttended = true;
                                     }
@@ -1973,14 +2071,18 @@ class _TeacherProctorRoomPageState extends State<TeacherProctorRoomPage> {
                                 sData['status'] = rtData?['status'] ?? (isCompleted ? 'completed' : (isLeftApp ? 'left_app' : (isWorking ? 'in_progress' : 'normal')));
                                 sData['proctorNote'] = (sId.isNotEmpty && sSubjId.isNotEmpty ? proctorNotesMap['${sId}_$sSubjId'] : null) ??
                                     (sId.isNotEmpty && sSubjName.isNotEmpty ? proctorNotesMap['${sId}_$sSubjName'] : null) ??
-                                    (sId.isNotEmpty ? proctorNotesMap[sId] : null) ??
                                     (sNis.isNotEmpty && sSubjId.isNotEmpty ? proctorNotesMap['${sNis}_$sSubjId'] : null) ??
                                     (sNis.isNotEmpty && sSubjName.isNotEmpty ? proctorNotesMap['${sNis}_$sSubjName'] : null) ??
-                                    (sNis.isNotEmpty ? proctorNotesMap[sNis] : null) ??
                                     (sName.isNotEmpty && sSubjName.isNotEmpty ? proctorNotesMap['${sName}_$sSubjName'] : null) ??
-                                    (sName.isNotEmpty ? proctorNotesMap[sName] : null) ??
-                                    proctorNotesMap['${widget.roomId}_seat_$seatNum'] ??
-                                    proctorNotesMap['seat_${widget.roomId}_$seatNum'] ?? '';
+                                    (seatNum > 0 && sSubjId.isNotEmpty ? proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubjId'] : null) ??
+                                    (seatNum > 0 && sSubjName.isNotEmpty ? proctorNotesMap['${widget.roomId}_seat_${seatNum}_$sSubjName'] : null) ??
+                                    ((sSubjId.isEmpty && sSubjName.isEmpty) ? (
+                                      (sId.isNotEmpty ? proctorNotesMap[sId] : null) ??
+                                      (sNis.isNotEmpty ? proctorNotesMap[sNis] : null) ??
+                                      (sName.isNotEmpty ? proctorNotesMap[sName] : null) ??
+                                      proctorNotesMap['${widget.roomId}_seat_$seatNum'] ??
+                                      proctorNotesMap['seat_${widget.roomId}_$seatNum'] ?? ''
+                                    ) : '');
                               });
 
                               final filledSeatsCount = seatMap.values.where((s) => (s['displayName'] ?? s['studentName'] ?? s['name'] ?? '').toString().isNotEmpty).length;

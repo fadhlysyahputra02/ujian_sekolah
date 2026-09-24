@@ -25,6 +25,7 @@ import '../widgets/import_students_dialog.dart';
 import '../widgets/import_teachers_dialog.dart';
 import '../widgets/generate_password_dialog.dart';
 import '../widgets/class_form_dialog.dart';
+import '../widgets/select_angkatan_dialog.dart';
 import 'event_list_screen.dart';
 
 class AdminSchoolDashboardPage extends StatefulWidget {
@@ -36,7 +37,7 @@ class AdminSchoolDashboardPage extends StatefulWidget {
 }
 
 class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
-  int _currentTab = 0; // 0: Overview, 1: Guru, 2: Murid, 3: Mapel, 4: Kelas, 5: Event, 6: Pengaturan
+  int _currentTab = 0; // 0: Overview, 1: Guru, 2: Murid, 3: Alumni, 4: Mapel, 5: Kelas, 6: Event, 7: Pengaturan
   DateTime? _lastBackPressTime;
   
   @override
@@ -64,10 +65,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         case 'ringkasan': _currentTab = 0; break;
         case 'guru': _currentTab = 1; break;
         case 'murid': _currentTab = 2; break;
-        case 'mapel': _currentTab = 3; break;
-        case 'kelas': _currentTab = 4; break;
-        case 'eventujian': _currentTab = 5; break;
-        case 'pengaturan': _currentTab = 6; break;
+        case 'alumni': _currentTab = 3; break;
+        case 'mapel': _currentTab = 4; break;
+        case 'kelas': _currentTab = 5; break;
+        case 'eventujian': _currentTab = 6; break;
+        case 'pengaturan': _currentTab = 7; break;
         default: _currentTab = 0;
       }
     });
@@ -79,10 +81,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       case 0: path = 'ringkasan'; break;
       case 1: path = 'guru'; break;
       case 2: path = 'murid'; break;
-      case 3: path = 'mapel'; break;
-      case 4: path = 'kelas'; break;
-      case 5: path = 'eventujian'; break;
-      case 6: path = 'pengaturan'; break;
+      case 3: path = 'alumni'; break;
+      case 4: path = 'mapel'; break;
+      case 5: path = 'kelas'; break;
+      case 6: path = 'eventujian'; break;
+      case 7: path = 'pengaturan'; break;
       default: path = 'ringkasan';
     }
     context.go('/admin/$path');
@@ -119,6 +122,23 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
 
   int _studentRowsPerPage = 10;
   int _studentCurrentPage = 0;
+  String _studentSortColumn = 'nama';
+  bool _studentSortAscending = true;
+  String? _selectedClassFilter;
+  String? _selectedGenderFilter;
+  String? _selectedReligionFilter;
+  String? _selectedAngkatanFilter;
+  String? _selectedStatusFilter;
+
+  // Alumni Pagination & Filter states
+  int _alumniRowsPerPage = 10;
+  int _alumniCurrentPage = 0;
+  String _alumniSortColumn = 'nama';
+  bool _alumniSortAscending = true;
+  String? _selectedAlumniClassFilter;
+  String? _selectedAlumniGenderFilter;
+  String? _selectedAlumniReligionFilter;
+  String? _selectedAlumniAngkatanFilter;
 
   void _refreshTeachers(String schoolId) {
     if (schoolId.isNotEmpty) {
@@ -205,20 +225,45 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   // Search & Filter States
   final TextEditingController _searchController = TextEditingController();
   final ValueNotifier<String> _searchNotifier = ValueNotifier('');
+  final ScrollController _studentTableHorizontalScrollController = ScrollController();
+
+  final TextEditingController _alumniSearchController = TextEditingController();
+  final ValueNotifier<String> _alumniSearchNotifier = ValueNotifier('');
+  final ScrollController _alumniTableHorizontalScrollController = ScrollController();
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchNotifier.dispose();
+    _studentTableHorizontalScrollController.dispose();
+    _alumniSearchController.dispose();
+    _alumniSearchNotifier.dispose();
+    _alumniTableHorizontalScrollController.dispose();
     super.dispose();
   }
 
   void _clearFilters() {
     _searchController.clear();
     _searchNotifier.value = '';
+    _alumniSearchController.clear();
+    _alumniSearchNotifier.value = '';
     setState(() {
       _teacherCurrentPage = 0;
       _studentCurrentPage = 0;
+      _alumniCurrentPage = 0;
+      _selectedClassFilter = null;
+      _selectedGenderFilter = null;
+      _selectedReligionFilter = null;
+      _selectedAngkatanFilter = null;
+      _selectedStatusFilter = null;
+      _selectedAlumniClassFilter = null;
+      _selectedAlumniGenderFilter = null;
+      _selectedAlumniReligionFilter = null;
+      _selectedAlumniAngkatanFilter = null;
+      _studentSortColumn = 'nama';
+      _studentSortAscending = true;
+      _alumniSortColumn = 'nama';
+      _alumniSortAscending = true;
     });
   }
 
@@ -1555,6 +1600,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       const BottomNavigationBarItem(icon: Icon(Icons.dashboard_outlined), activeIcon: Icon(Icons.dashboard_rounded), label: 'Ringkasan'),
       const BottomNavigationBarItem(icon: Icon(Icons.assignment_ind_outlined), activeIcon: Icon(Icons.assignment_ind_rounded), label: 'Guru'),
       const BottomNavigationBarItem(icon: Icon(Icons.school_outlined), activeIcon: Icon(Icons.school_rounded), label: 'Murid'),
+      const BottomNavigationBarItem(icon: Icon(Icons.workspace_premium_outlined), activeIcon: Icon(Icons.workspace_premium_rounded), label: 'Alumni'),
       const BottomNavigationBarItem(icon: Icon(Icons.book_outlined), activeIcon: Icon(Icons.book_rounded), label: 'Mapel'),
       const BottomNavigationBarItem(icon: Icon(Icons.class_outlined), activeIcon: Icon(Icons.class_rounded), label: 'Kelas'),
       const BottomNavigationBarItem(icon: Icon(Icons.event_note_outlined), activeIcon: Icon(Icons.event_note_rounded), label: 'Ujian'),
@@ -1628,13 +1674,15 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             const SizedBox(height: 8),
                             _buildSidebarItem(2, Icons.school_outlined, Icons.school_rounded, 'Manajemen Murid', size.width > 1150),
                             const SizedBox(height: 8),
-                            _buildSidebarItem(3, Icons.book_outlined, Icons.book_rounded, 'Mata Pelajaran', size.width > 1150),
+                            _buildSidebarItem(3, Icons.workspace_premium_outlined, Icons.workspace_premium_rounded, 'Alumni', size.width > 1150),
                             const SizedBox(height: 8),
-                            _buildSidebarItem(4, Icons.class_outlined, Icons.class_rounded, 'Kelas', size.width > 1150),
+                            _buildSidebarItem(4, Icons.book_outlined, Icons.book_rounded, 'Mata Pelajaran', size.width > 1150),
                             const SizedBox(height: 8),
-                            _buildSidebarItem(5, Icons.event_note_outlined, Icons.event_note_rounded, 'Event Ujian', size.width > 1150),
+                            _buildSidebarItem(5, Icons.class_outlined, Icons.class_rounded, 'Kelas', size.width > 1150),
                             const SizedBox(height: 8),
-                            _buildSidebarItem(6, Icons.settings_outlined, Icons.settings_rounded, 'Pengaturan', size.width > 1150),
+                            _buildSidebarItem(6, Icons.event_note_outlined, Icons.event_note_rounded, 'Event Ujian', size.width > 1150),
+                            const SizedBox(height: 8),
+                            _buildSidebarItem(7, Icons.settings_outlined, Icons.settings_rounded, 'Pengaturan', size.width > 1150),
                           ],
                         ),
                       ),
@@ -1888,12 +1936,14 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       case 2:
         return _buildStudentsTab(schoolId, isDesktop);
       case 3:
-        return _buildSubjectsTab(schoolId, isDesktop);
+        return _buildAlumniTab(schoolId, isDesktop);
       case 4:
-        return _buildClassesTab(schoolId, isDesktop);
+        return _buildSubjectsTab(schoolId, isDesktop);
       case 5:
-        return EventListScreen(schoolId: schoolId);
+        return _buildClassesTab(schoolId, isDesktop);
       case 6:
+        return EventListScreen(schoolId: schoolId);
+      case 7:
         return _buildSettingsTab(authService, schoolId);
       default:
         return const Center(child: Text('Konten Tidak Ditemukan'));
@@ -3141,7 +3191,8 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               );
             }
 
-            final allStudents = snapshot.data ?? [];
+            final rawStudents = snapshot.data ?? [];
+            final allStudents = rawStudents.where((s) => !s.isGraduated).toList();
 
             return Padding(
               padding: EdgeInsets.all(isDesktop ? 24.0 : 16.0),
@@ -3219,6 +3270,22 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton.icon(
+                              onPressed: () => _showGraduationDialog(schoolId, allStudents),
+                              icon: const Icon(Icons.school_rounded, size: 16),
+                              label: Text(
+                                'Luluskan',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
                               onPressed: () => _showStudentForm(schoolId),
                               icon: const Icon(Icons.add_rounded, size: 18),
                               label: Text(
@@ -3275,6 +3342,18 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                                 elevation: 0,
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFA7F3D0)),
+                              ),
+                              child: IconButton(
+                                icon: const Icon(Icons.school_rounded, color: Color(0xFF059669), size: 20),
+                                onPressed: () => _showGraduationDialog(schoolId, allStudents),
+                                tooltip: 'Luluskan Murid',
                               ),
                             ),
                             Container(
@@ -3368,15 +3447,89 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Content List — only this part rebuilds on search
+                  // Content List — rebuilds on search query and state changes
                   Expanded(
                     child: ValueListenableBuilder<String>(
                       valueListenable: _searchNotifier,
                       builder: (context, query, _) {
                         final filteredStudents = allStudents.where((s) {
-                          final q = query.toLowerCase();
-                          return s.displayName.toLowerCase().contains(q) || s.nis.contains(q);
+                          final q = query.trim().toLowerCase();
+                          final matchesQuery = q.isEmpty ||
+                              s.displayName.toLowerCase().contains(q) ||
+                              s.nis.toLowerCase().contains(q);
+                          if (!matchesQuery) return false;
+
+                          if (_selectedClassFilter != null && _selectedClassFilter != 'Semua Kelas') {
+                            final sClass = studentClassMap[s.id] ?? '-';
+                            if (sClass != _selectedClassFilter) return false;
+                          }
+
+                          if (_selectedGenderFilter != null && _selectedGenderFilter != 'Semua Gender') {
+                            final genderStr = s.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                            if (genderStr != _selectedGenderFilter) return false;
+                          }
+
+                          if (_selectedReligionFilter != null && _selectedReligionFilter != 'Semua Agama') {
+                            if (s.religion.trim().toLowerCase() != _selectedReligionFilter!.trim().toLowerCase()) return false;
+                          }
+
+                          if (_selectedAngkatanFilter != null && _selectedAngkatanFilter != 'Semua Angkatan') {
+                            if (s.angkatan.trim() != _selectedAngkatanFilter!.trim()) return false;
+                          }
+
+                          if (_selectedStatusFilter != null && _selectedStatusFilter != 'Semua Status') {
+                            final statusStr = s.isInactive ? 'Nonaktif' : 'Aktif';
+                            if (statusStr != _selectedStatusFilter) return false;
+                          }
+
+                          return true;
                         }).toList();
+
+                        // Sort filtered students list
+                        filteredStudents.sort((a, b) {
+                          int cmp = 0;
+                          switch (_studentSortColumn) {
+                            case 'nama':
+                              cmp = a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+                              break;
+                            case 'nis':
+                              final nA = int.tryParse(a.nis);
+                              final nB = int.tryParse(b.nis);
+                              if (nA != null && nB != null) {
+                                cmp = nA.compareTo(nB);
+                              } else {
+                                cmp = a.nis.compareTo(b.nis);
+                              }
+                              break;
+                            case 'kelas':
+                              final cA = studentClassMap[a.id] ?? '';
+                              final cB = studentClassMap[b.id] ?? '';
+                              cmp = cA.compareTo(cB);
+                              break;
+                            case 'gender':
+                              final gA = a.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                              final gB = b.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                              cmp = gA.compareTo(gB);
+                              break;
+                            case 'agama':
+                              cmp = a.religion.toLowerCase().compareTo(b.religion.toLowerCase());
+                              break;
+                            case 'angkatan':
+                              cmp = a.angkatan.compareTo(b.angkatan);
+                              break;
+                            case 'kata_sandi':
+                              cmp = (a.tempPassword ?? '').compareTo(b.tempPassword ?? '');
+                              break;
+                            case 'status':
+                              final sA = a.isInactive ? 'Nonaktif' : 'Aktif';
+                              final sB = b.isInactive ? 'Nonaktif' : 'Aktif';
+                              cmp = sA.compareTo(sB);
+                              break;
+                            default:
+                              cmp = a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+                          }
+                          return _studentSortAscending ? cmp : -cmp;
+                        });
 
                         final totalItems = filteredStudents.length;
                         final totalPages = (totalItems / _studentRowsPerPage).ceil();
@@ -3391,12 +3544,85 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                             ? filteredStudents.sublist(pageStart, pageEnd)
                             : <Student>[];
 
+                        final hasActiveFilters = _selectedClassFilter != null ||
+                            _selectedGenderFilter != null ||
+                            _selectedReligionFilter != null ||
+                            _selectedAngkatanFilter != null ||
+                            _selectedStatusFilter != null;
+
                         return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (hasActiveFilters)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Filter Aktif:',
+                                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                                    ),
+                                    if (_selectedClassFilter != null)
+                                      Chip(
+                                        label: Text('Kelas: $_selectedClassFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedClassFilter = null; _studentCurrentPage = 0; }),
+                                      ),
+                                    if (_selectedGenderFilter != null)
+                                      Chip(
+                                        label: Text('Gender: $_selectedGenderFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedGenderFilter = null; _studentCurrentPage = 0; }),
+                                      ),
+                                    if (_selectedReligionFilter != null)
+                                      Chip(
+                                        label: Text('Agama: $_selectedReligionFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedReligionFilter = null; _studentCurrentPage = 0; }),
+                                      ),
+                                    if (_selectedAngkatanFilter != null)
+                                      Chip(
+                                        label: Text('Angkatan: $_selectedAngkatanFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedAngkatanFilter = null; _studentCurrentPage = 0; }),
+                                      ),
+                                    if (_selectedStatusFilter != null)
+                                      Chip(
+                                        label: Text('Status: $_selectedStatusFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedStatusFilter = null; _studentCurrentPage = 0; }),
+                                      ),
+                                    TextButton(
+                                      onPressed: () => setState(() {
+                                        _selectedClassFilter = null;
+                                        _selectedGenderFilter = null;
+                                        _selectedReligionFilter = null;
+                                        _selectedAngkatanFilter = null;
+                                        _selectedStatusFilter = null;
+                                        _studentCurrentPage = 0;
+                                      }),
+                                      child: Text('Reset Filter', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFFEF4444))),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             Expanded(
                               child: filteredStudents.isEmpty
                                   ? const Center(child: Text('Tidak ada data murid.'))
-                                  : _buildStudentsTable(schoolId, paginatedStudents, studentClassMap),
+                                  : _buildStudentsTable(schoolId, paginatedStudents, studentClassMap, allStudents),
                             ),
                             if (filteredStudents.isNotEmpty)
                               _buildPaginationControls(
@@ -3423,141 +3649,1238 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
-  Widget _buildStudentsTable(String schoolId, List<Student> students, Map<String, String> studentClassMap) {
+  Widget _buildStudentsTable(
+    String schoolId,
+    List<Student> students,
+    Map<String, String> studentClassMap,
+    List<Student> allStudents,
+  ) {
+    // Generate options for header filter dropdowns
+    final classSet = studentClassMap.values.where((c) => c.isNotEmpty && c != '-').toSet().toList()..sort();
+    final classOptions = ['Semua Kelas', ...classSet];
+
+    final genderOptions = ['Semua Gender', 'Laki-laki', 'Perempuan'];
+
+    // ONLY show religions that exist in this school's students
+    final existingReligions = allStudents
+        .map((s) => s.religion.trim())
+        .where((r) => r.isNotEmpty && r != '-')
+        .toSet()
+        .toList()
+      ..sort();
+    final religionOptions = ['Semua Agama', ...existingReligions];
+
+    // Angkatan options from students in this school
+    final existingAngkatan = allStudents
+        .map((s) => s.angkatan.trim())
+        .where((a) => a.isNotEmpty && a != '-')
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+    final angkatanOptions = ['Semua Angkatan', ...existingAngkatan];
+
+    // Status options
+    final statusOptions = ['Semua Status', 'Aktif', 'Nonaktif'];
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       elevation: 1,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.vertical,
+          return Scrollbar(
+            controller: _studentTableHorizontalScrollController,
+            thumbVisibility: true,
+            trackVisibility: true,
+            thickness: 8,
+            radius: const Radius.circular(4),
             child: SingleChildScrollView(
+              controller: _studentTableHorizontalScrollController,
               scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: DataTable(
-                  headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
-                  columns: const [
-                    DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('NIS', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Kelas', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Agama', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Angkatan', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
-                  ],
-                  rows: students.map((s) {
-                    return DataRow(cells: [
-                      DataCell(Text(s.displayName)),
-                      DataCell(Text(s.nis)),
-                      DataCell(Text(studentClassMap[s.id] ?? '-')),
-                      DataCell(Text(s.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
-                      DataCell(Text(s.religion)),
-                      DataCell(Text(s.angkatan)),
-                       DataCell(s.tempPassword != null && s.tempPassword!.isNotEmpty
-                          ? SelectableText(
-                              s.tempPassword!,
-                              style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
-                            )
-                          : OutlinedButton.icon(
-                              onPressed: () => _generateSinglePasswordDirectly(schoolId, s),
-                              icon: const Icon(Icons.vpn_key_rounded, size: 12),
-                              label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFFF59E0B),
-                                side: const BorderSide(color: Color(0xFFF59E0B)),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                              ),
-                            )),
-                      DataCell(
-                        Tooltip(
-                          message: 'Klik untuk ubah status',
-                          child: InkWell(
-                            onTap: () => _toggleStudentStatus(schoolId, s),
-                            borderRadius: BorderRadius.circular(6),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: s.isInactive ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    s.isInactive ? 'Nonaktif' : 'Aktif',
-                                    style: TextStyle(
-                                      color: s.isInactive ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  if (s.hasActiveSession) ...[
-                                    const SizedBox(width: 5),
-                                    Tooltip(
-                                      message: 'Sedang Login: ${s.activeDeviceName ?? 'Perangkat Lain'}',
-                                      child: const Icon(Icons.devices_rounded, size: 14, color: Color(0xFF0284C7)),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                    columnSpacing: 14,
+                    columns: [
+                      _buildSortableHeader('Nama', 'nama', 200),
+                      _buildSortableHeader('NIS', 'nis', 80),
+                      _buildFilterAndSortHeader(
+                        title: 'Kelas',
+                        colKey: 'kelas',
+                        currentFilter: _selectedClassFilter,
+                        options: classOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedClassFilter = val;
+                          _studentCurrentPage = 0;
+                        }),
+                        width: 110,
+                      ),
+                      _buildFilterAndSortHeader(
+                        title: 'Gender',
+                        colKey: 'gender',
+                        currentFilter: _selectedGenderFilter,
+                        options: genderOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedGenderFilter = val;
+                          _studentCurrentPage = 0;
+                        }),
+                        width: 110,
+                      ),
+                      _buildFilterAndSortHeader(
+                        title: 'Agama',
+                        colKey: 'agama',
+                        currentFilter: _selectedReligionFilter,
+                        options: religionOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedReligionFilter = val;
+                          _studentCurrentPage = 0;
+                        }),
+                        width: 110,
+                      ),
+                      _buildFilterAndSortHeader(
+                        title: 'Angkatan',
+                        colKey: 'angkatan',
+                        currentFilter: _selectedAngkatanFilter,
+                        options: angkatanOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedAngkatanFilter = val;
+                          _studentCurrentPage = 0;
+                        }),
+                        width: 125,
+                      ),
+                      _buildSortableHeader('Kata Sandi', 'kata_sandi', 110),
+                      _buildFilterAndSortHeader(
+                        title: 'Status',
+                        colKey: 'status',
+                        currentFilter: _selectedStatusFilter,
+                        options: statusOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedStatusFilter = val;
+                          _studentCurrentPage = 0;
+                        }),
+                        width: 100,
+                      ),
+                      const DataColumn(
+                        label: SizedBox(
+                          width: 250,
+                          child: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
                       ),
-                      DataCell(Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              Icons.phonelink_erase_rounded,
-                              color: s.hasActiveSession ? const Color(0xFF0284C7) : const Color(0xFF94A3B8),
-                              size: 20,
+                    ],
+                    rows: students.map((s) {
+                      return DataRow(cells: [
+                        DataCell(SizedBox(
+                          width: 180,
+                          child: Text(
+                            s.displayName,
+                            style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 80,
+                          child: Text(
+                            s.nis,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: Text(
+                            studentClassMap[s.id] ?? '-',
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: Text(
+                            s.gender == 'M' ? 'Laki-laki' : 'Perempuan',
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: Text(
+                            s.religion,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 125,
+                          child: Text(
+                            s.angkatan,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: s.tempPassword != null && s.tempPassword!.isNotEmpty
+                              ? SelectableText(
+                                  s.tempPassword!,
+                                  style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 15, color: const Color(0xFF0F172A), letterSpacing: 1.2),
+                                )
+                              : OutlinedButton.icon(
+                                  onPressed: () => _generateSinglePasswordDirectly(schoolId, s),
+                                  icon: const Icon(Icons.vpn_key_rounded, size: 12),
+                                  label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFF59E0B),
+                                    side: const BorderSide(color: Color(0xFFF59E0B)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 100,
+                          child: Tooltip(
+                            message: 'Klik untuk ubah status',
+                            child: InkWell(
+                              onTap: () => _toggleStudentStatus(schoolId, s),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: s.isInactive ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      s.isInactive ? 'Nonaktif' : 'Aktif',
+                                      style: TextStyle(
+                                        color: s.isInactive ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    if (s.hasActiveSession) ...[
+                                      const SizedBox(width: 4),
+                                      Tooltip(
+                                        message: 'Sedang Login: ${s.activeDeviceName ?? 'Perangkat Lain'}',
+                                        child: const Icon(Icons.devices_rounded, size: 13, color: Color(0xFF0284C7)),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
                             ),
-                            tooltip: s.hasActiveSession
-                                ? 'Reset Sesi Login (Aktif: ${s.activeDeviceName ?? 'Perangkat Lain'})'
-                                : 'Reset Sesi Login Perangkat',
-                            onPressed: () => _resetStudentSession(schoolId, s),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 20),
-                            tooltip: s.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
-                            onPressed: () => _resetPassword(schoolId, 'students', s.id, s.displayName),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 20),
-                            tooltip: 'Ubah Data',
-                            onPressed: () => _showStudentForm(schoolId, student: s),
-                          ),
-                          IconButton(
-                            icon: Icon(
-                              s.isInactive ? Icons.toggle_off_rounded : Icons.toggle_on_rounded,
-                              color: s.isInactive ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
-                              size: 26,
+                        )),
+                        DataCell(SizedBox(
+                          width: 250,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  icon: Icon(
+                                    Icons.phonelink_erase_rounded,
+                                    color: s.hasActiveSession ? const Color(0xFF0284C7) : const Color(0xFF94A3B8),
+                                    size: 18,
+                                  ),
+                                  tooltip: s.hasActiveSession
+                                      ? 'Reset Sesi Login (Aktif: ${s.activeDeviceName ?? 'Perangkat Lain'})'
+                                      : 'Reset Sesi Login Perangkat',
+                                  onPressed: () => _resetStudentSession(schoolId, s),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 18),
+                                  tooltip: s.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
+                                  onPressed: () => _resetPassword(schoolId, 'students', s.id, s.displayName),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 18),
+                                  tooltip: 'Ubah Data',
+                                  onPressed: () => _showStudentForm(schoolId, student: s),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  icon: Icon(
+                                    s.isInactive ? Icons.toggle_off_rounded : Icons.toggle_on_rounded,
+                                    color: s.isInactive ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
+                                    size: 24,
+                                  ),
+                                  tooltip: s.isInactive ? 'Aktifkan Akun Murid' : 'Nonaktifkan Akun Murid',
+                                  onPressed: () => _toggleStudentStatus(schoolId, s),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 18),
+                                  tooltip: 'Hapus Permanen',
+                                  onPressed: () => _deleteUser(schoolId, 'students', s.id, s.displayName, s.nis),
+                                ),
+                              ],
                             ),
-                            tooltip: s.isInactive ? 'Aktifkan Akun Murid' : 'Nonaktifkan Akun Murid',
-                            onPressed: () => _toggleStudentStatus(schoolId, s),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
-                            tooltip: 'Hapus Permanen',
-                            onPressed: () => _deleteUser(schoolId, 'students', s.id, s.displayName, s.nis),
-                          ),
-                        ],
-                      )),
-                    ]);
-                  }).toList(),
+                        )),
+                      ]);
+                    }).toList(),
+                  ),
                 ),
               ),
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildAlumniTab(String schoolId, bool isDesktop) {
+    _initStreams(schoolId);
+
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      initialData: _cachedClasses,
+      stream: _classesStream ?? _adminUserService.streamClasses(schoolId),
+      builder: (context, classesSnapshot) {
+        if (classesSnapshot.hasData) {
+          _cachedClasses = classesSnapshot.data;
+        }
+        final classes = classesSnapshot.data ?? [];
+        final Map<String, String> studentClassMap = {};
+        for (var c in classes) {
+          final className = c['name'] as String? ?? '-';
+          final studentIds = c['studentIds'];
+          if (studentIds is List) {
+            for (var id in studentIds) {
+              studentClassMap[id.toString()] = className;
+            }
+          }
+        }
+
+        return StreamBuilder<List<Student>>(
+          initialData: _cachedStudents,
+          stream: _studentsStream ?? _adminUserService.streamStudents(schoolId),
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              _cachedStudents = snapshot.data;
+            }
+            if (snapshot.hasError && !snapshot.hasData) return Center(child: Text('Error: ${snapshot.error}'));
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+              return const AppContentLoader(
+                title: 'Memuat Data Alumni...',
+                subtitle: 'Mengambil daftar murid alumni dari database',
+              );
+            }
+
+            final rawStudents = snapshot.data ?? [];
+            final allAlumni = rawStudents.where((s) => s.isGraduated).toList();
+
+            return Padding(
+              padding: EdgeInsets.all(isDesktop ? 24.0 : 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Header & Buttons
+                  if (isDesktop) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Daftar Alumni',
+                              style: GoogleFonts.inter(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: const Color(0xFF0F172A),
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Kelola database murid yang telah dinyatakan lulus',
+                              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.download_rounded, color: Color(0xFF06B6D4)),
+                              onPressed: () => _exportStudentsExcel(allAlumni),
+                              tooltip: 'Ekspor Alumni ke Excel',
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: () => _navigateToTab(2),
+                              icon: const Icon(Icons.school_rounded, size: 16, color: Color(0xFF4F46E5)),
+                              label: Text(
+                                'Ke Manajemen Murid',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5)),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                backgroundColor: const Color(0xFFEEF2FF),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    // Mobile layout header
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Daftar Alumni',
+                          style: GoogleFonts.inter(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF0F172A),
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Database murid yang telah lulus',
+                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.download_rounded, color: Color(0xFF06B6D4)),
+                              onPressed: () => _exportStudentsExcel(allAlumni),
+                              tooltip: 'Ekspor ke Excel',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+
+                  // Search Bar
+                  Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _alumniSearchController,
+                      style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF0F172A)),
+                      decoration: InputDecoration(
+                        hintText: 'Cari alumni berdasarkan nama atau NIS...',
+                        hintStyle: GoogleFonts.inter(
+                          color: const Color(0xFF94A3B8),
+                          fontSize: 14,
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF4F46E5), size: 20),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onChanged: (val) {
+                        _alumniSearchNotifier.value = val;
+                        _alumniCurrentPage = 0;
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Content List
+                  Expanded(
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: _alumniSearchNotifier,
+                      builder: (context, query, _) {
+                        final filteredAlumni = allAlumni.where((s) {
+                          final q = query.trim().toLowerCase();
+                          final matchesQuery = q.isEmpty ||
+                              s.displayName.toLowerCase().contains(q) ||
+                              s.nis.toLowerCase().contains(q);
+                          if (!matchesQuery) return false;
+
+                          if (_selectedAlumniClassFilter != null && _selectedAlumniClassFilter != 'Semua Kelas') {
+                            final sClass = studentClassMap[s.id] ?? '-';
+                            if (sClass != _selectedAlumniClassFilter) return false;
+                          }
+
+                          if (_selectedAlumniGenderFilter != null && _selectedAlumniGenderFilter != 'Semua Gender') {
+                            final genderStr = s.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                            if (genderStr != _selectedAlumniGenderFilter) return false;
+                          }
+
+                          if (_selectedAlumniReligionFilter != null && _selectedAlumniReligionFilter != 'Semua Agama') {
+                            if (s.religion.trim().toLowerCase() != _selectedAlumniReligionFilter!.trim().toLowerCase()) return false;
+                          }
+
+                          if (_selectedAlumniAngkatanFilter != null && _selectedAlumniAngkatanFilter != 'Semua Angkatan') {
+                            if (s.angkatan.trim() != _selectedAlumniAngkatanFilter!.trim()) return false;
+                          }
+
+                          return true;
+                        }).toList();
+
+                        // Sorting
+                        filteredAlumni.sort((a, b) {
+                          int cmp = 0;
+                          switch (_alumniSortColumn) {
+                            case 'nama':
+                              cmp = a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+                              break;
+                            case 'nis':
+                              final nA = int.tryParse(a.nis);
+                              final nB = int.tryParse(b.nis);
+                              if (nA != null && nB != null) {
+                                cmp = nA.compareTo(nB);
+                              } else {
+                                cmp = a.nis.compareTo(b.nis);
+                              }
+                              break;
+                            case 'kelas':
+                              final cA = studentClassMap[a.id] ?? '';
+                              final cB = studentClassMap[b.id] ?? '';
+                              cmp = cA.compareTo(cB);
+                              break;
+                            case 'gender':
+                              final gA = a.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                              final gB = b.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                              cmp = gA.compareTo(gB);
+                              break;
+                            case 'agama':
+                              cmp = a.religion.toLowerCase().compareTo(b.religion.toLowerCase());
+                              break;
+                            case 'angkatan':
+                              cmp = a.angkatan.compareTo(b.angkatan);
+                              break;
+                            case 'kata_sandi':
+                              cmp = (a.tempPassword ?? '').compareTo(b.tempPassword ?? '');
+                              break;
+                            default:
+                              cmp = a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+                          }
+                          return _alumniSortAscending ? cmp : -cmp;
+                        });
+
+                        final totalItems = filteredAlumni.length;
+                        final totalPages = (totalItems / _alumniRowsPerPage).ceil();
+                        final currentPage = (_alumniCurrentPage >= totalPages && totalPages > 0)
+                            ? totalPages - 1
+                            : _alumniCurrentPage;
+                        final pageStart = currentPage * _alumniRowsPerPage;
+                        final pageEnd = (pageStart + _alumniRowsPerPage < totalItems)
+                            ? pageStart + _alumniRowsPerPage
+                            : totalItems;
+                        final paginatedAlumni = (pageStart < totalItems)
+                            ? filteredAlumni.sublist(pageStart, pageEnd)
+                            : <Student>[];
+
+                        final hasActiveFilters = _selectedAlumniClassFilter != null ||
+                            _selectedAlumniGenderFilter != null ||
+                            _selectedAlumniReligionFilter != null ||
+                            _selectedAlumniAngkatanFilter != null;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (hasActiveFilters)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    if (_selectedAlumniClassFilter != null)
+                                      Chip(
+                                        label: Text('Kelas: $_selectedAlumniClassFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedAlumniClassFilter = null; _alumniCurrentPage = 0; }),
+                                      ),
+                                    if (_selectedAlumniGenderFilter != null)
+                                      Chip(
+                                        label: Text('Gender: $_selectedAlumniGenderFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedAlumniGenderFilter = null; _alumniCurrentPage = 0; }),
+                                      ),
+                                    if (_selectedAlumniReligionFilter != null)
+                                      Chip(
+                                        label: Text('Agama: $_selectedAlumniReligionFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedAlumniReligionFilter = null; _alumniCurrentPage = 0; }),
+                                      ),
+                                    if (_selectedAlumniAngkatanFilter != null)
+                                      Chip(
+                                        label: Text('Angkatan: $_selectedAlumniAngkatanFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                        backgroundColor: const Color(0xFFEEF2FF),
+                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                        deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                        onDeleted: () => setState(() { _selectedAlumniAngkatanFilter = null; _alumniCurrentPage = 0; }),
+                                      ),
+                                    TextButton(
+                                      onPressed: () => setState(() {
+                                        _selectedAlumniClassFilter = null;
+                                        _selectedAlumniGenderFilter = null;
+                                        _selectedAlumniReligionFilter = null;
+                                        _selectedAlumniAngkatanFilter = null;
+                                        _alumniCurrentPage = 0;
+                                      }),
+                                      child: Text('Reset Filter', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFFEF4444))),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            Expanded(
+                              child: filteredAlumni.isEmpty
+                                  ? const Center(child: Text('Tidak ada data alumni.'))
+                                  : _buildAlumniTable(schoolId, paginatedAlumni, studentClassMap, allAlumni),
+                            ),
+                            if (filteredAlumni.isNotEmpty)
+                              _buildPaginationControls(
+                                currentPage: currentPage,
+                                rowsPerPage: _alumniRowsPerPage,
+                                totalItems: totalItems,
+                                onPageChanged: (page) => setState(() => _alumniCurrentPage = page),
+                                onRowsPerPageChanged: (rows) => setState(() {
+                                  _alumniRowsPerPage = rows;
+                                  _alumniCurrentPage = 0;
+                                }),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildAlumniTable(
+    String schoolId,
+    List<Student> alumni,
+    Map<String, String> studentClassMap,
+    List<Student> allAlumni,
+  ) {
+    final classSet = studentClassMap.values.where((c) => c.isNotEmpty && c != '-').toSet().toList()..sort();
+    final classOptions = ['Semua Kelas', ...classSet];
+
+    final genderOptions = ['Semua Gender', 'Laki-laki', 'Perempuan'];
+
+    final existingReligions = allAlumni
+        .map((s) => s.religion.trim())
+        .where((r) => r.isNotEmpty && r != '-')
+        .toSet()
+        .toList()
+      ..sort();
+    final religionOptions = ['Semua Agama', ...existingReligions];
+
+    final existingAngkatan = allAlumni
+        .map((s) => s.angkatan.trim())
+        .where((a) => a.isNotEmpty && a != '-')
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+    final angkatanOptions = ['Semua Angkatan', ...existingAngkatan];
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      elevation: 1,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Scrollbar(
+            controller: _alumniTableHorizontalScrollController,
+            thumbVisibility: true,
+            trackVisibility: true,
+            thickness: 8,
+            radius: const Radius.circular(4),
+            child: SingleChildScrollView(
+              controller: _alumniTableHorizontalScrollController,
+              scrollDirection: Axis.horizontal,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                    columnSpacing: 14,
+                    columns: [
+                      _buildAlumniSortableHeader('Nama', 'nama', 200),
+                      _buildAlumniSortableHeader('NIS', 'nis', 80),
+                      _buildAlumniFilterAndSortHeader(
+                        title: 'Kelas',
+                        colKey: 'kelas',
+                        currentFilter: _selectedAlumniClassFilter,
+                        options: classOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedAlumniClassFilter = val;
+                          _alumniCurrentPage = 0;
+                        }),
+                        width: 110,
+                      ),
+                      _buildAlumniFilterAndSortHeader(
+                        title: 'Gender',
+                        colKey: 'gender',
+                        currentFilter: _selectedAlumniGenderFilter,
+                        options: genderOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedAlumniGenderFilter = val;
+                          _alumniCurrentPage = 0;
+                        }),
+                        width: 110,
+                      ),
+                      _buildAlumniFilterAndSortHeader(
+                        title: 'Agama',
+                        colKey: 'agama',
+                        currentFilter: _selectedAlumniReligionFilter,
+                        options: religionOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedAlumniReligionFilter = val;
+                          _alumniCurrentPage = 0;
+                        }),
+                        width: 110,
+                      ),
+                      _buildAlumniFilterAndSortHeader(
+                        title: 'Angkatan',
+                        colKey: 'angkatan',
+                        currentFilter: _selectedAlumniAngkatanFilter,
+                        options: angkatanOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedAlumniAngkatanFilter = val;
+                          _alumniCurrentPage = 0;
+                        }),
+                        width: 125,
+                      ),
+                      _buildAlumniSortableHeader('Kata Sandi', 'kata_sandi', 110),
+                      const DataColumn(
+                        label: SizedBox(
+                          width: 100,
+                          child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const DataColumn(
+                        label: SizedBox(
+                          width: 180,
+                          child: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                    rows: alumni.map((s) {
+                      return DataRow(cells: [
+                        DataCell(SizedBox(
+                          width: 180,
+                          child: Text(
+                            s.displayName,
+                            style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 80,
+                          child: Text(
+                            s.nis,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: Text(
+                            studentClassMap[s.id] ?? '-',
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: Text(
+                            s.gender == 'M' ? 'Laki-laki' : 'Perempuan',
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: Text(
+                            s.religion,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 125,
+                          child: Text(
+                            s.angkatan,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: s.tempPassword != null && s.tempPassword!.isNotEmpty
+                              ? SelectableText(
+                                  s.tempPassword!,
+                                  style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 15, color: const Color(0xFF0F172A), letterSpacing: 1.2),
+                                )
+                              : const Text('-', style: TextStyle(color: Color(0xFF94A3B8))),
+                        )),
+                        DataCell(SizedBox(
+                          width: 100,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEDE9FE),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'Alumni',
+                              style: TextStyle(
+                                color: Color(0xFF7C3AED),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 180,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                                icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 18),
+                                tooltip: s.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
+                                onPressed: () => _resetPassword(schoolId, 'students', s.id, s.displayName),
+                              ),
+                              IconButton(
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                                icon: const Icon(Icons.restore_rounded, color: Color(0xFF10B981), size: 20),
+                                tooltip: 'Batalkan Kelulusan (Kembalikan ke Murid Aktif)',
+                                onPressed: () => _restoreAlumniStudent(schoolId, s),
+                              ),
+                              IconButton(
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                                icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 18),
+                                tooltip: 'Hapus Permanen',
+                                onPressed: () => _deleteUser(schoolId, 'students', s.id, s.displayName, s.nis),
+                              ),
+                            ],
+                          ),
+                        )),
+                      ]);
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _restoreAlumniStudent(String schoolId, Student s) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Kembalikan ke Murid Aktif', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        content: Text('Apakah Anda yakin ingin membatalkan status kelulusan murid "${s.displayName}" (NIS: ${s.nis}) dan mengembalikannya ke daftar murid aktif?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Batal', style: GoogleFonts.inter(color: const Color(0xFF64748B))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Ya, Kembalikan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await _adminUserService.restoreGraduatedStudent(schoolId: schoolId, studentId: s.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Murid "${s.displayName}" berhasil dikembalikan ke status Aktif.'),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal mengembalikan murid: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  DataColumn _buildAlumniSortableHeader(String title, String colKey, double width) {
+    final isSorted = _alumniSortColumn == colKey;
+    return DataColumn(
+      label: ConstrainedBox(
+        constraints: BoxConstraints(minWidth: width),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: () {
+            setState(() {
+              if (_alumniSortColumn == colKey) {
+                _alumniSortAscending = !_alumniSortAscending;
+              } else {
+                _alumniSortColumn = colKey;
+                _alumniSortAscending = true;
+              }
+              _alumniCurrentPage = 0;
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  isSorted
+                      ? (_alumniSortAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded)
+                      : Icons.unfold_more_rounded,
+                  size: isSorted ? 20 : 16,
+                  color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  DataColumn _buildAlumniFilterAndSortHeader({
+    required String title,
+    required String colKey,
+    required String? currentFilter,
+    required List<String> options,
+    required ValueChanged<String?> onSelected,
+    required double width,
+  }) {
+    final isSorted = _alumniSortColumn == colKey;
+    final hasFilter = currentFilter != null && currentFilter != options.first;
+
+    return DataColumn(
+      label: ConstrainedBox(
+        constraints: BoxConstraints(minWidth: width),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () {
+                setState(() {
+                  if (_alumniSortColumn == colKey) {
+                    _alumniSortAscending = !_alumniSortAscending;
+                  } else {
+                    _alumniSortColumn = colKey;
+                    _alumniSortAscending = true;
+                  }
+                  _alumniCurrentPage = 0;
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      isSorted
+                          ? (_alumniSortAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded)
+                          : Icons.unfold_more_rounded,
+                      size: isSorted ? 20 : 16,
+                      color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+            PopupMenuButton<String>(
+              tooltip: 'Filter $title',
+              offset: const Offset(0, 32),
+              color: Colors.white,
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: hasFilter ? const Color(0xFFEEF2FF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: hasFilter ? Border.all(color: const Color(0xFFC7D2FE)) : null,
+                ),
+                child: Icon(
+                  Icons.filter_alt_rounded,
+                  size: 14,
+                  color: hasFilter ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                ),
+              ),
+              onSelected: (val) {
+                onSelected(val == options.first ? null : val);
+              },
+              itemBuilder: (context) {
+                return options.map((opt) {
+                  final isSelected = (opt == currentFilter) || (opt == options.first && (currentFilter == null || currentFilter == options.first));
+                  return PopupMenuItem<String>(
+                    value: opt,
+                    child: Row(
+                      children: [
+                        if (isSelected)
+                          const Icon(Icons.check_rounded, size: 16, color: Color(0xFF4F46E5))
+                        else
+                          const SizedBox(width: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          opt,
+                          style: TextStyle(
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  DataColumn _buildSortableHeader(String title, String colKey, double width) {
+    final isSorted = _studentSortColumn == colKey;
+    return DataColumn(
+      label: ConstrainedBox(
+        constraints: BoxConstraints(minWidth: width),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: () {
+            setState(() {
+              if (_studentSortColumn == colKey) {
+                _studentSortAscending = !_studentSortAscending;
+              } else {
+                _studentSortColumn = colKey;
+                _studentSortAscending = true;
+              }
+              _studentCurrentPage = 0;
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  isSorted
+                      ? (_studentSortAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded)
+                      : Icons.unfold_more_rounded,
+                  size: isSorted ? 20 : 16,
+                  color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  DataColumn _buildFilterAndSortHeader({
+    required String title,
+    required String colKey,
+    required String? currentFilter,
+    required List<String> options,
+    required ValueChanged<String?> onSelected,
+    required double width,
+  }) {
+    final isSorted = _studentSortColumn == colKey;
+    final hasFilter = currentFilter != null && currentFilter != options.first;
+
+    return DataColumn(
+      label: ConstrainedBox(
+        constraints: BoxConstraints(minWidth: width),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Title & Triangle Sort Icon (Clickable for Sorting)
+            InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () {
+                setState(() {
+                  if (_studentSortColumn == colKey) {
+                    _studentSortAscending = !_studentSortAscending;
+                  } else {
+                    _studentSortColumn = colKey;
+                    _studentSortAscending = true;
+                  }
+                  _studentCurrentPage = 0;
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      isSorted
+                          ? (_studentSortAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded)
+                          : Icons.unfold_more_rounded,
+                      size: isSorted ? 20 : 16,
+                      color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+            // Filter Dropdown Icon (right next to sort icon)
+            PopupMenuButton<String>(
+              tooltip: 'Filter $title',
+              offset: const Offset(0, 32),
+              color: Colors.white,
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: hasFilter ? const Color(0xFFEEF2FF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: hasFilter ? Border.all(color: const Color(0xFFC7D2FE)) : null,
+                ),
+                child: Icon(
+                  Icons.filter_alt_rounded,
+                  size: 14,
+                  color: hasFilter ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                ),
+              ),
+              onSelected: (val) {
+                onSelected(val == options.first ? null : val);
+              },
+              itemBuilder: (context) {
+                return options.map((opt) {
+                  final isSelected = (opt == currentFilter) || (opt == options.first && (currentFilter == null || currentFilter == options.first));
+                  return PopupMenuItem<String>(
+                    value: opt,
+                    child: Row(
+                      children: [
+                        Icon(
+                          isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                          size: 16,
+                          color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          opt,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3863,6 +5186,16 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => SubjectFormDialog(schoolId: schoolId, subject: subject),
+    );
+  }
+
+  void _showGraduationDialog(String schoolId, List<Student> students) {
+    showDialog(
+      context: context,
+      builder: (_) => SelectAngkatanDialog(
+        schoolId: schoolId,
+        students: students,
+      ),
     );
   }
 

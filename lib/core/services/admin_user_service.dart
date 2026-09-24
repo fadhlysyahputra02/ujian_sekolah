@@ -539,7 +539,78 @@ class AdminUserService {
     final activeSnap = await schoolRef.collection('students').get();
     final activeCount = activeSnap.docs.where((d) {
       final data = d.data();
-      return data['status'] != 'inactive' && data['archived'] != true;
+      final isArchived = data['archived'] == true;
+      final isGraduated = data['graduated'] == true || data['status'] == 'graduated' || data['status'] == 'lulus';
+      final isInactive = data['status'] == 'inactive';
+      return !isArchived && !isGraduated && !isInactive;
+    }).length;
+
+    await schoolRef.update({
+      'meta.studentCount': activeCount,
+    });
+  }
+
+  /// Graduate multiple students (batch update status to 'graduated' and graduated to true)
+  Future<void> graduateStudents({
+    required String schoolId,
+    required List<String> studentIds,
+  }) async {
+    if (studentIds.isEmpty) return;
+
+    final schoolRef = _firestore.collection('schools').doc(schoolId);
+    final studentsRef = schoolRef.collection('students');
+
+    const int batchSize = 450;
+    for (int i = 0; i < studentIds.length; i += batchSize) {
+      final end = (i + batchSize < studentIds.length) ? i + batchSize : studentIds.length;
+      final chunk = studentIds.sublist(i, end);
+
+      final batch = _firestore.batch();
+      for (final id in chunk) {
+        batch.set(studentsRef.doc(id), {
+          'status': 'graduated',
+          'graduated': true,
+          'graduatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      await batch.commit();
+    }
+
+    // Update active student count in school metadata
+    final activeSnap = await studentsRef.get();
+    final activeCount = activeSnap.docs.where((d) {
+      final data = d.data();
+      final isArchived = data['archived'] == true;
+      final isGraduated = data['graduated'] == true || data['status'] == 'graduated' || data['status'] == 'lulus';
+      final isInactive = data['status'] == 'inactive';
+      return !isArchived && !isGraduated && !isInactive;
+    }).length;
+
+    await schoolRef.update({
+      'meta.studentCount': activeCount,
+    });
+  }
+
+  /// Restore a graduated student back to active
+  Future<void> restoreGraduatedStudent({
+    required String schoolId,
+    required String studentId,
+  }) async {
+    final schoolRef = _firestore.collection('schools').doc(schoolId);
+    await schoolRef.collection('students').doc(studentId).set({
+      'status': 'active',
+      'graduated': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    final activeSnap = await schoolRef.collection('students').get();
+    final activeCount = activeSnap.docs.where((d) {
+      final data = d.data();
+      final isArchived = data['archived'] == true;
+      final isGraduated = data['graduated'] == true || data['status'] == 'graduated' || data['status'] == 'lulus';
+      final isInactive = data['status'] == 'inactive';
+      return !isArchived && !isGraduated && !isInactive;
     }).length;
 
     await schoolRef.update({
@@ -547,3 +618,4 @@ class AdminUserService {
     });
   }
 }
+

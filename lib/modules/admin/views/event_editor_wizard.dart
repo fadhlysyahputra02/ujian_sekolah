@@ -1387,8 +1387,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     if (_sessions.isEmpty) {
       setState(() {
         _sessions.addAll([
-          {'name': 'Sesi 1', 'startTime': '07:00', 'endTime': '08:00', 'order': 1, 'date': DateTime.now().toIso8601String()},
-          {'name': 'Sesi 2', 'startTime': '09:00', 'endTime': '10:00', 'order': 2, 'date': DateTime.now().toIso8601String()},
+          {'name': 'Sesi 1', 'startTime': '07:00', 'endTime': '09:00', 'order': 1, 'date': DateTime.now().toIso8601String()},
+          {'name': 'Sesi 2', 'startTime': '10:00', 'endTime': '12:00', 'order': 2, 'date': DateTime.now().toIso8601String()},
+          {'name': 'Sesi 3', 'startTime': '13:00', 'endTime': '15:00', 'order': 3, 'date': DateTime.now().toIso8601String()},
         ]);
       });
     }

@@ -807,26 +807,15 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
 
     // Cari jadwal mapel yang match dengan hari & sesi ini
     final List<Map<String, dynamic>> matchingTimetable = _timetable.where((t) {
-      final tsId = (t['sessionId'] ?? '').toString().trim();
+      final tsId = (t['sessionId'] ?? t['session_id'] ?? '').toString().trim();
       final tDay = (t['dayIndex'] as num?)?.toInt() ??
           (t['day'] != null ? int.tryParse(t['day'].toString()) : null);
-      final tSlot = (t['sessionIndex'] ?? t['slotIndex'] as num?)?.toInt() ??
-          (t['session'] != null
-              ? int.tryParse(t['session'].toString())
-              : null);
+      final tSlot = (t['sessionIndex'] ?? t['slotIndex'] ?? t['session'] as num?)?.toInt();
 
       if (tDay != null && tSlot != null) {
-        final dayMatches = (tDay == _selectedDayIndex ||
-            tDay == _selectedDayIndex + 1);
-        final slotMatches = (tSlot == _selectedSessionIndex ||
-            tSlot == _selectedSessionIndex + 1);
-        if (dayMatches && slotMatches) return true;
+        return tDay == _selectedDayIndex && tSlot == _selectedSessionIndex;
       }
-      if (tsId == daySessKey ||
-          tsId == 'day_${_selectedDayIndex + 1}_session_${_selectedSessionIndex + 1}' ||
-          tsId == 'day_${_selectedDayIndex}_session_${_selectedSessionIndex + 1}') {
-        return true;
-      }
+      if (tsId == daySessKey) return true;
       if (targetRealSessionId != null &&
           targetRealSessionId.isNotEmpty &&
           tsId == targetRealSessionId) {
@@ -838,38 +827,25 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
           final d = int.tryParse(parts[1]);
           final s = int.tryParse(parts[3]);
           if (d != null && s != null) {
-            final dayMatches =
-                (d == _selectedDayIndex || d == _selectedDayIndex + 1);
-            final slotMatches =
-                (s == _selectedSessionIndex || s == _selectedSessionIndex + 1);
-            if (dayMatches && slotMatches) return true;
+            return d == _selectedDayIndex && s == _selectedSessionIndex;
           }
         }
       }
       if (tDay != null) {
-        if (tDay == _selectedDayIndex || tDay == _selectedDayIndex + 1) {
-          if (tSlot != null) {
-            return tSlot == _selectedSessionIndex ||
-                tSlot == _selectedSessionIndex + 1;
-          }
+        if (tDay == _selectedDayIndex) {
+          if (tSlot != null) return tSlot == _selectedSessionIndex;
           if (tsId == sId ||
-              tsId == 'session_${_selectedSessionIndex + 1}' ||
               tsId == 'session_$_selectedSessionIndex' ||
-              tsId == '$_selectedSessionIndex' ||
-              tsId == '${_selectedSessionIndex + 1}') {
+              tsId == '$_selectedSessionIndex') {
             return true;
           }
-          if (tsId.isEmpty) {
-            return _selectedSessionIndex == 0;
-          }
+          if (tsId.isEmpty) return _selectedSessionIndex == 0;
         }
         return false;
       }
       if (tsId == sId ||
-          tsId == 'session_${_selectedSessionIndex + 1}' ||
           tsId == 'session_$_selectedSessionIndex' ||
-          tsId == '$_selectedSessionIndex' ||
-          tsId == '${_selectedSessionIndex + 1}') {
+          tsId == '$_selectedSessionIndex') {
         return _selectedDayIndex == 0;
       }
       return false;
@@ -920,204 +896,9 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
         }
       }
 
-      // 2. Hitung Kehadiran Siswa di Ruangan Ini (dari stream Firestore)
-      final Set<String> attendedStudentKeys = {};
-
-      // A. Cek dari koleksi attendances
-      for (var a in _attendances) {
-        final aDay = (a['dayIndex'] as num?)?.toInt();
-        final aSess = (a['sessionIndex'] as num?)?.toInt();
-        if (aDay != null &&
-            aDay != _selectedDayIndex &&
-            aDay != _selectedDayIndex + 1) {
-          continue;
-        }
-        if (aSess != null &&
-            aSess != _selectedSessionIndex &&
-            aSess != _selectedSessionIndex + 1) {
-          continue;
-        }
-
-        final isAtt = a['isAttended'] == true || a['attended'] == true;
-        if (!isAtt) continue;
-
-        final aRoom = (a['roomId'] ?? a['room'] ?? '').toString().trim();
-        final stId =
-            (a['studentId'] ?? a['id'] ?? '').toString().trim().toLowerCase();
-        final stNis = (a['nis'] ?? '').toString().trim().toLowerCase();
-        final seatNum = (a['seatNumber'] as num?)?.toInt();
-
-        bool belongsToRoom = false;
-        if (aRoom.isNotEmpty) {
-          final cleanARoom = aRoom
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-          final cleanRId = rId
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-          final cleanRName = rName
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-          final cleanRCode = rCode
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-
-          belongsToRoom = cleanARoom == cleanRId ||
-              cleanARoom == cleanRName ||
-              cleanARoom == cleanRCode ||
-              cleanRName.contains(cleanARoom) ||
-              cleanARoom.contains(cleanRName);
-        }
-
-        if (!belongsToRoom) {
-          if (stId.isNotEmpty && roomStudentIds.contains(stId)) {
-            belongsToRoom = true;
-          } else if (stNis.isNotEmpty && roomStudentNis.contains(stNis)) {
-            belongsToRoom = true;
-          } else if (seatNum != null &&
-              roomSeatNumbers.contains(seatNum) &&
-              aRoom.isEmpty) {
-            belongsToRoom = true;
-          }
-        }
-
-        if (belongsToRoom) {
-          final key = stId.isNotEmpty
-              ? stId
-              : (stNis.isNotEmpty ? stNis : 'seat_$seatNum');
-          attendedStudentKeys.add(key);
-        }
-      }
-
-      // B. Cek dari koleksi submissions
-      for (var sub in _submissions) {
-        final subDay = (sub['dayIndex'] as num?)?.toInt();
-        final subSess = (sub['sessionIndex'] as num?)?.toInt();
-        if (subDay != null &&
-            subDay != _selectedDayIndex &&
-            subDay != _selectedDayIndex + 1) {
-          continue;
-        }
-        if (subSess != null &&
-            subSess != _selectedSessionIndex &&
-            subSess != _selectedSessionIndex + 1) {
-          continue;
-        }
-
-        final isCompleted =
-            sub['isCompleted'] == true || (sub['status'] == 'completed');
-        if (!isCompleted) continue;
-
-        final subRoom =
-            (sub['roomId'] ?? sub['room'] ?? '').toString().trim();
-        final stId = (sub['studentId'] ?? sub['id'] ?? '')
-            .toString()
-            .trim()
-            .toLowerCase();
-        final stNis = (sub['nis'] ?? '').toString().trim().toLowerCase();
-
-        bool belongsToRoom = false;
-        if (subRoom.isNotEmpty) {
-          final cleanSubRoom = subRoom
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-          final cleanRName = rName
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-          belongsToRoom =
-              cleanSubRoom == cleanRName || cleanRName.contains(cleanSubRoom);
-        }
-        if (!belongsToRoom) {
-          if (stId.isNotEmpty && roomStudentIds.contains(stId)) {
-            belongsToRoom = true;
-          } else if (stNis.isNotEmpty && roomStudentNis.contains(stNis)) {
-            belongsToRoom = true;
-          }
-        }
-
-        if (belongsToRoom) {
-          final key = stId.isNotEmpty
-              ? stId
-              : (stNis.isNotEmpty ? stNis : sub['id'].toString());
-          attendedStudentKeys.add(key);
-        }
-      }
-
-      // C. Cek dari koleksi realtime_control
-      for (var rt in _realtimeControl) {
-        final rtDay = (rt['dayIndex'] as num?)?.toInt();
-        final rtSess = (rt['sessionIndex'] as num?)?.toInt();
-        if (rtDay != null &&
-            rtDay != _selectedDayIndex &&
-            rtDay != _selectedDayIndex + 1) {
-          continue;
-        }
-        if (rtSess != null &&
-            rtSess != _selectedSessionIndex &&
-            rtSess != _selectedSessionIndex + 1) {
-          continue;
-        }
-
-        final status = (rt['status'] ?? '').toString().toLowerCase();
-        final isWorking = rt['isWorking'] == true ||
-            status == 'in_progress' ||
-            status == 'working' ||
-            status == 'completed' ||
-            rt['isCompleted'] == true;
-        if (!isWorking) continue;
-
-        final rtRoom = (rt['roomId'] ?? rt['room'] ?? '').toString().trim();
-        final stId =
-            (rt['studentId'] ?? rt['id'] ?? '').toString().trim().toLowerCase();
-        final stNis = (rt['nis'] ?? '').toString().trim().toLowerCase();
-
-        bool belongsToRoom = false;
-        if (rtRoom.isNotEmpty) {
-          final cleanRtRoom = rtRoom
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-          final cleanRName = rName
-              .toLowerCase()
-              .replaceAll(' ', '')
-              .replaceAll('_', '')
-              .replaceAll('-', '');
-          belongsToRoom =
-              cleanRtRoom == cleanRName || cleanRName.contains(cleanRtRoom);
-        }
-        if (!belongsToRoom) {
-          if (stId.isNotEmpty && roomStudentIds.contains(stId)) {
-            belongsToRoom = true;
-          } else if (stNis.isNotEmpty && roomStudentNis.contains(stNis)) {
-            belongsToRoom = true;
-          }
-        }
-
-        if (belongsToRoom) {
-          final key = stId.isNotEmpty
-              ? stId
-              : (stNis.isNotEmpty ? stNis : rt['id'].toString());
-          attendedStudentKeys.add(key);
-        }
-      }
-
-      final int attendedCount = attendedStudentKeys.length;
-
-      // 3. Mata pelajaran yang sedang diujikan di sesi & ruangan ini
+      // 2. Mata pelajaran yang sedang diujikan di sesi & ruangan ini
       final Set<String> subjectSet = {};
+      final Set<String> subjectIdSet = {};
 
       // A. Cek dari matchingTimetable yang cocok dengan kelas di ruangan
       for (var t in matchingTimetable) {
@@ -1141,11 +922,12 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
         bool classMatched = roomClassSet.isEmpty || _isClassMatched(tClasses, roomClassSet);
 
         if (classMatched) {
-          final sIdVal = (t['subjectId'] ?? '').toString().trim();
+          final sIdVal = (t['subjectId'] ?? '').toString().trim().toLowerCase();
           final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
               ? t['subjectName'].toString().trim()
               : (_subjectMap[sIdVal] ?? sIdVal);
           if (subName.isNotEmpty) subjectSet.add(subName);
+          if (sIdVal.isNotEmpty) subjectIdSet.add(sIdVal);
         }
       }
 
@@ -1165,22 +947,23 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
           final schedSubjects = schedGrid[k];
           if (schedSubjects is List && schedSubjects.isNotEmpty) {
             for (var subId in schedSubjects) {
-              final sIdStr = subId.toString().trim();
+              final sIdStr = subId.toString().trim().toLowerCase();
               String foundName = _subjectMap[sIdStr] ?? sIdStr;
               final subjectsList = _eventData?['subjects'] as List? ??
                   _eventData?['draftState']?['subjects'] as List? ??
                   [];
               for (var sItem in subjectsList) {
                 if (sItem is Map &&
-                    (sItem['id'] == sIdStr ||
-                        sItem['code'] == sIdStr ||
-                        sItem['name'] == sIdStr)) {
+                    (sItem['id']?.toString().toLowerCase() == sIdStr ||
+                        sItem['code']?.toString().toLowerCase() == sIdStr ||
+                        sItem['name']?.toString().toLowerCase() == sIdStr)) {
                   foundName = (sItem['name'] ?? sIdStr).toString();
                   break;
                 }
               }
               if (_isSubjectForRoomClasses(sIdStr, foundName, roomClassSet, _timetable)) {
                 if (foundName.isNotEmpty) subjectSet.add(foundName);
+                if (sIdStr.isNotEmpty) subjectIdSet.add(sIdStr);
               }
             }
             if (subjectSet.isNotEmpty) break;
@@ -1191,13 +974,307 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
       // C. Jika belum ketemu dan tidak ada data kelas di ruangan, ambil mapel dari matchingTimetable
       if (subjectSet.isEmpty && roomClassSet.isEmpty) {
         for (var t in matchingTimetable) {
-          final sIdVal = (t['subjectId'] ?? '').toString().trim();
+          final sIdVal = (t['subjectId'] ?? '').toString().trim().toLowerCase();
           final subName = (t['subjectName'] ?? '').toString().trim().isNotEmpty
               ? t['subjectName'].toString().trim()
               : (_subjectMap[sIdVal] ?? sIdVal);
           if (subName.isNotEmpty) subjectSet.add(subName);
+          if (sIdVal.isNotEmpty) subjectIdSet.add(sIdVal);
         }
       }
+
+      // D. Fallback jika hanya 1 mapel di event doc
+      if (subjectSet.isEmpty && _eventData != null) {
+        final subjectsList = _eventData!['subjects'] as List? ??
+            _eventData!['draftState']?['subjects'] as List? ??
+            [];
+        if (subjectsList.length == 1) {
+          final sName = (subjectsList.first is Map)
+              ? (subjectsList.first['name'] ??
+                      subjectsList.first['subjectName'] ??
+                      '')
+                  .toString()
+              : subjectsList.first.toString();
+          if (sName.isNotEmpty) {
+            subjectSet.add(sName);
+            subjectIdSet.add(sName.toLowerCase());
+          }
+        }
+      }
+
+      // 3. Hitung Kehadiran Siswa di Ruangan Ini (dari stream Firestore)
+      final Set<String> attendedStudentKeys = {};
+      final cleanSubjNames = subjectSet.map((s) => s.toLowerCase().trim()).toSet();
+
+      // A. Cek dari koleksi attendances
+      for (var a in _attendances) {
+        final aDay = (a['dayIndex'] as num?)?.toInt();
+        final aSess = (a['sessionIndex'] as num?)?.toInt();
+        final aDocId = (a['id'] ?? '').toString();
+
+        // 1. Day Check
+        if (aDay != null) {
+          if (aDay != _selectedDayIndex) continue;
+        } else {
+          final daySessPattern = '_${_selectedDayIndex}_${_selectedSessionIndex}_';
+          if (!aDocId.contains(daySessPattern)) continue;
+        }
+
+        // 2. Session Check
+        if (aSess != null) {
+          if (aSess != _selectedSessionIndex) continue;
+        } else {
+          final daySessPattern = '_${_selectedDayIndex}_${_selectedSessionIndex}_';
+          if (!aDocId.contains(daySessPattern)) continue;
+        }
+
+        // 3. Attendance Status
+        final isAtt = a['isAttended'] == true || a['attended'] == true;
+        if (!isAtt) continue;
+
+        // 4. Room Check
+        final aRoom = (a['roomId'] ?? a['room'] ?? '').toString().trim();
+        final stId =
+            (a['studentId'] ?? a['id'] ?? '').toString().trim().toLowerCase();
+        final stNis = (a['nis'] ?? '').toString().trim().toLowerCase();
+        final seatNum = (a['seatNumber'] as num?)?.toInt();
+
+        bool belongsToRoom = false;
+        if (aRoom.isNotEmpty) {
+          final cleanARoom = aRoom
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          final cleanRId = rId
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          final cleanRName = rName
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          final cleanRCode = rCode
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+
+          belongsToRoom = aRoom == rId ||
+              aRoom == rName ||
+              aRoom == rCode ||
+              cleanARoom == cleanRId ||
+              cleanARoom == cleanRName ||
+              cleanARoom == cleanRCode;
+        } else if (aDocId.contains('_${_selectedDayIndex}_${_selectedSessionIndex}_')) {
+          final prefix = aDocId.split('_${_selectedDayIndex}_${_selectedSessionIndex}_').first.toLowerCase();
+          final cleanPrefix = prefix.replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+          final cleanRId = rId.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+          final cleanRName = rName.toLowerCase().replaceAll('ruangan', '').replaceAll('ruang', '').replaceAll('room', '').replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '');
+          belongsToRoom = cleanPrefix == cleanRId || cleanPrefix == cleanRName;
+        }
+
+        if (!belongsToRoom && aRoom.isEmpty) {
+          if (stId.isNotEmpty && roomStudentIds.contains(stId)) {
+            belongsToRoom = true;
+          } else if (stNis.isNotEmpty && roomStudentNis.contains(stNis)) {
+            belongsToRoom = true;
+          }
+        }
+        if (!belongsToRoom) continue;
+
+        // 5. Subject Check (jika dokumen presensi punya subject dan ruangan ada mapel aktif)
+        final aSubjId = (a['subjectId'] ?? '').toString().trim().toLowerCase();
+        final aSubjName = (a['subjectName'] ?? '').toString().trim().toLowerCase();
+        if (cleanSubjNames.isNotEmpty && (aSubjId.isNotEmpty || aSubjName.isNotEmpty)) {
+          final bool matchesSubj = cleanSubjNames.contains(aSubjName) ||
+              subjectIdSet.contains(aSubjId) ||
+              subjectIdSet.contains(aSubjName);
+          if (!matchesSubj) continue;
+        }
+
+        final key = stId.isNotEmpty
+            ? stId
+            : (stNis.isNotEmpty ? stNis : 'seat_$seatNum');
+        attendedStudentKeys.add(key);
+      }
+
+      // B. Cek dari koleksi submissions
+      for (var sub in _submissions) {
+        final subDay = (sub['dayIndex'] as num?)?.toInt();
+        final subSess = (sub['sessionIndex'] as num?)?.toInt();
+        if (subDay != null && subDay != _selectedDayIndex) continue;
+        if (subSess != null && subSess != _selectedSessionIndex) continue;
+
+        final isCompleted =
+            sub['isCompleted'] == true || (sub['status'] == 'completed');
+        if (!isCompleted) continue;
+
+        final subRoom =
+            (sub['roomId'] ?? sub['room'] ?? '').toString().trim();
+        final stId = (sub['studentId'] ?? sub['id'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        final stNis = (sub['nis'] ?? '').toString().trim().toLowerCase();
+
+        bool belongsToRoom = false;
+        if (subRoom.isNotEmpty) {
+          final cleanSubRoom = subRoom
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          final cleanRId = rId
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          final cleanRName = rName
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          belongsToRoom = subRoom == rId || subRoom == rName || cleanSubRoom == cleanRId || cleanSubRoom == cleanRName;
+        }
+        if (!belongsToRoom && subRoom.isEmpty) {
+          if (stId.isNotEmpty && roomStudentIds.contains(stId)) {
+            belongsToRoom = true;
+          } else if (stNis.isNotEmpty && roomStudentNis.contains(stNis)) {
+            belongsToRoom = true;
+          }
+        }
+        if (!belongsToRoom) continue;
+
+        // Subject check for submissions
+        final subSubjId = (sub['subjectId'] ?? '').toString().trim().toLowerCase();
+        final subSubjName = (sub['subjectName'] ?? '').toString().trim().toLowerCase();
+        if (cleanSubjNames.isNotEmpty) {
+          final bool matchesSubj = cleanSubjNames.contains(subSubjName) ||
+              subjectIdSet.contains(subSubjId) ||
+              subjectIdSet.contains(subSubjName);
+          if (!matchesSubj) continue;
+        }
+
+        // Validasi pengerjaan: murid yang tidak menjawab sama sekali tidak dihitung hadir
+        final ansMap = sub['answers'] as Map? ?? {};
+        final essayMap = sub['essayAnswers'] as Map? ?? {};
+        final ansCount = (sub['answeredCount'] as num?)?.toInt() ?? (ansMap.length + essayMap.length);
+        if (ansCount == 0 && ansMap.isEmpty && essayMap.isEmpty) {
+          continue;
+        }
+
+        final key = stId.isNotEmpty
+            ? stId
+            : (stNis.isNotEmpty ? stNis : sub['id'].toString());
+        attendedStudentKeys.add(key);
+      }
+
+      // C. Cek dari koleksi realtime_control
+      for (var rt in _realtimeControl) {
+        final rtDay = (rt['dayIndex'] as num?)?.toInt();
+        final rtSess = (rt['sessionIndex'] as num?)?.toInt();
+        if (rtDay != null && rtDay != _selectedDayIndex) continue;
+        if (rtSess != null && rtSess != _selectedSessionIndex) continue;
+
+        final status = (rt['status'] ?? '').toString().toLowerCase();
+        final isWorking = rt['isWorking'] == true ||
+            status == 'in_progress' ||
+            status == 'working' ||
+            status == 'completed' ||
+            rt['isCompleted'] == true;
+        if (!isWorking) continue;
+
+        final rtRoom = (rt['roomId'] ?? rt['room'] ?? '').toString().trim();
+        final stId =
+            (rt['studentId'] ?? rt['id'] ?? '').toString().trim().toLowerCase();
+        final stNis = (rt['nis'] ?? '').toString().trim().toLowerCase();
+
+        bool belongsToRoom = false;
+        if (rtRoom.isNotEmpty) {
+          final cleanRtRoom = rtRoom
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          final cleanRId = rId
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          final cleanRName = rName
+              .toLowerCase()
+              .replaceAll('ruangan', '')
+              .replaceAll('ruang', '')
+              .replaceAll('room', '')
+              .replaceAll(' ', '')
+              .replaceAll('_', '')
+              .replaceAll('-', '');
+          belongsToRoom = rtRoom == rId || rtRoom == rName || cleanRtRoom == cleanRId || cleanRtRoom == cleanRName;
+        }
+        if (!belongsToRoom && rtRoom.isEmpty) {
+          if (stId.isNotEmpty && roomStudentIds.contains(stId)) {
+            belongsToRoom = true;
+          } else if (stNis.isNotEmpty && roomStudentNis.contains(stNis)) {
+            belongsToRoom = true;
+          }
+        }
+        if (!belongsToRoom) continue;
+
+        // Subject check for realtime_control
+        final rtSubjId = (rt['subjectId'] ?? '').toString().trim().toLowerCase();
+        final rtSubjName = (rt['subjectName'] ?? '').toString().trim().toLowerCase();
+        if (cleanSubjNames.isNotEmpty) {
+          final bool matchesSubj = cleanSubjNames.contains(rtSubjName) ||
+              subjectIdSet.contains(rtSubjId) ||
+              subjectIdSet.contains(rtSubjName);
+          if (!matchesSubj) continue;
+        }
+
+        // Validasi pengerjaan: jika berstatus completed tapi jawaban 0 dan tidak aktif bekerja, abaikan
+        final ansCount = (rt['answeredCount'] as num?)?.toInt() ?? 0;
+        final isLeftApp = rt['isLeftApp'] == true || status == 'left_app';
+        final isCompleted = status == 'completed' || rt['isCompleted'] == true;
+        if (isCompleted && ansCount == 0 && !isLeftApp && !isWorking) {
+          continue;
+        }
+
+        final key = stId.isNotEmpty
+            ? stId
+            : (stNis.isNotEmpty ? stNis : rt['id'].toString());
+        attendedStudentKeys.add(key);
+      }
+
+      final int attendedCount = attendedStudentKeys.length;
 
       // D. Fallback jika hanya 1 mapel di event doc
       if (subjectSet.isEmpty && _eventData != null) {

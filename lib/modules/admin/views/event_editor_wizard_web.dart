@@ -600,9 +600,9 @@ extension EventEditorWizardWebExtension on _EventEditorWizardState {
   Widget _buildWebStep2() {
     final self = this;
     final quickPresets = [
-      {'name': 'Sesi 1', 'start': const TimeOfDay(hour: 7, minute: 0), 'end': const TimeOfDay(hour: 8, minute: 0), 'label': '07:00-08:00'},
-      {'name': 'Sesi 2', 'start': const TimeOfDay(hour: 8, minute: 0), 'end': const TimeOfDay(hour: 9, minute: 0), 'label': '08:00-09:00'},
-      {'name': 'Sesi 3', 'start': const TimeOfDay(hour: 9, minute: 0), 'end': const TimeOfDay(hour: 10, minute: 0), 'label': '09:00-10:00'},
+      {'name': 'Sesi 1', 'start': const TimeOfDay(hour: 7, minute: 0), 'end': const TimeOfDay(hour: 9, minute: 0), 'label': '07:00-09:00'},
+      {'name': 'Sesi 2', 'start': const TimeOfDay(hour: 10, minute: 0), 'end': const TimeOfDay(hour: 12, minute: 0), 'label': '10:00-12:00'},
+      {'name': 'Sesi 3', 'start': const TimeOfDay(hour: 13, minute: 0), 'end': const TimeOfDay(hour: 15, minute: 0), 'label': '13:00-15:00'},
     ];
 
     return ListView(

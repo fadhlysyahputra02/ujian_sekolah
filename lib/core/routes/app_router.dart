@@ -19,8 +19,7 @@ import '../../modules/admin/views/rekap_mapel_list_view.dart';
 import '../../modules/admin/views/rekap_class_list_view.dart';
 import '../../modules/admin/views/rekap_student_grades_view.dart';
 import '../../modules/admin/views/admin_room_control_page.dart';
-
-
+import '../../modules/admin/views/admin_student_graduation_page.dart';
 
 class AppRouter {
   static GoRouter createRouter(AuthService authService) {
@@ -198,6 +197,17 @@ class AppRouter {
               schoolId: schoolId,
               classId: classId,
               initialData: extraData,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/murid/lulus',
+          builder: (context, state) {
+            final schoolId = authService.schoolId ?? '';
+            final angkatanParam = state.uri.queryParameters['angkatan'];
+            return AdminStudentGraduationPage(
+              schoolId: schoolId,
+              initialAngkatan: angkatanParam,
             );
           },
         ),

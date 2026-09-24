@@ -41,25 +41,43 @@ class _SubscriptionBlockedPageState extends State<SubscriptionBlockedPage>
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final isStudentInactive = authService.isStudentInactive;
+    final isStudentGraduated = authService.isStudentGraduated;
 
-    final String titleText = isStudentInactive ? 'Akun Siswa Non-Aktif' : 'Akses Sekolah Ditangguhkan';
-    final String subtitleText = isStudentInactive
-        ? 'Mohon maaf, akun siswa Anda saat ini dalam status Non-Aktif. Anda tidak dapat mengakses fitur ujian SesiCermat.'
-        : 'Layanan langganan sekolah Anda perlu diperpanjang oleh Administrator.';
+    final String titleText = isStudentGraduated
+        ? 'Status Akun: Alumni (Lulus)'
+        : (isStudentInactive ? 'Akun Siswa Non-Aktif' : 'Akses Sekolah Ditangguhkan');
 
-    final IconData headerIcon = isStudentInactive ? Icons.person_off_rounded : Icons.lock_clock_rounded;
-    final Color themeColor = isStudentInactive ? const Color(0xFFF59E0B) : const Color(0xFFEF4444);
-    final List<Color> gradientColors = isStudentInactive
-        ? [const Color(0xFFD97706), const Color(0xFFF59E0B)]
-        : [const Color(0xFFDC2626), const Color(0xFFEF4444)];
+    final String subtitleText = isStudentGraduated
+        ? 'Selamat atas kelulusan Anda! Akun Anda telah berstatus Alumni dan tidak lagi memiliki akses ke pelaksanaan ujian aktif SesiCermat.'
+        : (isStudentInactive
+            ? 'Mohon maaf, akun siswa Anda saat ini dalam status Non-Aktif. Anda tidak dapat mengakses fitur ujian SesiCermat.'
+            : 'Layanan langganan sekolah Anda perlu diperpanjang oleh Administrator.');
 
-    final String statusDetail = isStudentInactive
-        ? 'Non-Aktif (Dinonaktifkan oleh Admin Sekolah)'
-        : 'Ditangguhkan (Perlu perpanjangan langganan)';
+    final IconData headerIcon = isStudentGraduated
+        ? Icons.school_rounded
+        : (isStudentInactive ? Icons.person_off_rounded : Icons.lock_clock_rounded);
 
-    final String helpDetail = isStudentInactive
-        ? 'Silakan hubungi Wali Kelas atau Admin Sekolah Anda untuk mengaktifkan kembali akun Anda.'
-        : 'Hubungi Admin Sekolah atau Tim Dukungan SesiCermat untuk verifikasi status langganan.';
+    final Color themeColor = isStudentGraduated
+        ? const Color(0xFF8B5CF6)
+        : (isStudentInactive ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
+
+    final List<Color> gradientColors = isStudentGraduated
+        ? [const Color(0xFF7C3AED), const Color(0xFF8B5CF6)]
+        : (isStudentInactive
+            ? [const Color(0xFFD97706), const Color(0xFFF59E0B)]
+            : [const Color(0xFFDC2626), const Color(0xFFEF4444)]);
+
+    final String statusDetail = isStudentGraduated
+        ? 'Alumni (Telah Lulus)'
+        : (isStudentInactive
+            ? 'Non-Aktif (Dinonaktifkan oleh Admin Sekolah)'
+            : 'Ditangguhkan (Perlu perpanjangan langganan)');
+
+    final String helpDetail = isStudentGraduated
+        ? 'Jika terdapat kekeliruan data atau Anda membutuhkan arsip nilai/ujian, silakan hubungi Administrator Sekolah Anda.'
+        : (isStudentInactive
+            ? 'Silakan hubungi Wali Kelas atau Admin Sekolah Anda untuk mengaktifkan kembali akun Anda.'
+            : 'Hubungi Admin Sekolah atau Tim Dukungan SesiCermat untuk verifikasi status langganan.');
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),

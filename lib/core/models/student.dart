@@ -13,6 +13,7 @@ class Student {
   final String status;
   final bool disabled;
   final bool archived;
+  final bool graduated;
   final String? tempPassword;
   final Map<String, dynamic>? activeSession;
   final DateTime createdAt;
@@ -20,6 +21,7 @@ class Student {
   final DateTime? deletedAt;
 
   bool get isInactive => status == 'inactive';
+  bool get isGraduated => graduated || status == 'graduated' || status == 'lulus';
   bool get hasActiveSession => activeSession != null && activeSession!['sessionId'] != null;
   String? get activeDeviceName => activeSession?['deviceInfo'] as String?;
 
@@ -36,6 +38,7 @@ class Student {
     this.status = 'active',
     required this.disabled,
     required this.archived,
+    this.graduated = false,
     this.tempPassword,
     this.activeSession,
     required this.createdAt,
@@ -75,6 +78,7 @@ class Student {
       status: (data['status'] ?? 'active').toString(),
       disabled: data['disabled'] == true,
       archived: data['archived'] == true,
+      graduated: data['graduated'] == true || data['status'] == 'graduated' || data['status'] == 'lulus',
       tempPassword: data['tempPassword']?.toString(),
       activeSession: data['activeSession'] as Map<String, dynamic>?,
       createdAt: parseDate(data['createdAt']),
@@ -97,6 +101,7 @@ class Student {
       'status': status,
       'disabled': disabled,
       'archived': archived,
+      'graduated': graduated,
       'tempPassword': tempPassword,
       'activeSession': activeSession,
       'createdAt': createdAt,
