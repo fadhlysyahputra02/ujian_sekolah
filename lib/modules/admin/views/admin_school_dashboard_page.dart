@@ -119,6 +119,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   // Pagination states
   int _teacherRowsPerPage = 10;
   int _teacherCurrentPage = 0;
+  String _teacherSortColumn = 'nama';
+  bool _teacherSortAscending = true;
+  String? _selectedTeacherGenderFilter;
+  String? _selectedTeacherSubjectFilter;
+  String? _selectedTeacherStatusFilter;
 
   int _studentRowsPerPage = 10;
   int _studentCurrentPage = 0;
@@ -225,6 +230,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   // Search & Filter States
   final TextEditingController _searchController = TextEditingController();
   final ValueNotifier<String> _searchNotifier = ValueNotifier('');
+  final ScrollController _teacherTableHorizontalScrollController = ScrollController();
   final ScrollController _studentTableHorizontalScrollController = ScrollController();
 
   final TextEditingController _alumniSearchController = TextEditingController();
@@ -235,6 +241,7 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   void dispose() {
     _searchController.dispose();
     _searchNotifier.dispose();
+    _teacherTableHorizontalScrollController.dispose();
     _studentTableHorizontalScrollController.dispose();
     _alumniSearchController.dispose();
     _alumniSearchNotifier.dispose();
@@ -251,6 +258,11 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
       _teacherCurrentPage = 0;
       _studentCurrentPage = 0;
       _alumniCurrentPage = 0;
+      _teacherSortColumn = 'nama';
+      _teacherSortAscending = true;
+      _selectedTeacherGenderFilter = null;
+      _selectedTeacherSubjectFilter = null;
+      _selectedTeacherStatusFilter = null;
       _selectedClassFilter = null;
       _selectedGenderFilter = null;
       _selectedReligionFilter = null;
@@ -1460,6 +1472,91 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
           SnackBar(
             content: Text('Status murid "${student.displayName}" berhasil diubah menjadi ${newStatus == 'active' ? 'Aktif' : 'Non-aktif'}.'),
             backgroundColor: newStatus == 'active' ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final errStr = e.toString().replaceAll('Exception: ', '');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errStr),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleTeacherStatus(String schoolId, Teacher teacher) async {
+    final bool currentlyDisabled = teacher.disabled;
+    final bool newDisabled = !currentlyDisabled;
+    final String actionText = currentlyDisabled ? 'mengaktifkan' : 'menonaktifkan';
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Konfirmasi Status Guru', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        content: Text('Apakah Anda yakin ingin $actionText guru "${teacher.displayName}" (NIP: ${teacher.nip.isEmpty ? '-' : teacher.nip})?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Batal', style: GoogleFonts.inter(color: const Color(0xFF64748B))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: currentlyDisabled ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(currentlyDisabled ? 'Aktifkan' : 'Non-aktifkan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      if (!newDisabled) {
+        final schoolDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+        final maxQuota = (schoolDoc.data()?['maxTeacherQuota'] as num?)?.toInt() ?? 50;
+        final teachersSnap = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('teachers')
+            .get();
+        final activeCount = teachersSnap.docs.where((d) => d.data()['archived'] != true && d.data()['disabled'] != true).length;
+        if (activeCount >= maxQuota) {
+          throw Exception('Kuota guru aktif telah mencapai batas maksimal ($maxQuota). Non-aktifkan guru lain terlebih dahulu.');
+        }
+      }
+
+      final schoolRef = FirebaseFirestore.instance.collection('schools').doc(schoolId);
+      await schoolRef.collection('teachers').doc(teacher.id).update({
+        'disabled': newDisabled,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      final teachersSnap = await schoolRef.collection('teachers').get();
+      final activeCount = teachersSnap.docs.where((d) => d.data()['archived'] != true && d.data()['disabled'] != true).length;
+      await schoolRef.update({
+        'meta.teacherCount': activeCount,
+      });
+
+      _refreshTeachers(schoolId);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Status guru "${teacher.displayName}" berhasil diubah menjadi ${!newDisabled ? 'Aktif' : 'Non-aktif'}.'),
+            backgroundColor: !newDisabled ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
@@ -3013,15 +3110,75 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
               ),
               const SizedBox(height: 20),
  
-              // Content List — only this part rebuilds on search
+              // Content List — rebuilds on search query and state changes
               Expanded(
                 child: ValueListenableBuilder<String>(
                   valueListenable: _searchNotifier,
                   builder: (context, query, _) {
                     final filteredTeachers = allTeachers.where((t) {
-                      final q = query.toLowerCase();
-                      return t.displayName.toLowerCase().contains(q) || t.nip.contains(q);
+                      final q = query.trim().toLowerCase();
+                      final matchesQuery = q.isEmpty ||
+                          t.displayName.toLowerCase().contains(q) ||
+                          t.nip.toLowerCase().contains(q) ||
+                          t.subjects.any((s) => s.toLowerCase().contains(q));
+                      if (!matchesQuery) return false;
+
+                      if (_selectedTeacherGenderFilter != null && _selectedTeacherGenderFilter != 'Semua Gender') {
+                        final genderStr = t.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                        if (genderStr != _selectedTeacherGenderFilter) return false;
+                      }
+
+                      if (_selectedTeacherSubjectFilter != null && _selectedTeacherSubjectFilter != 'Semua Mata Pelajaran') {
+                        if (!t.subjects.contains(_selectedTeacherSubjectFilter)) return false;
+                      }
+
+                      if (_selectedTeacherStatusFilter != null && _selectedTeacherStatusFilter != 'Semua Status') {
+                        final statusStr = t.disabled ? 'Nonaktif' : 'Aktif';
+                        if (statusStr != _selectedTeacherStatusFilter) return false;
+                      }
+
+                      return true;
                     }).toList();
+
+                    // Sort filtered teachers list
+                    filteredTeachers.sort((a, b) {
+                      int cmp = 0;
+                      switch (_teacherSortColumn) {
+                        case 'nama':
+                          cmp = a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+                          break;
+                        case 'nip':
+                          final nA = int.tryParse(a.nip);
+                          final nB = int.tryParse(b.nip);
+                          if (nA != null && nB != null) {
+                            cmp = nA.compareTo(nB);
+                          } else {
+                            cmp = a.nip.compareTo(b.nip);
+                          }
+                          break;
+                        case 'gender':
+                          final gA = a.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                          final gB = b.gender == 'M' ? 'Laki-laki' : 'Perempuan';
+                          cmp = gA.compareTo(gB);
+                          break;
+                        case 'subjects':
+                          final sA = a.subjects.join(', ').toLowerCase();
+                          final sB = b.subjects.join(', ').toLowerCase();
+                          cmp = sA.compareTo(sB);
+                          break;
+                        case 'kata_sandi':
+                          cmp = (a.tempPassword ?? '').compareTo(b.tempPassword ?? '');
+                          break;
+                        case 'status':
+                          final sA = a.disabled ? 'Nonaktif' : 'Aktif';
+                          final sB = b.disabled ? 'Nonaktif' : 'Aktif';
+                          cmp = sA.compareTo(sB);
+                          break;
+                        default:
+                          cmp = a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+                      }
+                      return _teacherSortAscending ? cmp : -cmp;
+                    });
 
                     final totalItems = filteredTeachers.length;
                     final totalPages = (totalItems / _teacherRowsPerPage).ceil();
@@ -3036,12 +3193,65 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                         ? filteredTeachers.sublist(pageStart, pageEnd)
                         : <Teacher>[];
 
+                    final hasActiveFilters = _selectedTeacherGenderFilter != null ||
+                        _selectedTeacherSubjectFilter != null ||
+                        _selectedTeacherStatusFilter != null;
+
                     return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (hasActiveFilters)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Text(
+                                  'Filter Aktif:',
+                                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                                ),
+                                if (_selectedTeacherGenderFilter != null)
+                                  Chip(
+                                    label: Text('Gender: $_selectedTeacherGenderFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                    backgroundColor: const Color(0xFFEEF2FF),
+                                    side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                    deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                    onDeleted: () => setState(() { _selectedTeacherGenderFilter = null; _teacherCurrentPage = 0; }),
+                                  ),
+                                if (_selectedTeacherSubjectFilter != null)
+                                  Chip(
+                                    label: Text('Mapel: $_selectedTeacherSubjectFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                    backgroundColor: const Color(0xFFEEF2FF),
+                                    side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                    deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                    onDeleted: () => setState(() { _selectedTeacherSubjectFilter = null; _teacherCurrentPage = 0; }),
+                                  ),
+                                if (_selectedTeacherStatusFilter != null)
+                                  Chip(
+                                    label: Text('Status: $_selectedTeacherStatusFilter', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                                    backgroundColor: const Color(0xFFEEF2FF),
+                                    side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                    deleteIcon: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF4F46E5)),
+                                    onDeleted: () => setState(() { _selectedTeacherStatusFilter = null; _teacherCurrentPage = 0; }),
+                                  ),
+                                TextButton(
+                                  onPressed: () => setState(() {
+                                    _selectedTeacherGenderFilter = null;
+                                    _selectedTeacherSubjectFilter = null;
+                                    _selectedTeacherStatusFilter = null;
+                                    _teacherCurrentPage = 0;
+                                  }),
+                                  child: Text('Reset Filter', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFFEF4444))),
+                                ),
+                              ],
+                            ),
+                          ),
                         Expanded(
                           child: filteredTeachers.isEmpty
                               ? const Center(child: Text('Tidak ada data guru.'))
-                              : _buildTeachersTable(schoolId, paginatedTeachers),
+                              : _buildTeachersTable(schoolId, paginatedTeachers, allTeachers),
                         ),
                         if (filteredTeachers.isNotEmpty)
                           _buildPaginationControls(
@@ -3066,87 +3276,214 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
-  Widget _buildTeachersTable(String schoolId, List<Teacher> teachers) {
+  Widget _buildTeachersTable(String schoolId, List<Teacher> teachers, List<Teacher> allTeachers) {
+    final genderOptions = ['Semua Gender', 'Laki-laki', 'Perempuan'];
+
+    final existingSubjects = allTeachers
+        .expand((t) => t.subjects)
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty && s != '-')
+        .toSet()
+        .toList()
+      ..sort();
+    final subjectOptions = ['Semua Mata Pelajaran', ...existingSubjects];
+
+    final statusOptions = ['Semua Status', 'Aktif', 'Nonaktif'];
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       elevation: 1,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.vertical,
+          return Scrollbar(
+            controller: _teacherTableHorizontalScrollController,
+            thumbVisibility: true,
+            trackVisibility: true,
+            thickness: 8,
+            radius: const Radius.circular(4),
             child: SingleChildScrollView(
+              controller: _teacherTableHorizontalScrollController,
               scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: DataTable(
-                  headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
-                  columns: const [
-                    DataColumn(label: Text('Nama', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('NIP', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Mata Pelajaran', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Kata Sandi', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
-                  ],
-                  rows: teachers.map((t) {
-                    return DataRow(cells: [
-                      DataCell(Text(t.displayName)),
-                      DataCell(Text(t.nip)),
-                      DataCell(Text(t.gender == 'M' ? 'Laki-laki' : 'Perempuan')),
-                      DataCell(Text(t.subjects.isEmpty ? '-' : t.subjects.join(', '))),
-                      DataCell(t.tempPassword != null && t.tempPassword!.isNotEmpty
-                          ? SelectableText(
-                              t.tempPassword!,
-                              style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF0F172A), letterSpacing: 1.5),
-                            )
-                          : OutlinedButton.icon(
-                              onPressed: () => _generateSingleTeacherPasswordDirectly(schoolId, t),
-                              icon: const Icon(Icons.vpn_key_rounded, size: 12),
-                              label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFFF59E0B),
-                                side: const BorderSide(color: Color(0xFFF59E0B)),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                    columnSpacing: 14,
+                    columns: [
+                      _buildTeacherSortableHeader('Nama', 'nama', 180),
+                      _buildTeacherSortableHeader('NIP', 'nip', 100),
+                      _buildTeacherFilterAndSortHeader(
+                        title: 'Gender',
+                        colKey: 'gender',
+                        currentFilter: _selectedTeacherGenderFilter,
+                        options: genderOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedTeacherGenderFilter = val;
+                          _teacherCurrentPage = 0;
+                        }),
+                        width: 110,
+                      ),
+                      _buildTeacherFilterAndSortHeader(
+                        title: 'Mata Pelajaran',
+                        colKey: 'subjects',
+                        currentFilter: _selectedTeacherSubjectFilter,
+                        options: subjectOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedTeacherSubjectFilter = val;
+                          _teacherCurrentPage = 0;
+                        }),
+                        width: 160,
+                      ),
+                      _buildTeacherSortableHeader('Kata Sandi', 'kata_sandi', 110),
+                      _buildTeacherFilterAndSortHeader(
+                        title: 'Status',
+                        colKey: 'status',
+                        currentFilter: _selectedTeacherStatusFilter,
+                        options: statusOptions,
+                        onSelected: (val) => setState(() {
+                          _selectedTeacherStatusFilter = val;
+                          _teacherCurrentPage = 0;
+                        }),
+                        width: 100,
+                      ),
+                      const DataColumn(
+                        label: SizedBox(
+                          width: 160,
+                          child: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                    rows: teachers.map((t) {
+                      return DataRow(cells: [
+                        DataCell(SizedBox(
+                          width: 180,
+                          child: Text(
+                            t.displayName,
+                            style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 100,
+                          child: Text(
+                            t.nip.isEmpty ? '-' : t.nip,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: Text(
+                            t.gender == 'M' ? 'Laki-laki' : 'Perempuan',
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 160,
+                          child: Text(
+                            t.subjects.isEmpty ? '-' : t.subjects.join(', '),
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+                            softWrap: true,
+                          ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 110,
+                          child: t.tempPassword != null && t.tempPassword!.isNotEmpty
+                              ? SelectableText(
+                                  t.tempPassword!,
+                                  style: GoogleFonts.firaCode(fontWeight: FontWeight.w800, fontSize: 15, color: const Color(0xFF0F172A), letterSpacing: 1.2),
+                                )
+                              : OutlinedButton.icon(
+                                  onPressed: () => _generateSingleTeacherPasswordDirectly(schoolId, t),
+                                  icon: const Icon(Icons.vpn_key_rounded, size: 12),
+                                  label: Text('Generate', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFF59E0B),
+                                    side: const BorderSide(color: Color(0xFFF59E0B)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                        )),
+                        DataCell(SizedBox(
+                          width: 100,
+                          child: Tooltip(
+                            message: 'Klik untuk ubah status',
+                            child: InkWell(
+                              onTap: () => _toggleTeacherStatus(schoolId, t),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: t.disabled ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      t.disabled ? 'Nonaktif' : 'Aktif',
+                                      style: TextStyle(
+                                        color: t.disabled ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            )),
-                      DataCell(Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: t.disabled ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          t.disabled ? 'Nonaktif' : 'Aktif',
-                          style: TextStyle(color: t.disabled ? const Color(0xFFEF4444) : const Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                      )),
-                      DataCell(Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 20),
-                            tooltip: t.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
-                            onPressed: () => _resetPassword(schoolId, 'teachers', t.id, t.displayName),
+                            ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 20),
-                            tooltip: 'Ubah Data',
-                            onPressed: () => _showTeacherForm(schoolId, teacher: t),
+                        )),
+                        DataCell(SizedBox(
+                          width: 160,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                                icon: const Icon(Icons.vpn_key_outlined, color: Color(0xFFF59E0B), size: 18),
+                                tooltip: t.uid == null ? 'Buat Akun Login' : 'Reset Kata Sandi',
+                                onPressed: () => _resetPassword(schoolId, 'teachers', t.id, t.displayName),
+                              ),
+                              IconButton(
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                                icon: const Icon(Icons.edit_outlined, color: Color(0xFF4F46E5), size: 18),
+                                tooltip: 'Ubah Data',
+                                onPressed: () => _showTeacherForm(schoolId, teacher: t),
+                              ),
+                              IconButton(
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                                icon: Icon(
+                                  t.disabled ? Icons.toggle_off_rounded : Icons.toggle_on_rounded,
+                                  color: t.disabled ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
+                                  size: 24,
+                                ),
+                                tooltip: t.disabled ? 'Aktifkan Akun Guru' : 'Nonaktifkan Akun Guru',
+                                onPressed: () => _toggleTeacherStatus(schoolId, t),
+                              ),
+                              IconButton(
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                                icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 18),
+                                tooltip: 'Hapus Permanen',
+                                onPressed: () => _deleteUser(schoolId, 'teachers', t.id, t.displayName, t.nip),
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
-                            tooltip: 'Hapus Permanen',
-                            onPressed: () => _deleteUser(schoolId, 'teachers', t.id, t.displayName, t.nip),
-                          ),
-                        ],
-                      )),
-                    ]);
-                  }).toList(),
+                        )),
+                      ]);
+                    }).toList(),
+                  ),
                 ),
               ),
             ),
@@ -4885,6 +5222,164 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
     );
   }
 
+  DataColumn _buildTeacherSortableHeader(String title, String colKey, double width) {
+    final isSorted = _teacherSortColumn == colKey;
+    return DataColumn(
+      label: ConstrainedBox(
+        constraints: BoxConstraints(minWidth: width),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: () {
+            setState(() {
+              if (_teacherSortColumn == colKey) {
+                _teacherSortAscending = !_teacherSortAscending;
+              } else {
+                _teacherSortColumn = colKey;
+                _teacherSortAscending = true;
+              }
+              _teacherCurrentPage = 0;
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  isSorted
+                      ? (_teacherSortAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded)
+                      : Icons.unfold_more_rounded,
+                  size: isSorted ? 20 : 16,
+                  color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  DataColumn _buildTeacherFilterAndSortHeader({
+    required String title,
+    required String colKey,
+    required String? currentFilter,
+    required List<String> options,
+    required ValueChanged<String?> onSelected,
+    required double width,
+  }) {
+    final isSorted = _teacherSortColumn == colKey;
+    final hasFilter = currentFilter != null && currentFilter != options.first;
+
+    return DataColumn(
+      label: ConstrainedBox(
+        constraints: BoxConstraints(minWidth: width),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Title & Triangle Sort Icon (Clickable for Sorting)
+            InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () {
+                setState(() {
+                  if (_teacherSortColumn == colKey) {
+                    _teacherSortAscending = !_teacherSortAscending;
+                  } else {
+                    _teacherSortColumn = colKey;
+                    _teacherSortAscending = true;
+                  }
+                  _teacherCurrentPage = 0;
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      isSorted
+                          ? (_teacherSortAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded)
+                          : Icons.unfold_more_rounded,
+                      size: isSorted ? 20 : 16,
+                      color: isSorted ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+            // Filter Dropdown Icon (right next to sort icon)
+            PopupMenuButton<String>(
+              tooltip: 'Filter $title',
+              offset: const Offset(0, 32),
+              color: Colors.white,
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: hasFilter ? const Color(0xFFEEF2FF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: hasFilter ? Border.all(color: const Color(0xFFC7D2FE)) : null,
+                ),
+                child: Icon(
+                  Icons.filter_alt_rounded,
+                  size: 14,
+                  color: hasFilter ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                ),
+              ),
+              onSelected: (val) {
+                onSelected(val == options.first ? null : val);
+              },
+              itemBuilder: (context) {
+                return options.map((opt) {
+                  final isSelected = (opt == currentFilter) || (opt == options.first && (currentFilter == null || currentFilter == options.first));
+                  return PopupMenuItem<String>(
+                    value: opt,
+                    child: Row(
+                      children: [
+                        Icon(
+                          isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                          size: 16,
+                          color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          opt,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF0F172A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDashboardCard(String title, String count, IconData icon, Color color, bool isDesktopWidth) {
     if (isDesktopWidth) {
       return Container(
@@ -5601,7 +6096,17 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
         final schoolName = schoolData['name'] ?? 'Sekolah';
         final schoolCode = schoolData['code'] ?? '-';
         final schoolLogoUrl = schoolData['logoUrl'] as String?;
-        final quotaLimit = schoolData['studentLimit'] ?? schoolData['quotaLimit'] ?? '-';
+        final maxStudentQuota = schoolData['maxStudentQuota'] ??
+            schoolData['maxStudent'] ??
+            schoolData['quotaStudent'] ??
+            schoolData['studentLimit'] ??
+            schoolData['quotaLimit'] ??
+            500;
+        final maxTeacherQuota = schoolData['maxTeacherQuota'] ??
+            schoolData['maxTeacher'] ??
+            schoolData['quotaTeacher'] ??
+            schoolData['teacherLimit'] ??
+            50;
 
         return LayoutBuilder(
           builder: (context, viewportConstraints) {
@@ -6012,7 +6517,15 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
                                       iconBgColor: const Color(0xFFF0FDF4),
                                       iconColor: const Color(0xFF16A34A),
                                       title: 'Batas Kuota Siswa',
-                                      value: '$quotaLimit Siswa',
+                                      value: '$maxStudentQuota Siswa',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildModernTile(
+                                      icon: Icons.badge_outlined,
+                                      iconBgColor: const Color(0xFFFFF7ED),
+                                      iconColor: const Color(0xFFEA580C),
+                                      title: 'Batas Kuota Guru',
+                                      value: '$maxTeacherQuota Guru',
                                     ),
                                   ],
                                 ),
@@ -6917,7 +7430,7 @@ class _HeroAnimatedFeatureBannerState extends State<_HeroAnimatedFeatureBanner> 
 
   static const List<_HeroFeatureHighlight> _features = [
     _HeroFeatureHighlight(
-      title: 'Exambro Anti-Curang CBT',
+      title: 'Keamanan CBT & Anti-Curang',
       desc: 'Proteksi Kunci Layar, AI Deteksi Multitasking & Keamanan Berkas Ujian Real-Time.',
       icon: Icons.shield_rounded,
       accentColor: Color(0xFF818CF8),
@@ -6943,6 +7456,20 @@ class _HeroAnimatedFeatureBannerState extends State<_HeroAnimatedFeatureBanner> 
       icon: Icons.cloud_done_rounded,
       accentColor: Color(0xFF06B6D4),
       gradientColors: [Color(0xFF06B6D4), Color(0xFF0EA5E9)],
+    ),
+    _HeroFeatureHighlight(
+      title: 'Monitoring & Presensi Real-Time',
+      desc: 'Pantau status pengerjaan siswa, waktu tersisa, & absensi pengawas secara live.',
+      icon: Icons.analytics_rounded,
+      accentColor: Color(0xFFEC4899),
+      gradientColors: [Color(0xFFDB2777), Color(0xFFE11D48)],
+    ),
+    _HeroFeatureHighlight(
+      title: 'Kartu Peserta & Berita Acara PDF',
+      desc: 'Cetak kartu ujian otomatis, daftar hadir, & berita acara pelaksanaan instan.',
+      icon: Icons.print_rounded,
+      accentColor: Color(0xFF8B5CF6),
+      gradientColors: [Color(0xFF7C3AED), Color(0xFF6D28D9)],
     ),
   ];
 
@@ -7039,6 +7566,7 @@ class _HeroAnimatedFeatureBannerState extends State<_HeroAnimatedFeatureBanner> 
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Top Header Row with Uploaded School Logo & School Name & Live Active Badge
           Row(
@@ -7095,7 +7623,7 @@ class _HeroAnimatedFeatureBannerState extends State<_HeroAnimatedFeatureBanner> 
           Divider(color: Colors.white.withValues(alpha: 0.12), height: 1),
           const SizedBox(height: 14),
 
-          // Animated Switcher Feature Card with Slide & Fade Transition
+          // Animated Switcher Feature Card with Slide & Fade Transition and STRICT FIXED HEIGHT
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 500),
             switchInCurve: Curves.easeOutCubic,
@@ -7116,7 +7644,8 @@ class _HeroAnimatedFeatureBannerState extends State<_HeroAnimatedFeatureBanner> 
             child: Container(
               key: ValueKey<int>(_currentIndex),
               width: double.infinity,
-              padding: const EdgeInsets.all(14),
+              height: widget.isDesktop ? 74 : 78,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(16),
@@ -7146,23 +7675,26 @@ class _HeroAnimatedFeatureBannerState extends State<_HeroAnimatedFeatureBanner> 
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           currentFeature.title,
                           style: GoogleFonts.inter(
-                            fontSize: 14,
+                            fontSize: 13.5,
                             fontWeight: FontWeight.w800,
                             color: Colors.white,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 2),
                         Text(
                           currentFeature.desc,
                           style: GoogleFonts.inter(
                             fontSize: 11,
                             color: const Color(0xFFCBD5E1),
-                            height: 1.3,
+                            height: 1.25,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
