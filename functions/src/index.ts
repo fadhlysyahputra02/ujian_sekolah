@@ -896,7 +896,7 @@ export const permanentDeleteUser = functions.https.onCall(async (request) => {
   }
 
   const role = request.auth.token.role;
-  const isSuperAdmin = role === 'super_admin' || request.auth.token.email === 'sadmin@sesicermat.com';
+  const isSuperAdmin = role === 'super_admin';
 
   if (!isSuperAdmin) {
     throw new functions.https.HttpsError(
@@ -1388,7 +1388,7 @@ export const clearStudentSession = functions.https.onCall(async (request) => {
 
   const role = request.auth.token.role;
   const tokenSchoolId = request.auth.token.schoolId;
-  const isSuperAdmin = role === 'super_admin' || request.auth.token.email === 'sadmin@sesicermat.com';
+  const isSuperAdmin = role === 'super_admin';
   const { schoolId, studentId, sessionId } = request.data || {};
 
   const db = admin.firestore();
@@ -1478,7 +1478,7 @@ export const resetStudentSession = functions.https.onCall(async (request) => {
 
   const role = request.auth?.token?.role;
   const callerSchoolId = request.auth?.token?.schoolId;
-  const isSuperAdmin = role === 'super_admin' || request.auth?.token?.email === 'sadmin@sesicermat.com';
+  const isSuperAdmin = role === 'super_admin';
 
   if (!isSuperAdmin && (callerSchoolId !== schoolId || (role !== 'school_admin' && role !== 'teacher'))) {
     throw new functions.https.HttpsError('permission-denied', 'Hanya admin sekolah atau pengawas yang berhak mereset sesi siswa.');
@@ -2574,9 +2574,7 @@ export const updateSuperAdminUsername = functions.https.onCall(async (request) =
     );
   }
 
-  const isSuperAdmin = 
-    request.auth.token.role === 'super_admin' || 
-    request.auth.token.email === 'sadmin@sesicermat.com';
+  const isSuperAdmin = request.auth.token.role === 'super_admin';
 
   if (!isSuperAdmin) {
     throw new functions.https.HttpsError(
@@ -2641,7 +2639,7 @@ export const resolveSuperAdminUsername = functions.https.onCall(async (request) 
   }
 
   if (input === 'sadmin' || input === customUsername) {
-    return { isSuperAdmin: true, email: 'sadmin@sesicermat.com' };
+    return { isSuperAdmin: true };
   }
 
   return { isSuperAdmin: false };
@@ -2658,9 +2656,7 @@ export const updateSchoolQuota = functions.https.onCall(async (request) => {
     );
   }
 
-  const isSuperAdmin =
-    request.auth.token.role === 'super_admin' ||
-    request.auth.token.email === 'sadmin@sesicermat.com';
+  const isSuperAdmin = request.auth.token.role === 'super_admin';
 
   if (!isSuperAdmin) {
     throw new functions.https.HttpsError(

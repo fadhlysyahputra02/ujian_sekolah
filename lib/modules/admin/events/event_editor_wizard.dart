@@ -9,7 +9,7 @@ import '../../../core/services/admin_user_service.dart';
 import '../../../core/services/event_exam_service.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/utils/natural_sort.dart';
-import 'exam_pdf_generator.dart';
+import '../reports/exam_pdf_generator.dart';
 
 part 'event_editor_wizard_mobile.dart';
 part 'event_editor_wizard_web.dart';

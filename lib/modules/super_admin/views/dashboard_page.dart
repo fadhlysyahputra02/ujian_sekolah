@@ -12,6 +12,7 @@ import 'package:sys_exam_school/core/services/app_update_service.dart';
 import 'package:sys_exam_school/core/widgets/app_release_manager_dialog.dart';
 import 'package:sys_exam_school/core/widgets/app_splash_loader.dart';
 import 'package:sys_exam_school/modules/super_admin/views/school_list_page.dart';
+import 'package:sys_exam_school/modules/super_admin/views/bug_report_tickets_page.dart';
 
 class DashboardPage extends StatefulWidget {
   final String? tabName;
@@ -63,6 +64,7 @@ class _DashboardPageState extends State<DashboardPage>
         case 'ringkasan': _selectedIndex = 0; break;
         case 'sekolah': _selectedIndex = 1; break;
         case 'pengaturan': _selectedIndex = 2; break;
+        case 'tiket_laporan': _selectedIndex = 3; break;
         default: _selectedIndex = 0;
       }
     });
@@ -74,6 +76,7 @@ class _DashboardPageState extends State<DashboardPage>
       case 0: path = 'ringkasan'; break;
       case 1: path = 'sekolah'; break;
       case 2: path = 'pengaturan'; break;
+      case 3: path = 'tiket_laporan'; break;
       default: path = 'ringkasan';
     }
     context.go('/superadmin/$path');
@@ -101,6 +104,11 @@ class _DashboardPageState extends State<DashboardPage>
       activeIcon: Icons.settings_rounded,
       label: 'Pengaturan',
     ),
+    _NavItem(
+      icon: Icons.bug_report_outlined,
+      activeIcon: Icons.bug_report_rounded,
+      label: 'Tiket Laporan',
+    ),
   ];
 
   @override
@@ -126,6 +134,7 @@ class _DashboardPageState extends State<DashboardPage>
     // SchoolListPage is kept alive via _schoolListPage (late final field in initState).
     final settingsWidget = _buildSettingsContent(authService);
     final overviewWidget = _buildOverviewContent();
+    final bugReportTicketsWidget = const BugReportTicketsPage();
 
     final backgroundGradient = const BoxDecoration(
       gradient: LinearGradient(
@@ -146,6 +155,7 @@ class _DashboardPageState extends State<DashboardPage>
         overviewWidget,
         _schoolListPage,
         settingsWidget,
+        bugReportTicketsWidget,
       ],
     );
 

@@ -741,7 +741,7 @@ exports.permanentDeleteUser = functions.https.onCall(async (request) => {
         throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login terlebih dahulu.');
     }
     const role = request.auth.token.role;
-    const isSuperAdmin = role === 'super_admin' || request.auth.token.email === 'sadmin@sesicermat.com';
+    const isSuperAdmin = role === 'super_admin';
     if (!isSuperAdmin) {
         throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin yang berhak menghapus akun pengguna secara permanen.');
     }
@@ -1164,7 +1164,7 @@ exports.clearStudentSession = functions.https.onCall(async (request) => {
     }
     const role = request.auth.token.role;
     const tokenSchoolId = request.auth.token.schoolId;
-    const isSuperAdmin = role === 'super_admin' || request.auth.token.email === 'sadmin@sesicermat.com';
+    const isSuperAdmin = role === 'super_admin';
     const { schoolId, studentId, sessionId } = request.data || {};
     const db = admin.firestore();
     try {
@@ -1244,7 +1244,7 @@ exports.resetStudentSession = functions.https.onCall(async (request) => {
     }
     const role = request.auth?.token?.role;
     const callerSchoolId = request.auth?.token?.schoolId;
-    const isSuperAdmin = role === 'super_admin' || request.auth?.token?.email === 'sadmin@sesicermat.com';
+    const isSuperAdmin = role === 'super_admin';
     if (!isSuperAdmin && (callerSchoolId !== schoolId || (role !== 'school_admin' && role !== 'teacher'))) {
         throw new functions.https.HttpsError('permission-denied', 'Hanya admin sekolah atau pengawas yang berhak mereset sesi siswa.');
     }
@@ -2159,8 +2159,7 @@ exports.updateSuperAdminUsername = functions.https.onCall(async (request) => {
     if (!request.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Anda harus login terlebih dahulu.');
     }
-    const isSuperAdmin = request.auth.token.role === 'super_admin' ||
-        request.auth.token.email === 'sadmin@sesicermat.com';
+    const isSuperAdmin = request.auth.token.role === 'super_admin';
     if (!isSuperAdmin) {
         throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin yang dapat mengubah username login.');
     }
@@ -2213,7 +2212,7 @@ exports.resolveSuperAdminUsername = functions.https.onCall(async (request) => {
         catch (_) { }
     }
     if (input === 'sadmin' || input === customUsername) {
-        return { isSuperAdmin: true, email: 'sadmin@sesicermat.com' };
+        return { isSuperAdmin: true };
     }
     return { isSuperAdmin: false };
 });
@@ -2224,8 +2223,7 @@ exports.updateSchoolQuota = functions.https.onCall(async (request) => {
     if (!request.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login terlebih dahulu.');
     }
-    const isSuperAdmin = request.auth.token.role === 'super_admin' ||
-        request.auth.token.email === 'sadmin@sesicermat.com';
+    const isSuperAdmin = request.auth.token.role === 'super_admin';
     if (!isSuperAdmin) {
         throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin yang dapat mengubah kuota sekolah.');
     }

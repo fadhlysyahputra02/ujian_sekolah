@@ -10,7 +10,7 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/constants/app_version.dart';
 import '../../../core/services/app_update_service.dart';
-import '../../admin/views/rekap_nilai_view.dart';
+import '../../admin/reports/rekap_nilai_view.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
   final String? tabName;

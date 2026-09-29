@@ -250,6 +250,59 @@ class AdminUserService {
     });
   }
 
+  /// Reset single teacher active session
+  Future<void> resetTeacherSession({
+    required String schoolId,
+    required String teacherId,
+  }) async {
+    await _firestore
+        .collection('schools')
+        .doc(schoolId)
+        .collection('teachers')
+        .doc(teacherId)
+        .update({
+      'activeSession': null,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Reset ALL teacher active sessions for a specific school (strictly isolated to schoolId)
+  Future<int> resetAllTeacherSessions({
+    required String schoolId,
+    void Function(double progress, int resetCount)? onProgress,
+  }) async {
+    final querySnap = await _firestore
+        .collection('schools')
+        .doc(schoolId)
+        .collection('teachers')
+        .where('archived', isEqualTo: false)
+        .get();
+
+    final docs = querySnap.docs;
+    if (docs.isEmpty) return 0;
+
+    int count = 0;
+    WriteBatch batch = _firestore.batch();
+
+    for (int i = 0; i < docs.length; i++) {
+      batch.update(docs[i].reference, {
+        'activeSession': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      count++;
+
+      if (count % 450 == 0 || i == docs.length - 1) {
+        await batch.commit();
+        batch = _firestore.batch();
+        if (onProgress != null) {
+          onProgress(count / docs.length, count);
+        }
+      }
+    }
+
+    return count;
+  }
+
   /// Permanently delete user
   Future<void> permanentDeleteUser({
     required String schoolId,

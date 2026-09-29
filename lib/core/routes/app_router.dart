@@ -3,7 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../services/auth_service.dart';
 import '../../modules/auth/views/login_page.dart';
 import '../../modules/super_admin/views/dashboard_page.dart';
-import '../../modules/admin/views/admin_school_dashboard_page.dart';
+import '../../modules/admin/dashboard/admin_school_dashboard_page.dart';
 import '../../modules/teacher/views/teacher_dashboard_page.dart';
 import '../../modules/teacher/views/teacher_event_detail_page.dart';
 import '../../modules/teacher/views/teacher_proctor_room_page.dart';
@@ -13,14 +13,14 @@ import '../../modules/subscription/views/subscription_blocked_page.dart';
 import '../constants/app_version.dart';
 import '../utils/platform_helper.dart';
 import '../widgets/app_splash_loader.dart';
-import '../../modules/admin/views/admin_full_schedule_page.dart';
-import '../../modules/admin/views/class_detail_screen.dart';
-import '../../modules/admin/views/rekap_mapel_list_view.dart';
-import '../../modules/admin/views/rekap_class_list_view.dart';
-import '../../modules/admin/views/rekap_student_grades_view.dart';
-import '../../modules/admin/views/admin_room_control_page.dart';
-import '../../modules/admin/views/admin_student_graduation_page.dart';
-import '../../modules/admin/views/event_comprehensive_report_dialog.dart';
+import '../../modules/admin/events/admin_full_schedule_page.dart';
+import '../../modules/admin/classes/class_detail_screen.dart';
+import '../../modules/admin/reports/rekap_mapel_list_view.dart';
+import '../../modules/admin/reports/rekap_class_list_view.dart';
+import '../../modules/admin/reports/rekap_student_grades_view.dart';
+import '../../modules/admin/events/admin_room_control_page.dart';
+import '../../modules/admin/graduation/admin_student_graduation_page.dart';
+import '../../modules/admin/reports/event_comprehensive_report_dialog.dart';
 
 class AppRouter {
   static GoRouter createRouter(AuthService authService) {

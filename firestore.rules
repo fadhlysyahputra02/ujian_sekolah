@@ -3,10 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Helper function to check if the user is a super admin
     function isSuperAdmin() {
-      return request.auth != null && (
-        request.auth.token.role == 'super_admin' ||
-        request.auth.token.email == 'sadmin@sesicermat.com'
-      );
+      return request.auth != null && request.auth.token.role == 'super_admin';
     }
 
     // Helper function to check if a school is active (must exist and not be disabled/deleted)
@@ -94,19 +91,19 @@ service cloud.firestore {
 
       // Sub-collection for subjects
       match /subjects/{subjectId} {
-        allow read: if request.auth != null;
+        allow read: if isSuperAdmin() || isSchoolMember(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for classes
       match /classes/{classId} {
-        allow read: if request.auth != null;
+        allow read: if isSuperAdmin() || isSchoolMember(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for rooms
       match /rooms/{roomId} {
-        allow read: if request.auth != null;
+        allow read: if isSuperAdmin() || isSchoolMember(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
@@ -267,23 +264,21 @@ service cloud.firestore {
 
     // Rules for users collection
     match /users/{userId} {
-      function isSuperAdminByEmail() {
-        return request.auth != null && request.auth.token.email == 'sadmin@sesicermat.com';
-      }
-
       allow read: if request.auth != null && (
         isSuperAdmin() ||
-        isSuperAdminByEmail() ||
         (request.auth.uid == userId && isUserSchoolActive())
       );
-      allow create: if isSuperAdmin() || isSuperAdminByEmail();
+      allow create: if isSuperAdmin();
       allow update: if request.auth != null && (
         isSuperAdmin() ||
-        isSuperAdminByEmail() ||
         (request.auth.uid == userId && isUserSchoolActive() &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'schoolId']))
       );
-      allow delete: if isSuperAdmin() || isSuperAdminByEmail();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /{path=**}/bug_reports/{reportId} {
+      allow read, write: if request.auth != null;
     }
   }
 }

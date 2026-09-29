@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/models/teacher.dart';
 import '../../../core/services/admin_user_service.dart';
+import '../../../core/utils/error_formatter.dart';
 import 'generate_password_dialog.dart';
 
 class TeacherFormDialog extends StatefulWidget {
@@ -28,6 +30,7 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
   List<String> _subjects = [];
   bool _createAuth = false;
   bool _isLoading = false;
+  String? _errorMessage;
 
   // New subject states
   List<Map<String, dynamic>> _schoolSubjects = [];
@@ -90,6 +93,7 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
 
     setState(() {
       _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
@@ -145,12 +149,9 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal memproses data: $e'),
-            backgroundColor: const Color(0xFFEF4444),
-          ),
-        );
+        setState(() {
+          _errorMessage = ErrorFormatter.format(e);
+        });
       }
     } finally {
       if (mounted) {
@@ -222,6 +223,40 @@ class _TeacherFormDialogState extends State<TeacherFormDialog> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (_errorMessage != null) ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFFCA5A5)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _errorMessage!,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: const Color(0xFF991B1B),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                onTap: () => setState(() => _errorMessage = null),
+                                child: const Icon(Icons.close_rounded, color: Color(0xFF991B1B), size: 18),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
                       // Name Field
                       TextFormField(
                         controller: _nameController,
