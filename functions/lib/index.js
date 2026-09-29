@@ -1,10 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateSchoolQuota = exports.resolveSuperAdminUsername = exports.updateSuperAdminUsername = exports.changeOwnPassword = exports.resetSchoolAdminPassword = exports.deleteSchool = exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.deleteEvent = exports.createEvent = exports.importTeachersBulk = exports.resetAllStudentSessions = exports.resetStudentSession = exports.clearStudentSession = exports.registerStudentSession = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = void 0;
+exports.updateSchoolQuota = exports.resolveSuperAdminUsername = exports.updateSuperAdminUsername = exports.changeOwnPassword = exports.resetSchoolAdminPassword = exports.deleteSchool = exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.deleteEvent = exports.createEvent = exports.importTeachersBulk = exports.resetAllStudentSessions = exports.resetStudentSession = exports.clearStudentSession = exports.registerStudentSession = exports.resolveEmailByPassword = exports.verifySchoolCode = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const firestore_1 = require("firebase-admin/firestore");
+const crypto = require("crypto");
 admin.initializeApp();
+/**
+ * Helper to validate allowed collection types (students, teachers).
+ */
+function validateCollectionType(collectionType) {
+    const allowed = ['students', 'teachers'];
+    if (!collectionType || !allowed.includes(collectionType)) {
+        throw new functions.https.HttpsError('invalid-argument', 'collectionType tidak valid. Hanya diizinkan "students" atau "teachers".');
+    }
+}
 /**
  * Helper to verify school admin privileges.
  */
@@ -31,15 +41,17 @@ function generateSecurePassword() {
     const digits = '0123456789';
     const letterChars = [];
     for (let i = 0; i < 6; i++) {
-        letterChars.push(letters.charAt(Math.floor(Math.random() * letters.length)));
+        const idx = crypto.randomInt(0, letters.length);
+        letterChars.push(letters.charAt(idx));
     }
     const digitChars = [];
     for (let i = 0; i < 2; i++) {
-        digitChars.push(digits.charAt(Math.floor(Math.random() * digits.length)));
+        const idx = crypto.randomInt(0, digits.length);
+        digitChars.push(digits.charAt(idx));
     }
     const combined = [...letterChars, ...digitChars];
     for (let i = combined.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = crypto.randomInt(0, i + 1);
         [combined[i], combined[j]] = [combined[j], combined[i]];
     }
     return combined.join('');
@@ -517,6 +529,7 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
     if (!schoolId || !collectionType || !docId) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
+    validateCollectionType(collectionType);
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
     const docRef = db.collection('schools').doc(schoolId).collection(collectionType).doc(docId);
@@ -596,6 +609,7 @@ exports.softDeleteUser = functions.https.onCall(async (request) => {
     if (!schoolId || !collectionType || !docId) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
+    validateCollectionType(collectionType);
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
     try {
@@ -671,6 +685,7 @@ exports.restoreUser = functions.https.onCall(async (request) => {
     if (!schoolId || !collectionType || !docId) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
+    validateCollectionType(collectionType);
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
     try {
@@ -722,11 +737,19 @@ exports.restoreUser = functions.https.onCall(async (request) => {
  * Permanently deletes a user (Super Admin only).
  */
 exports.permanentDeleteUser = functions.https.onCall(async (request) => {
+    if (!request.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login terlebih dahulu.');
+    }
+    const role = request.auth.token.role;
+    const isSuperAdmin = role === 'super_admin' || request.auth.token.email === 'sadmin@sesicermat.com';
+    if (!isSuperAdmin) {
+        throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin yang berhak menghapus akun pengguna secara permanen.');
+    }
     const { schoolId, collectionType, docId } = request.data || {};
     if (!schoolId || !collectionType || !docId) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
-    verifySchoolAdmin(request, schoolId);
+    validateCollectionType(collectionType);
     const db = admin.firestore();
     try {
         let classDocRefs = [];
@@ -794,6 +817,9 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
     const { schoolId, rows, createAuth } = request.data || {};
     if (!schoolId || !Array.isArray(rows)) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    if (rows.length > 500) {
+        throw new functions.https.HttpsError('invalid-argument', 'Jumlah baris impor melebihi batas maksimal (maksimal 500 baris per transaksi).');
     }
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
@@ -924,27 +950,81 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
     }
 });
 /**
+ * Verifies school code and returns minimal public info for login.
+ * Protects school document from public Firestore read access.
+ */
+exports.verifySchoolCode = functions.https.onCall(async (request) => {
+    const { schoolCode } = request.data || {};
+    if (!schoolCode || typeof schoolCode !== 'string' || schoolCode.trim().length === 0 || schoolCode.length > 100) {
+        throw new functions.https.HttpsError('invalid-argument', 'Kode sekolah tidak valid.');
+    }
+    const cleanCode = schoolCode.trim().toLowerCase();
+    const db = admin.firestore();
+    try {
+        let snap = await db.collection('schools')
+            .where('code', '==', cleanCode)
+            .limit(1)
+            .get();
+        if (snap.empty) {
+            const docSnap = await db.collection('schools').doc(cleanCode).get();
+            if (docSnap.exists && docSnap.data()?.deleted !== true && docSnap.data()?.disabled !== true) {
+                const data = docSnap.data();
+                return {
+                    exists: true,
+                    schoolId: docSnap.id,
+                    name: data.name || '',
+                    code: data.code || docSnap.id,
+                    logoUrl: data.logoUrl || data.logoBase64 || null,
+                };
+            }
+        }
+        else {
+            const doc = snap.docs[0];
+            const data = doc.data();
+            if (data.deleted !== true && data.disabled !== true) {
+                return {
+                    exists: true,
+                    schoolId: doc.id,
+                    name: data.name || '',
+                    code: data.code || doc.id,
+                    logoUrl: data.logoUrl || data.logoBase64 || null,
+                };
+            }
+        }
+        return { exists: false, message: 'Sekolah tidak ditemukan atau tidak aktif.' };
+    }
+    catch (err) {
+        throw new functions.https.HttpsError('internal', 'Gagal memverifikasi kode sekolah.');
+    }
+});
+/**
  * Resolves user email by identifier (NIP, NIS, or email).
- * Enforces single-device login session check for role student.
+ * Enforces strict parameter validation, input sanitization, minimal output,
+ * and generic error responses to prevent account enumeration.
  */
 exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
-    const { schoolId, password, identifier: rawIdentifier, currentSessionId } = request.data || {};
-    if (!schoolId || (!password && !rawIdentifier)) {
-        throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    const { schoolId, identifier, password, currentSessionId } = request.data || {};
+    if (!schoolId || typeof schoolId !== 'string' || schoolId.length > 100) {
+        throw new functions.https.HttpsError('invalid-argument', 'Permintaan tidak valid.');
     }
-    const lookupKey = (rawIdentifier || password || '').toString().trim();
+    const lookupRaw = (identifier || password || '').toString().trim();
+    if (lookupRaw.length === 0 || lookupRaw.length > 150) {
+        throw new functions.https.HttpsError('invalid-argument', 'Permintaan tidak valid.');
+    }
+    const lookupKey = lookupRaw.replace(/[^\w\s@.-]/gi, '');
+    const cleanSchoolId = schoolId.trim();
     const db = admin.firestore();
     try {
         // 1. Search in teachers NIP or email
         let teachersQuery = await db.collection('schools')
-            .doc(schoolId)
+            .doc(cleanSchoolId)
             .collection('teachers')
             .where('nip', '==', lookupKey)
             .where('archived', '==', false)
             .get();
         if (teachersQuery.empty) {
             teachersQuery = await db.collection('schools')
-                .doc(schoolId)
+                .doc(cleanSchoolId)
                 .collection('teachers')
                 .where('email', '==', lookupKey)
                 .where('archived', '==', false)
@@ -952,18 +1032,22 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
         }
         if (!teachersQuery.empty) {
             const teacherData = teachersQuery.docs[0].data();
-            return { success: true, email: teacherData.email, role: 'teacher' };
+            return {
+                success: true,
+                email: teacherData.email,
+                role: 'teacher',
+            };
         }
         // 2. Search in students NIS or email
         let studentsQuery = await db.collection('schools')
-            .doc(schoolId)
+            .doc(cleanSchoolId)
             .collection('students')
             .where('nis', '==', lookupKey)
             .where('archived', '==', false)
             .get();
         if (studentsQuery.empty) {
             studentsQuery = await db.collection('schools')
-                .doc(schoolId)
+                .doc(cleanSchoolId)
                 .collection('students')
                 .where('email', '==', lookupKey)
                 .where('archived', '==', false)
@@ -973,10 +1057,9 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
             const studentDoc = studentsQuery.docs[0];
             const studentData = studentDoc.data();
             const activeSession = studentData.activeSession;
-            // Check if student is already logged in on another device
+            // Single device login check for student
             if (activeSession && activeSession.sessionId) {
                 const isSameDevice = currentSessionId && activeSession.sessionId === currentSessionId;
-                // Check if session is expired (> 12 hours)
                 let isExpired = false;
                 if (activeSession.loginAt) {
                     const loginTime = activeSession.loginAt.toDate ? activeSession.loginAt.toDate() : new Date(activeSession.loginAt);
@@ -986,15 +1069,10 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
                     }
                 }
                 if (!isSameDevice && !isExpired) {
-                    const deviceName = activeSession.deviceInfo || 'Perangkat / Browser Lain';
-                    const studentName = studentData.displayName || 'Siswa';
                     return {
                         success: false,
                         alreadyLoggedIn: true,
-                        activeDevice: deviceName,
-                        studentName,
-                        loginAt: activeSession.loginAt ? (activeSession.loginAt.toDate ? activeSession.loginAt.toDate().toISOString() : activeSession.loginAt) : null,
-                        message: `Akun siswa "${studentName}" sedang aktif di perangkat lain (${deviceName}). Siswa tidak dapat login di perangkat ataupun browser yang berbeda secara bersamaan.`,
+                        message: 'Akun ini sedang aktif di perangkat lain. Silakan logout dari perangkat sebelumnya terlebih dahulu.',
                     };
                 }
             }
@@ -1005,29 +1083,53 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
                 studentId: studentDoc.id,
             };
         }
-        return { success: false };
+        return {
+            success: false,
+            message: 'Kredensial atau informasi login tidak valid.',
+        };
     }
     catch (err) {
-        throw new functions.https.HttpsError('internal', err.message || 'Gagal memverifikasi akun.');
+        if (err instanceof functions.https.HttpsError)
+            throw err;
+        throw new functions.https.HttpsError('internal', 'Gagal memproses verifikasi login.');
     }
 });
 /**
  * Registers an active session for a student upon login.
+ * Enforces strict authentication, role validation, and binding to request.auth.uid.
  */
 exports.registerStudentSession = functions.https.onCall(async (request) => {
-    const { schoolId, studentId, sessionId, deviceInfo } = request.data || {};
-    if (!schoolId || !sessionId) {
-        throw new functions.https.HttpsError('invalid-argument', 'Parameter schoolId dan sessionId wajib disertakan.');
+    if (!request.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login.');
     }
+    const role = request.auth.token.role;
+    const tokenSchoolId = request.auth.token.schoolId;
+    const { schoolId, sessionId, deviceInfo } = request.data || {};
+    if (role !== 'student') {
+        throw new functions.https.HttpsError('permission-denied', 'Hanya siswa yang dapat mendaftarkan sesi ini.');
+    }
+    const targetSchoolId = tokenSchoolId || schoolId;
+    if (!targetSchoolId || (tokenSchoolId && schoolId && tokenSchoolId !== schoolId)) {
+        throw new functions.https.HttpsError('permission-denied', 'Akses tenant sekolah tidak valid.');
+    }
+    if (!sessionId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Parameter sessionId wajib disertakan.');
+    }
+    const uid = request.auth.uid;
     const db = admin.firestore();
-    const uid = request.auth?.uid;
     try {
         let targetDocRef = null;
-        if (studentId) {
-            targetDocRef = db.collection('schools').doc(schoolId).collection('students').doc(studentId);
+        const directDocRef = db.collection('schools').doc(targetSchoolId).collection('students').doc(uid);
+        const directSnap = await directDocRef.get();
+        if (directSnap.exists) {
+            targetDocRef = directDocRef;
         }
-        else if (uid) {
-            const q = await db.collection('schools').doc(schoolId).collection('students').where('uid', '==', uid).limit(1).get();
+        else {
+            const q = await db.collection('schools').doc(targetSchoolId).collection('students')
+                .where('uid', '==', uid)
+                .where('archived', '==', false)
+                .limit(1)
+                .get();
             if (!q.empty) {
                 targetDocRef = q.docs[0].ref;
             }
@@ -1047,48 +1149,88 @@ exports.registerStudentSession = functions.https.onCall(async (request) => {
         return { success: true };
     }
     catch (err) {
+        if (err instanceof functions.https.HttpsError)
+            throw err;
         throw new functions.https.HttpsError('internal', err.message || 'Gagal mendaftarkan sesi siswa.');
     }
 });
 /**
- * Clears an active session for a student (called on logout).
+ * Clears an active session for a student (called on logout or session cleanup).
+ * Enforces role-based authorization and session validation.
  */
 exports.clearStudentSession = functions.https.onCall(async (request) => {
+    if (!request.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login.');
+    }
+    const role = request.auth.token.role;
+    const tokenSchoolId = request.auth.token.schoolId;
+    const isSuperAdmin = role === 'super_admin' || request.auth.token.email === 'sadmin@sesicermat.com';
     const { schoolId, studentId, sessionId } = request.data || {};
-    const uid = request.auth?.uid;
     const db = admin.firestore();
     try {
-        let targetDocRef = null;
-        if (schoolId && studentId) {
-            targetDocRef = db.collection('schools').doc(schoolId).collection('students').doc(studentId);
-        }
-        else if (schoolId && uid) {
-            const q = await db.collection('schools').doc(schoolId).collection('students').where('uid', '==', uid).limit(1).get();
-            if (!q.empty) {
-                targetDocRef = q.docs[0].ref;
+        if (role === 'student') {
+            const targetSchoolId = tokenSchoolId || schoolId;
+            if (!targetSchoolId || (tokenSchoolId && schoolId && tokenSchoolId !== schoolId)) {
+                throw new functions.https.HttpsError('permission-denied', 'Akses tenant sekolah tidak valid.');
             }
-        }
-        else if (uid) {
-            const q = await db.collectionGroup('students').where('uid', '==', uid).limit(1).get();
-            if (!q.empty) {
-                targetDocRef = q.docs[0].ref;
+            const uid = request.auth.uid;
+            let targetDocRef = null;
+            const directDocRef = db.collection('schools').doc(targetSchoolId).collection('students').doc(uid);
+            const directSnap = await directDocRef.get();
+            if (directSnap.exists) {
+                targetDocRef = directDocRef;
             }
-        }
-        if (targetDocRef) {
-            const snap = await targetDocRef.get();
-            if (snap.exists) {
-                const curSession = snap.data()?.activeSession;
-                if (!sessionId || !curSession || curSession.sessionId === sessionId) {
-                    await targetDocRef.update({
-                        activeSession: null,
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    });
+            else {
+                const q = await db.collection('schools').doc(targetSchoolId).collection('students')
+                    .where('uid', '==', uid)
+                    .where('archived', '==', false)
+                    .limit(1)
+                    .get();
+                if (!q.empty) {
+                    targetDocRef = q.docs[0].ref;
                 }
             }
+            if (targetDocRef) {
+                const snap = await targetDocRef.get();
+                if (snap.exists) {
+                    const curSession = snap.data()?.activeSession;
+                    if (!sessionId || !curSession || curSession.sessionId === sessionId) {
+                        await targetDocRef.update({
+                            activeSession: null,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        });
+                    }
+                }
+            }
+            return { success: true };
         }
-        return { success: true };
+        else if (isSuperAdmin || role === 'school_admin' || role === 'teacher' || role === 'proctor') {
+            const targetSchoolId = schoolId || tokenSchoolId;
+            if (!isSuperAdmin && (!targetSchoolId || tokenSchoolId !== targetSchoolId)) {
+                throw new functions.https.HttpsError('permission-denied', 'Akses tenant sekolah ditolak.');
+            }
+            let targetDocRef = null;
+            if (targetSchoolId && studentId) {
+                targetDocRef = db.collection('schools').doc(targetSchoolId).collection('students').doc(studentId);
+            }
+            if (targetDocRef) {
+                await targetDocRef.update({
+                    activeSession: null,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                if (targetSchoolId) {
+                    await writeAuditLog(db, targetSchoolId, request.auth.uid, 'CLEAR_STUDENT_SESSION', `Mereset sesi aktif siswa ID: ${studentId}`);
+                }
+            }
+            return { success: true };
+        }
+        else {
+            throw new functions.https.HttpsError('permission-denied', 'Peran pengguna tidak diizinkan untuk menghapus sesi.');
+        }
     }
     catch (err) {
+        if (err instanceof functions.https.HttpsError)
+            throw err;
         throw new functions.https.HttpsError('internal', err.message || 'Gagal menghapus sesi.');
     }
 });
@@ -1210,6 +1352,9 @@ exports.importTeachersBulk = functions.https.onCall(async (request) => {
     const { schoolId, rows, createAuth } = request.data || {};
     if (!schoolId || !Array.isArray(rows)) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
+    }
+    if (rows.length > 500) {
+        throw new functions.https.HttpsError('invalid-argument', 'Jumlah baris impor melebihi batas maksimal (maksimal 500 baris per transaksi).');
     }
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
@@ -1591,6 +1736,19 @@ exports.createEvent = functions.https.onCall(async (request) => {
         throw new functions.https.HttpsError('internal', err.message || 'Gagal membuat/memperbarui event.');
     }
 });
+/**
+ * Helper to recursively delete a document and all of its nested subcollections.
+ */
+async function recursiveDeleteDoc(docRef) {
+    const collections = await docRef.listCollections();
+    for (const col of collections) {
+        const snap = await col.get();
+        for (const doc of snap.docs) {
+            await recursiveDeleteDoc(doc.ref);
+        }
+    }
+    await docRef.delete();
+}
 exports.deleteEvent = functions.https.onCall(async (request) => {
     const { schoolId, eventId } = request.data || {};
     if (!schoolId || !eventId) {
@@ -1599,31 +1757,14 @@ exports.deleteEvent = functions.https.onCall(async (request) => {
     verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
     const eventRef = db.collection('schools').doc(schoolId).collection('events').doc(eventId);
-    // Delete all subcollections
-    const subcollections = ['sessions', 'timetable', 'proctors', 'participants'];
-    for (const sub of subcollections) {
-        const snap = await eventRef.collection(sub).get();
-        if (!snap.empty) {
-            const batch = db.batch();
-            snap.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
-        }
+    const eventSnap = await eventRef.get();
+    if (!eventSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Event ujian tidak ditemukan.');
     }
-    // Delete allocations and their nested seats
-    const allocationsSnap = await eventRef.collection('allocations').get();
-    for (const allocDoc of allocationsSnap.docs) {
-        const seatsSnap = await allocDoc.ref.collection('seats').get();
-        if (!seatsSnap.empty) {
-            const batch = db.batch();
-            seatsSnap.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
-        }
-        await allocDoc.ref.delete();
-    }
-    // Delete the event document itself
-    await eventRef.delete();
+    // Recursively delete event document and all nested subcollections
+    await recursiveDeleteDoc(eventRef);
     const actorUid = request.auth?.uid || 'system';
-    await writeAuditLog(db, schoolId, actorUid, 'DELETE_EVENT', `Menghapus event ujian ${eventId}`);
+    await writeAuditLog(db, schoolId, actorUid, 'DELETE_EVENT', `Menghapus event ujian ${eventId} beserta seluruh data perinciannya.`);
     return { success: true };
 });
 exports.previewAllocation = functions.https.onCall(async (request) => {

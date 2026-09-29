@@ -9,14 +9,12 @@ service cloud.firestore {
       );
     }
 
-    // Helper function to check if a school is active (not disabled or deleted)
+    // Helper function to check if a school is active (must exist and not be disabled/deleted)
     function isSchoolActive(schoolId) {
-      return schoolId == null || 
-        !exists(/databases/$(database)/documents/schools/$(schoolId)) || 
-        (
-          get(/databases/$(database)/documents/schools/$(schoolId)).data.get('disabled', false) != true &&
-          get(/databases/$(database)/documents/schools/$(schoolId)).data.get('deleted', false) != true
-        );
+      return schoolId != null && 
+        exists(/databases/$(database)/documents/schools/$(schoolId)) && 
+        get(/databases/$(database)/documents/schools/$(schoolId)).data.get('disabled', false) != true &&
+        get(/databases/$(database)/documents/schools/$(schoolId)).data.get('deleted', false) != true;
     }
 
     // Helper function to check if user belongs to the active school
@@ -60,7 +58,7 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId} {
-      allow read: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(schoolId);
       allow create, delete: if isSuperAdmin();
       allow update: if isSuperAdmin() || (
         isSchoolAdmin(schoolId) &&
@@ -69,24 +67,29 @@ service cloud.firestore {
 
       // Sub-collection for teachers
       match /teachers/{teacherId} {
-        allow read: if request.auth != null;
+        allow read: if isSuperAdmin() || isSchoolMember(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for students
       match /students/{studentId} {
-        allow read: if request.auth != null;
-        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || (
-          request.auth != null && 
-          (request.auth.uid == resource.data.uid || request.auth.token.role == 'teacher' || request.auth.token.role == 'proctor') &&
+        allow read: if isSuperAdmin() || 
+                       isSchoolAdmin(schoolId) || 
+                       isTeacherOrProctor(schoolId) || 
+                       (isStudent(schoolId) && (request.auth.uid == resource.data.uid || request.auth.uid == studentId));
+        allow create, delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) || (
+          ((isStudent(schoolId) && request.auth.uid == resource.data.uid) || isTeacherOrProctor(schoolId)) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activeSession', 'updatedAt'])
         );
       }
 
-      // Sub-collection for auditLogs
+      // Sub-collection for auditLogs (Immutable append-only log)
       match /auditLogs/{logId} {
         allow read: if isSuperAdmin() || isSchoolAdmin(schoolId);
-        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow create: if (isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId)) &&
+                         request.resource.data.actorUid == request.auth.uid;
+        allow update, delete: if false;
       }
 
       // Sub-collection for subjects
@@ -159,12 +162,20 @@ service cloud.firestore {
           match /questions/{questionId} {
             allow read: if isSchoolMember(schoolId);
             allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
+
+            match /answerKey/{keyDocId} {
+              allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
+            }
           }
         }
 
         match /questions/{questionId} {
           allow read: if isSchoolMember(schoolId);
           allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
+
+          match /answerKey/{keyDocId} {
+            allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
+          }
         }
 
         match /submissions/{submissionId} {
@@ -172,20 +183,19 @@ service cloud.firestore {
             isStudent(schoolId) && (
               resource == null ||
               resource.data.studentId == request.auth.uid ||
-              resource.data.nis == request.auth.uid ||
-              submissionId == request.auth.uid ||
-              submissionId.matches('.*' + request.auth.uid + '.*')
+              submissionId == request.auth.uid
             )
           );
           allow create: if isSchoolStaff(schoolId) || (
             isStudent(schoolId) &&
-            (request.resource.data.studentId == request.auth.uid || submissionId.matches('.*' + request.auth.uid + '.*')) &&
-            !request.resource.data.keys().hasAny(['score', 'finalScore', 'grade', 'verifiedBy', 'isVerified', 'proctorVerified'])
+            request.resource.data.studentId == request.auth.uid &&
+            !request.resource.data.keys().hasAny(['status', 'score', 'finalScore', 'grade', 'submittedAt', 'isFinal', 'verifiedBy', 'isVerified', 'proctorVerified'])
           );
           allow update: if isSchoolStaff(schoolId) || (
             isStudent(schoolId) &&
-            (resource.data.studentId == request.auth.uid || request.resource.data.studentId == request.auth.uid || submissionId.matches('.*' + request.auth.uid + '.*')) &&
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'finalScore', 'grade', 'verifiedBy', 'isVerified', 'proctorVerified', 'proctorStatus'])
+            resource.data.studentId == request.auth.uid &&
+            request.resource.data.studentId == request.auth.uid &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'score', 'finalScore', 'grade', 'submittedAt', 'isFinal', 'verifiedBy', 'isVerified', 'proctorVerified', 'proctorStatus'])
           );
           allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
         }
@@ -195,14 +205,13 @@ service cloud.firestore {
             isStudent(schoolId) && (
               resource == null ||
               resource.data.studentId == request.auth.uid ||
-              resource.data.studentUid == request.auth.uid ||
-              attendanceId.matches('.*' + request.auth.uid + '.*')
+              resource.data.studentUid == request.auth.uid
             )
           );
           allow write: if isSchoolStaff(schoolId) || (
             isStudent(schoolId) && (
-              (request.resource.data.studentId == request.auth.uid || request.resource.data.studentUid == request.auth.uid || attendanceId.matches('.*' + request.auth.uid + '.*')) &&
-              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verifiedBy', 'isVerifiedByProctor', 'overrideStatus'])
+              (request.resource.data.studentId == request.auth.uid || request.resource.data.studentUid == request.auth.uid) &&
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'verifiedBy', 'isVerifiedByProctor', 'overrideStatus'])
             )
           );
         }
