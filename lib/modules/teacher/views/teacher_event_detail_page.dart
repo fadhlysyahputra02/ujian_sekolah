@@ -5224,22 +5224,49 @@ class _TeacherEventDetailPageState extends State<TeacherEventDetailPage>
                                           final essayAnswers = Map<String, dynamic>.from(subData['essayAnswers'] ?? {});
                                           final studentAnsweredQIds = {...answers.keys, ...essayAnswers.keys};
 
-                                          // 1. Prioritize direct question ID match with what student answered
-                                          List<DocumentSnapshot> targetQuestionDocs = questionDocs.where((qDoc) => studentAnsweredQIds.contains(qDoc.id)).toList();
+                                          // Filter questionDocs for student:
+                                          // Must include all questions the student answered, PLUS any unanswered questions
+                                          // matching the student's angkatan/class so that unanswered questions (PG & Essay)
+                                          // are shown, count toward the grand maximum score, and allow manual grading.
+                                          final studentAngkatan = (subData['angkatan'] ?? subData['studentAngkatan'] ?? '').toString().trim();
+                                          final hasExplicitAngkatanTags = questionDocs.any((qDoc) {
+                                            final qData = qDoc.data() as Map<String, dynamic>;
+                                            final qAng = (qData['angkatan'] ?? qData['grade'] ?? qData['targetAngkatan'] ?? '').toString().trim().toLowerCase();
+                                            return qAng.isNotEmpty && qAng != 'semua' && qAng != 'all' && qAng != '-';
+                                          });
 
-                                          // 2. If no direct ID match, match by student's angkatan / className
-                                          if (targetQuestionDocs.isEmpty) {
-                                            String studentAngkatan = (subData['angkatan'] ?? subData['studentAngkatan'] ?? '').toString().trim();
-                                            targetQuestionDocs = questionDocs.where((qDoc) {
-                                              final qData = qDoc.data() as Map<String, dynamic>;
-                                              final qAng = (qData['angkatan'] ?? qData['grade'] ?? qData['targetAngkatan'] ?? '').toString().trim();
-                                              return _isQuestionMatchingStudent(qAng, studentAngkatan, studentClass);
-                                            }).toList();
+                                          final List<DocumentSnapshot> targetQuestionDocs = [];
+                                          final Set<String> addedQIds = {};
+
+                                          for (final qDoc in questionDocs) {
+                                            final qData = qDoc.data() as Map<String, dynamic>;
+                                            final qAng = (qData['angkatan'] ?? qData['grade'] ?? qData['targetAngkatan'] ?? '').toString().trim();
+                                            final isAnsweredByStudent = studentAnsweredQIds.contains(qDoc.id);
+
+                                            bool shouldInclude = false;
+                                            if (isAnsweredByStudent) {
+                                              // Always include questions that the student answered (susulan/standard)
+                                              shouldInclude = true;
+                                            } else if (hasExplicitAngkatanTags) {
+                                              // If bank has angkatan-specific tags, include unanswered questions matching student's angkatan
+                                              final qAngClean = qAng.trim().toLowerCase();
+                                              if (qAngClean.isNotEmpty && qAngClean != 'semua' && qAngClean != 'all' && qAngClean != '-') {
+                                                shouldInclude = _isQuestionMatchingStudent(qAng, studentAngkatan, studentClass);
+                                              } else {
+                                                shouldInclude = true;
+                                              }
+                                            } else {
+                                              // No explicit angkatan tags in bank -> include all questions so full exam is graded
+                                              shouldInclude = true;
+                                            }
+
+                                            if (shouldInclude && addedQIds.add(qDoc.id)) {
+                                              targetQuestionDocs.add(qDoc);
+                                            }
                                           }
 
-                                          // 3. Fallback to all questionDocs so questions are never lost
                                           if (targetQuestionDocs.isEmpty) {
-                                            targetQuestionDocs = List.from(questionDocs);
+                                            targetQuestionDocs.addAll(questionDocs);
                                           }
 
                                           // Sort questions in natural order

@@ -3,7 +3,10 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Helper function to check if the user is a super admin
     function isSuperAdmin() {
-      return request.auth != null && request.auth.token.role == 'super_admin';
+      return request.auth != null && (
+        request.auth.token.role == 'super_admin' ||
+        request.auth.token.email == 'sadmin@sesicermat.com'
+      );
     }
 
     // Helper function to check if a school is active (not disabled or deleted)
@@ -30,6 +33,32 @@ service cloud.firestore {
              isSchoolActive(schoolId);
     }
 
+    // Helper function to check if user is a teacher or proctor in the specified school
+    function isTeacherOrProctor(schoolId) {
+      return request.auth != null && 
+             (request.auth.token.role == 'teacher' || request.auth.token.role == 'proctor') && 
+             request.auth.token.schoolId == schoolId &&
+             isSchoolActive(schoolId);
+    }
+
+    // Helper function to check if user is a student in the specified school
+    function isStudent(schoolId) {
+      return request.auth != null && 
+             request.auth.token.role == 'student' && 
+             request.auth.token.schoolId == schoolId &&
+             isSchoolActive(schoolId);
+    }
+
+    // Helper to check staff access (super_admin, school_admin, teacher, proctor) for school
+    function isSchoolStaff(schoolId) {
+      return isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
+    }
+
+    // Helper to check any authenticated member of a school
+    function isSchoolMember(schoolId) {
+      return isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId) || isStudent(schoolId);
+    }
+
     match /schools/{schoolId} {
       allow read: if true;
       allow create, delete: if isSuperAdmin();
@@ -41,15 +70,15 @@ service cloud.firestore {
       // Sub-collection for teachers
       match /teachers/{teacherId} {
         allow read: if request.auth != null;
-        allow write: if isSchoolAdmin(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for students
       match /students/{studentId} {
         allow read: if request.auth != null;
-        allow write: if isSchoolAdmin(schoolId) || (
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || (
           request.auth != null && 
-          (request.auth.uid == resource.data.uid || request.auth.token.role == 'teacher') &&
+          (request.auth.uid == resource.data.uid || request.auth.token.role == 'teacher' || request.auth.token.role == 'proctor') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activeSession', 'updatedAt'])
         );
       }
@@ -57,129 +86,166 @@ service cloud.firestore {
       // Sub-collection for auditLogs
       match /auditLogs/{logId} {
         allow read: if isSuperAdmin() || isSchoolAdmin(schoolId);
-        allow write: if isSchoolAdmin(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for subjects
       match /subjects/{subjectId} {
         allow read: if request.auth != null;
-        allow write: if isSchoolAdmin(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for classes
       match /classes/{classId} {
         allow read: if request.auth != null;
-        allow write: if isSchoolAdmin(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for rooms
       match /rooms/{roomId} {
         allow read: if request.auth != null;
-        allow write: if isSchoolAdmin(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // Sub-collection for events
       match /events/{eventId} {
-        allow read, write: if true;
+        allow read: if isSchoolMember(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
 
         match /sessions/{sessionId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
 
         match /timetable/{timetableId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
 
         match /proctors/{proctorId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
 
         match /allocations/{allocationId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
 
           match /seats/{seatId} {
-            allow read, write: if true;
+            allow read: if isSchoolMember(schoolId);
+            allow write: if isSchoolStaff(schoolId);
 
             match /rooms/{roomId} {
-              allow read, write: if true;
+              allow read: if isSchoolMember(schoolId);
+              allow write: if isSchoolStaff(schoolId);
             }
           }
 
           match /rooms/{roomId} {
-            allow read, write: if true;
+            allow read: if isSchoolMember(schoolId);
+            allow write: if isSchoolStaff(schoolId);
           }
         }
 
         match /participants/{participantId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
 
         match /subjects/{subjectId} {
-          allow read: if true;
-          allow write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
 
           match /questions/{questionId} {
-            allow read: if true;
-            allow write: if true;
+            allow read: if isSchoolMember(schoolId);
+            allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
           }
         }
 
         match /questions/{questionId} {
-          allow read: if true;
-          allow write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
         }
 
         match /submissions/{submissionId} {
-          allow read, write: if true;
+          allow read: if isSchoolStaff(schoolId) || (
+            isStudent(schoolId) && (
+              resource == null ||
+              resource.data.studentId == request.auth.uid ||
+              resource.data.nis == request.auth.uid ||
+              submissionId == request.auth.uid ||
+              submissionId.matches('.*' + request.auth.uid + '.*')
+            )
+          );
+          allow create: if isSchoolStaff(schoolId) || (
+            isStudent(schoolId) &&
+            (request.resource.data.studentId == request.auth.uid || submissionId.matches('.*' + request.auth.uid + '.*')) &&
+            !request.resource.data.keys().hasAny(['score', 'finalScore', 'grade', 'verifiedBy', 'isVerified', 'proctorVerified'])
+          );
+          allow update: if isSchoolStaff(schoolId) || (
+            isStudent(schoolId) &&
+            (resource.data.studentId == request.auth.uid || request.resource.data.studentId == request.auth.uid || submissionId.matches('.*' + request.auth.uid + '.*')) &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'finalScore', 'grade', 'verifiedBy', 'isVerified', 'proctorVerified', 'proctorStatus'])
+          );
+          allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
         }
 
         match /attendances/{attendanceId} {
-          allow read, write: if true;
+          allow read: if isSchoolStaff(schoolId) || (
+            isStudent(schoolId) && (
+              resource == null ||
+              resource.data.studentId == request.auth.uid ||
+              resource.data.studentUid == request.auth.uid ||
+              attendanceId.matches('.*' + request.auth.uid + '.*')
+            )
+          );
+          allow write: if isSchoolStaff(schoolId) || (
+            isStudent(schoolId) && (
+              (request.resource.data.studentId == request.auth.uid || request.resource.data.studentUid == request.auth.uid || attendanceId.matches('.*' + request.auth.uid + '.*')) &&
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verifiedBy', 'isVerifiedByProctor', 'overrideStatus'])
+            )
+          );
         }
 
         match /proctor_notes/{noteId} {
-          allow read, write: if true;
+          allow read: if isSchoolStaff(schoolId) || isStudent(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
 
         match /realtime_control/{controlId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
 
         match /makeup_approvals/{approvalId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
 
         match /makeup_sessions/{sessionId} {
-          allow read, write: if true;
+          allow read: if isSchoolMember(schoolId);
+          allow write: if isSchoolStaff(schoolId);
         }
       }
 
       // Sub-collection for event drafts (wizard auto-save)
       match /eventDrafts/{draftId} {
-        allow read, write: if isSchoolAdmin(schoolId);
+        allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
     }
 
     match /_server_time/{docId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     match /system_settings/{settingId} {
-      allow read: if true;
-      allow write: if request.auth != null && (
-        isSuperAdmin() || 
-        request.auth.token.email == 'sadmin@sesicermat.com'
-      );
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
     }
 
     match /system_config/{configId} {
-      allow read: if true;
-      allow write: if request.auth != null && (
-        isSuperAdmin() || 
-        request.auth.token.email == 'sadmin@sesicermat.com' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin')
-      );
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
     }
 
     // Rules for archives collection
@@ -192,7 +258,6 @@ service cloud.firestore {
 
     // Rules for users collection
     match /users/{userId} {
-      // Helper: is this the SuperAdmin account (by email token claim)
       function isSuperAdminByEmail() {
         return request.auth != null && request.auth.token.email == 'sadmin@sesicermat.com';
       }
@@ -207,7 +272,6 @@ service cloud.firestore {
         isSuperAdmin() ||
         isSuperAdminByEmail() ||
         (request.auth.uid == userId && isUserSchoolActive() &&
-         // Prevent changing role and schoolId directly
          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'schoolId']))
       );
       allow delete: if isSuperAdmin() || isSuperAdminByEmail();

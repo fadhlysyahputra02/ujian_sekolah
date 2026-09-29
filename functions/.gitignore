@@ -1,0 +1,5 @@
+# Node & Build artifacts
+node_modules/
+lib/
+*.log
+.firebase/

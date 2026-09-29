@@ -806,6 +806,21 @@ class _EventListScreenState extends State<EventListScreen> {
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),
                                     ),
+                                    // 1.5 Laporan Complete & Ranking
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        context.push('/admin/eventujian/Laporan-Complete?eventId=${e['id']}&name=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.analytics_rounded, size: 15),
+                                      label: Text('Laporan Complete', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF4F46E5),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                      ),
+                                    ),
                                     // 2. Rekap Nilai: Soft Indigo Tint
                                     ElevatedButton.icon(
                                       onPressed: () {
@@ -930,6 +945,20 @@ class _EventListScreenState extends State<EventListScreen> {
                                         foregroundColor: const Color(0xFF0D9488),
                                         elevation: 0,
                                         side: const BorderSide(color: Color(0xFF99F6E4)),
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                      ),
+                                    ),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        context.push('/admin/eventujian/Laporan-Complete?eventId=${e['id']}&name=${Uri.encodeComponent(name)}');
+                                      },
+                                      icon: const Icon(Icons.analytics_rounded, size: 15),
+                                      label: Text('Laporan Complete', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF4F46E5),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                                       ),

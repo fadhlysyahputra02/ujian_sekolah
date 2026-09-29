@@ -155,15 +155,9 @@ class SchoolService {
     }
   }
 
-  /// Runs the initial seeding script to register the sadmin@sesicermat.com / 11081987 account
+  /// Runs the initial seeding script (handled via local CLI script)
   Future<void> seedSuperAdmin() async {
-    try {
-      final HttpsCallable callable = _functions.httpsCallable('seedSuperAdmin');
-      await callable.call();
-    } catch (e) {
-      debugPrint("Error in seedSuperAdmin: $e");
-      rethrow;
-    }
+    debugPrint("seedSuperAdmin must be run via local CLI script in production environment.");
   }
 
   /// Mereset password admin sekolah via Cloud Function

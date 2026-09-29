@@ -20,6 +20,7 @@ import '../../modules/admin/views/rekap_class_list_view.dart';
 import '../../modules/admin/views/rekap_student_grades_view.dart';
 import '../../modules/admin/views/admin_room_control_page.dart';
 import '../../modules/admin/views/admin_student_graduation_page.dart';
+import '../../modules/admin/views/event_comprehensive_report_dialog.dart';
 
 class AppRouter {
   static GoRouter createRouter(AuthService authService) {
@@ -130,6 +131,58 @@ class AppRouter {
             final eventName = state.uri.queryParameters['name'] ?? 'Kontrol Ruangan';
             final schoolId = authService.schoolId ?? '';
             return AdminRoomControlPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/eventujian/Laporan-Complete',
+          builder: (context, state) {
+            final eventId = state.uri.queryParameters['eventId'] ?? state.pathParameters['eventId'] ?? '';
+            final eventName = state.uri.queryParameters['name'] ?? 'Laporan Complete Event';
+            final schoolId = authService.schoolId ?? '';
+            return EventComprehensiveReportPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/eventujian/Laporan-Complete/:eventId',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['name'] ?? 'Laporan Complete Event';
+            final schoolId = authService.schoolId ?? '';
+            return EventComprehensiveReportPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/eventujian/:eventId/complete-report',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['name'] ?? 'Laporan Complete Event';
+            final schoolId = authService.schoolId ?? '';
+            return EventComprehensiveReportPage(
+              schoolId: schoolId,
+              eventId: eventId,
+              eventName: eventName,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/admin/event/:eventId/complete-report',
+          builder: (context, state) {
+            final eventId = state.pathParameters['eventId']!;
+            final eventName = state.uri.queryParameters['name'] ?? 'Laporan Complete Event';
+            final schoolId = authService.schoolId ?? '';
+            return EventComprehensiveReportPage(
               schoolId: schoolId,
               eventId: eventId,
               eventName: eventName,

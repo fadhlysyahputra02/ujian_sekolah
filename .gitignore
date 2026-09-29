@@ -1,6 +1,11 @@
+# Node / Firebase
+node_modules/
+functions/node_modules/
+*.log
+.firebase/
+
 # Miscellaneous
 *.class
-*.log
 *.pyc
 *.swp
 .DS_Store

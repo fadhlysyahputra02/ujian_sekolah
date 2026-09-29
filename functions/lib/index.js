@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateSchoolQuota = exports.resolveSuperAdminUsername = exports.updateSuperAdminUsername = exports.changeOwnPassword = exports.resetSchoolAdminPassword = exports.deleteSchool = exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.deleteEvent = exports.createEvent = exports.importTeachersBulk = exports.resetAllStudentSessions = exports.resetStudentSession = exports.clearStudentSession = exports.registerStudentSession = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = exports.seedSuperAdmin = void 0;
+exports.updateSchoolQuota = exports.resolveSuperAdminUsername = exports.updateSuperAdminUsername = exports.changeOwnPassword = exports.resetSchoolAdminPassword = exports.deleteSchool = exports.rollbackAllocation = exports.rescheduleSession = exports.assignProctors = exports.exportRoomList = exports.generateParticipantNumbers = exports.executeAllocation = exports.previewAllocation = exports.deleteEvent = exports.createEvent = exports.importTeachersBulk = exports.resetAllStudentSessions = exports.resetStudentSession = exports.clearStudentSession = exports.registerStudentSession = exports.resolveEmailByPassword = exports.importStudentsBulk = exports.permanentDeleteUser = exports.restoreUser = exports.softDeleteUser = exports.generateTempPassword = exports.updateStudent = exports.updateTeacher = exports.createStudent = exports.createTeacher = exports.toggleSchoolStatus = exports.createSchool = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const firestore_1 = require("firebase-admin/firestore");
@@ -108,49 +108,6 @@ async function writeAuditLog(db, schoolId, actorUid, action, message) {
         payloadSummary: message
     });
 }
-/**
- * Seed Super Admin account sadmin@sesicermat.com / 11081987.
- * Can be called anonymously to initialize the project database.
- */
-exports.seedSuperAdmin = functions.https.onCall(async (request) => {
-    const email = 'sadmin@sesicermat.com';
-    const password = '11081987';
-    const displayName = 'Super Admin';
-    try {
-        let userRecord;
-        try {
-            userRecord = await admin.auth().getUserByEmail(email);
-            // Set claims if user already exists
-            await admin.auth().setCustomUserClaims(userRecord.uid, { role: 'super_admin' });
-        }
-        catch (error) {
-            if (error.code === 'auth/user-not-found') {
-                userRecord = await admin.auth().createUser({
-                    email,
-                    password,
-                    displayName,
-                    emailVerified: true,
-                });
-                await admin.auth().setCustomUserClaims(userRecord.uid, { role: 'super_admin' });
-            }
-            else {
-                throw error;
-            }
-        }
-        // Write to users collection
-        await admin.firestore().collection('users').doc(userRecord.uid).set({
-            email,
-            role: 'super_admin',
-            schoolId: null,
-            displayName,
-            createdAt: firestore_1.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        return { success: true, message: 'Super admin successfully seeded.' };
-    }
-    catch (err) {
-        throw new functions.https.HttpsError('internal', err.message || 'Error seeding super admin');
-    }
-});
 /**
  * Creates a new school and registers its initial school_admin.
  * Must be called by a Super Admin.
@@ -312,7 +269,6 @@ exports.createTeacher = functions.https.onCall(async (request) => {
                 schoolId,
                 disabled: false,
                 archived: false,
-                tempPassword: createAuth ? tempPassword : null,
                 createdAt: firestore_1.FieldValue.serverTimestamp(),
                 updatedAt: firestore_1.FieldValue.serverTimestamp(),
                 deletedAt: null
@@ -415,7 +371,6 @@ exports.createStudent = functions.https.onCall(async (request) => {
                 schoolId,
                 disabled: false,
                 archived: false,
-                tempPassword: createAuth ? tempPassword : null,
                 createdAt: firestore_1.FieldValue.serverTimestamp(),
                 updatedAt: firestore_1.FieldValue.serverTimestamp(),
                 deletedAt: null
@@ -600,7 +555,6 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
             await db.runTransaction(async (transaction) => {
                 transaction.update(docRef, {
                     uid,
-                    tempPassword,
                     email: finalEmail,
                     updatedAt: firestore_1.FieldValue.serverTimestamp()
                 });
@@ -620,9 +574,8 @@ exports.generateTempPassword = functions.https.onCall(async (request) => {
             await admin.auth().updateUser(uid, {
                 password: tempPassword
             });
-            // Update tempPassword in Firestore doc
+            // Update email in Firestore doc without storing plain-text password
             await docRef.update({
-                tempPassword,
                 email: finalEmail,
                 updatedAt: firestore_1.FieldValue.serverTimestamp()
             });
@@ -930,7 +883,6 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
                     schoolId,
                     disabled: false,
                     archived: false,
-                    tempPassword: createAuth ? tempPassword : null,
                     createdAt: firestore_1.FieldValue.serverTimestamp(),
                     updatedAt: firestore_1.FieldValue.serverTimestamp(),
                     deletedAt: null
@@ -972,34 +924,51 @@ exports.importStudentsBulk = functions.https.onCall(async (request) => {
     }
 });
 /**
- * Resolves user email by temporary password (for auto-routing login).
+ * Resolves user email by identifier (NIP, NIS, or email).
  * Enforces single-device login session check for role student.
  */
 exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
-    const { schoolId, password, currentSessionId } = request.data || {};
-    if (!schoolId || !password) {
+    const { schoolId, password, identifier: rawIdentifier, currentSessionId } = request.data || {};
+    if (!schoolId || (!password && !rawIdentifier)) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
+    const lookupKey = (rawIdentifier || password || '').toString().trim();
     const db = admin.firestore();
     try {
-        // 1. Search in teachers NIP/TempPassword
-        const teachersQuery = await db.collection('schools')
+        // 1. Search in teachers NIP or email
+        let teachersQuery = await db.collection('schools')
             .doc(schoolId)
             .collection('teachers')
-            .where('tempPassword', '==', password)
+            .where('nip', '==', lookupKey)
             .where('archived', '==', false)
             .get();
+        if (teachersQuery.empty) {
+            teachersQuery = await db.collection('schools')
+                .doc(schoolId)
+                .collection('teachers')
+                .where('email', '==', lookupKey)
+                .where('archived', '==', false)
+                .get();
+        }
         if (!teachersQuery.empty) {
             const teacherData = teachersQuery.docs[0].data();
             return { success: true, email: teacherData.email, role: 'teacher' };
         }
-        // 2. Search in students NIS/TempPassword
-        const studentsQuery = await db.collection('schools')
+        // 2. Search in students NIS or email
+        let studentsQuery = await db.collection('schools')
             .doc(schoolId)
             .collection('students')
-            .where('tempPassword', '==', password)
+            .where('nis', '==', lookupKey)
             .where('archived', '==', false)
             .get();
+        if (studentsQuery.empty) {
+            studentsQuery = await db.collection('schools')
+                .doc(schoolId)
+                .collection('students')
+                .where('email', '==', lookupKey)
+                .where('archived', '==', false)
+                .get();
+        }
         if (!studentsQuery.empty) {
             const studentDoc = studentsQuery.docs[0];
             const studentData = studentDoc.data();
@@ -1039,7 +1008,7 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
         return { success: false };
     }
     catch (err) {
-        throw new functions.https.HttpsError('internal', err.message || 'Gagal memverifikasi password.');
+        throw new functions.https.HttpsError('internal', err.message || 'Gagal memverifikasi akun.');
     }
 });
 /**
@@ -1172,17 +1141,34 @@ exports.resetStudentSession = functions.https.onCall(async (request) => {
 });
 /**
  * Resets all student sessions for a school (or all schools) from 0.
+ * Requires authentication and appropriate admin privileges.
  */
 exports.resetAllStudentSessions = functions.https.onCall(async (request) => {
-    const { schoolId } = request.data || {};
+    if (!request.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login terlebih dahulu.');
+    }
+    const token = request.auth.token;
+    const isSuperAdmin = token.role === 'super_admin';
+    const isSchoolAdmin = token.role === 'school_admin';
+    if (!isSuperAdmin && !isSchoolAdmin) {
+        throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin atau Admin Sekolah yang dapat mereset sesi siswa.');
+    }
+    let targetSchoolId = request.data?.schoolId;
+    // Enforce tenant boundary for school admin
+    if (isSchoolAdmin) {
+        if (!token.schoolId) {
+            throw new functions.https.HttpsError('permission-denied', 'School ID tidak ditemukan pada token admin.');
+        }
+        targetSchoolId = token.schoolId;
+    }
     const db = admin.firestore();
     try {
         let studentDocs = [];
-        if (schoolId) {
-            const snap = await db.collection('schools').doc(schoolId).collection('students').get();
+        if (targetSchoolId) {
+            const snap = await db.collection('schools').doc(targetSchoolId).collection('students').get();
             studentDocs = snap.docs;
         }
-        else {
+        else if (isSuperAdmin) {
             const snap = await db.collectionGroup('students').get();
             studentDocs = snap.docs;
         }
@@ -1303,7 +1289,6 @@ exports.importTeachersBulk = functions.https.onCall(async (request) => {
                     schoolId,
                     disabled: false,
                     archived: false,
-                    tempPassword: createAuth ? tempPassword : null,
                     createdAt: firestore_1.FieldValue.serverTimestamp(),
                     updatedAt: firestore_1.FieldValue.serverTimestamp(),
                     deletedAt: null

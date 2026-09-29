@@ -202,8 +202,8 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
     return Container(
       color: const Color(0xFFF8FAFC),
       padding: EdgeInsets.symmetric(
-        horizontal: isDesktop ? 24 : 16,
-        vertical: isDesktop ? 24 : 16,
+        horizontal: isDesktop ? 24 : 12,
+        vertical: isDesktop ? 24 : 12,
       ),
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
@@ -695,69 +695,149 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
   Widget _buildEventDetailRekapScreen() {
     final eData = _selectedEventDoc!.data() as Map<String, dynamic>;
     final eventTitle = (eData['title'] ?? eData['eventName'] ?? eData['name'] ?? 'Event Ujian').toString();
+    final isDesktop = MediaQuery.of(context).size.width >= 768;
 
     return Column(
       key: const ValueKey('EventDetailRekapScreen'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Navigation Header Bar
-        Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: _closeEventRekap,
-              icon: const Icon(Icons.arrow_back_rounded, size: 16),
-              label: Text('Daftar Event', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12.5)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF334155),
-                backgroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                side: const BorderSide(color: Color(0xFFCBD5E1)),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
+        isDesktop
+            ? Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _closeEventRekap,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                    label: Text('Daftar Event', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF334155),
+                      backgroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      side: const BorderSide(color: Color(0xFFCBD5E1)),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Rekap Nilai:',
+                              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                eventTitle,
+                                style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      context.push('/admin/eventujian/Laporan-Complete?eventId=${_selectedEventDoc!.id}&name=${Uri.encodeComponent(eventTitle)}');
+                    },
+                    icon: const Icon(Icons.analytics_rounded, size: 16),
+                    label: Text(
+                      'Laporan Complete',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0D9488),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (!widget.isTeacher)
+                    ElevatedButton.icon(
+                      onPressed: _showDispatchGradeModal,
+                      icon: const Icon(Icons.send_rounded, size: 16),
+                      label: Text(
+                        'Kirim Nilai ke Guru',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4F46E5),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                    ),
+                ],
+              )
+            : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Text(
-                        'Rekap Nilai:',
-                        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                      OutlinedButton.icon(
+                        onPressed: _closeEventRekap,
+                        icon: const Icon(Icons.arrow_back_rounded, size: 15),
+                        label: Text('Daftar Event', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF334155),
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        ),
                       ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          eventTitle,
-                          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
-                          overflow: TextOverflow.ellipsis,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Rekap Nilai:',
+                              style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                            ),
+                            Text(
+                              eventTitle,
+                              style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
+                  if (!widget.isTeacher) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _showDispatchGradeModal,
+                        icon: const Icon(Icons.send_rounded, size: 14),
+                        label: Text(
+                          'Kirim Nilai ke Guru',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4F46E5),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
-            ),
-            if (!widget.isTeacher)
-              ElevatedButton.icon(
-                onPressed: _showDispatchGradeModal,
-                icon: const Icon(Icons.send_rounded, size: 16),
-                label: Text(
-                  'Kirim Nilai ke Guru',
-                  style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4F46E5),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  elevation: 0,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 18),
+        SizedBox(height: isDesktop ? 18 : 12),
 
         // Streams: SentGrades -> Students -> Selected Event Submissions
         Expanded(
@@ -875,13 +955,34 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
       }
     }
 
+    final Map<String, String> lowerToCanonicalSubjectMap = {};
+    String getCanonicalSubject(String rawName) {
+      final clean = rawName.trim();
+      if (clean.isEmpty) return '';
+      final lower = clean.toLowerCase();
+      if (!lowerToCanonicalSubjectMap.containsKey(lower)) {
+        lowerToCanonicalSubjectMap[lower] = clean;
+      } else {
+        final existing = lowerToCanonicalSubjectMap[lower]!;
+        if (existing == existing.toLowerCase() && clean != clean.toLowerCase()) {
+          lowerToCanonicalSubjectMap[lower] = clean;
+        }
+      }
+      return lowerToCanonicalSubjectMap[lower]!;
+    }
+
     for (var sub in submissions) {
       final studentId = (sub['studentId'] ?? sub['nis'] ?? sub['studentName'] ?? '').toString().trim();
-      final sName = (sub['subjectName'] ?? sub['subjectId'] ?? '').toString().trim();
+      final rawSubject = (sub['subjectName'] ?? sub['subjectId'] ?? '').toString().trim();
+      final sName = getCanonicalSubject(rawSubject);
       final rawCls = (sub['className'] ?? sub['studentClass'] ?? sub['classId'] ?? '').toString().trim();
       final cls = classIdToNameMap[rawCls] ?? rawCls;
       if (studentId.isNotEmpty && sName.isNotEmpty) {
+        final lowerSubj = sName.toLowerCase();
         studentSubmissionMap['${studentId}_$sName'] = sub;
+        studentSubmissionMap['${studentId}_$lowerSubj'] = sub;
+        studentSubmissionMap['${studentId.toLowerCase()}_$sName'] = sub;
+        studentSubmissionMap['${studentId.toLowerCase()}_$lowerSubj'] = sub;
       }
       if (sName.isNotEmpty) allSubjects.add(sName);
       if (cls.isNotEmpty && cls.toLowerCase() != 'tanpa kelas') allClassesSet.add(cls);
@@ -1064,63 +1165,83 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
     final pagedStudentDocs = totalItems > 0 ? matchingStudentDocs.sublist(startIndex, endIndex) : <QueryDocumentSnapshot>[];
 
     final double averageScore = totalGradedScoresCount > 0 ? (totalScoreSum / totalGradedScoresCount) : 0.0;
+    final isDesktop = MediaQuery.of(context).size.width >= 768;
+
+    final metricCards = [
+      _buildMetricCard(
+        title: 'Total Murid',
+        value: '$totalFilteredStudents',
+        subtitle: _selectedClass != 'ALL' ? 'Murid di Kelas $_selectedClass' : 'Seluruh Murid Terfilter',
+        icon: Icons.people_alt_rounded,
+        color: const Color(0xFF2563EB),
+        bgColor: const Color(0xFFEFF6FF),
+        isDesktop: isDesktop,
+      ),
+      _buildMetricCard(
+        title: 'Sudah Dikoreksi',
+        value: '$gradedCount',
+        subtitle: 'Nilai ujian terverifikasi',
+        icon: Icons.task_alt_rounded,
+        color: const Color(0xFF059669),
+        bgColor: const Color(0xFFECFDF5),
+        isDesktop: isDesktop,
+      ),
+      _buildMetricCard(
+        title: 'Sudah Diisi / Belum',
+        value: '$filledCount / $unfilledCount',
+        subtitle: 'Belum dikoreksi / belum diisi',
+        icon: Icons.pending_actions_rounded,
+        color: const Color(0xFFD97706),
+        bgColor: const Color(0xFFFEF3C7),
+        isDesktop: isDesktop,
+      ),
+      _buildMetricCard(
+        title: 'Rata-Rata Nilai',
+        value: totalGradedScoresCount > 0 ? averageScore.toStringAsFixed(1) : '-',
+        subtitle: 'Dari $totalGradedScoresCount data terperiksa',
+        icon: Icons.analytics_outlined,
+        color: const Color(0xFF7C3AED),
+        bgColor: const Color(0xFFF3E8FF),
+        isDesktop: isDesktop,
+      ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 1. STATS METRIC CARDS
-        Row(
-          children: [
-            Expanded(
-              child: _buildMetricCard(
-                title: 'Total Murid',
-                value: '$totalFilteredStudents',
-                subtitle: _selectedClass != 'ALL' ? 'Murid di Kelas $_selectedClass' : 'Seluruh Murid Terfilter',
-                icon: Icons.people_alt_rounded,
-                color: const Color(0xFF2563EB),
-                bgColor: const Color(0xFFEFF6FF),
+        isDesktop
+            ? Row(
+                children: [
+                  Expanded(child: metricCards[0]),
+                  const SizedBox(width: 14),
+                  Expanded(child: metricCards[1]),
+                  const SizedBox(width: 14),
+                  Expanded(child: metricCards[2]),
+                  const SizedBox(width: 14),
+                  Expanded(child: metricCards[3]),
+                ],
+              )
+            : SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    SizedBox(width: 175, child: metricCards[0]),
+                    const SizedBox(width: 10),
+                    SizedBox(width: 175, child: metricCards[1]),
+                    const SizedBox(width: 10),
+                    SizedBox(width: 175, child: metricCards[2]),
+                    const SizedBox(width: 10),
+                    SizedBox(width: 175, child: metricCards[3]),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: _buildMetricCard(
-                title: 'Sudah Dikoreksi',
-                value: '$gradedCount',
-                subtitle: 'Nilai ujian terverifikasi',
-                icon: Icons.task_alt_rounded,
-                color: const Color(0xFF059669),
-                bgColor: const Color(0xFFECFDF5),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: _buildMetricCard(
-                title: 'Sudah Diisi / Belum',
-                value: '$filledCount / $unfilledCount',
-                subtitle: 'Belum dikoreksi / belum diisi',
-                icon: Icons.pending_actions_rounded,
-                color: const Color(0xFFD97706),
-                bgColor: const Color(0xFFFEF3C7),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: _buildMetricCard(
-                title: 'Rata-Rata Nilai',
-                value: totalGradedScoresCount > 0 ? averageScore.toStringAsFixed(1) : '-',
-                subtitle: 'Dari $totalGradedScoresCount data terperiksa',
-                icon: Icons.analytics_outlined,
-                color: const Color(0xFF7C3AED),
-                bgColor: const Color(0xFFF3E8FF),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
+        SizedBox(height: isDesktop ? 18 : 12),
 
         // 2. ADVANCED FILTER TOOLBAR
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 16 : 10, vertical: isDesktop ? 12 : 8),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
@@ -1134,25 +1255,25 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
             ],
           ),
           child: Wrap(
-            spacing: 12,
-            runSpacing: 10,
+            spacing: isDesktop ? 12 : 8,
+            runSpacing: isDesktop ? 10 : 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               // Search Input
               SizedBox(
-                width: 240,
+                width: isDesktop ? 240 : double.infinity,
                 child: TextField(
                   onChanged: (val) => setState(() {
                     _searchQuery = val;
                     _currentPage = 1;
                   }),
-                  style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF0F172A)),
+                  style: GoogleFonts.inter(fontSize: isDesktop ? 13 : 12, color: const Color(0xFF0F172A)),
                   decoration: InputDecoration(
                     hintText: 'Cari nama murid / NIS...',
-                    hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
-                    prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF64748B)),
+                    hintStyle: GoogleFonts.inter(fontSize: isDesktop ? 13 : 12, color: const Color(0xFF94A3B8)),
+                    prefixIcon: Icon(Icons.search_rounded, size: isDesktop ? 18 : 16, color: const Color(0xFF64748B)),
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: isDesktop ? 10 : 8),
                     filled: true,
                     fillColor: const Color(0xFFF8FAFC),
                     enabledBorder: OutlineInputBorder(
@@ -1180,6 +1301,7 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                   _selectedSubject = val ?? 'ALL';
                   _currentPage = 1;
                 }),
+                isDesktop: isDesktop,
               ),
 
               // Kelas Dropdown Filter
@@ -1195,6 +1317,7 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                   _selectedClass = val ?? 'ALL';
                   _currentPage = 1;
                 }),
+                isDesktop: isDesktop,
               ),
 
               // Angkatan Dropdown Filter
@@ -1210,6 +1333,7 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                   _selectedAngkatan = val ?? 'ALL';
                   _currentPage = 1;
                 }),
+                isDesktop: isDesktop,
               ),
 
               // Status Dropdown Filter
@@ -1227,6 +1351,7 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                   _selectedStatus = val ?? 'ALL';
                   _currentPage = 1;
                 }),
+                isDesktop: isDesktop,
               ),
 
               if (_selectedSubject != 'ALL' || _selectedAngkatan != 'ALL' || _selectedClass != 'ALL' || _selectedStatus != 'ALL' || _searchQuery.isNotEmpty)
@@ -1250,7 +1375,7 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: isDesktop ? 16 : 10),
 
         // 3. SINGLE UNIFIED DATA TABLE LIST (PAGINATED WITH SIZE SELECTOR)
         Expanded(
@@ -1301,7 +1426,7 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                         children: [
                           // Table Header Bar
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                            padding: EdgeInsets.symmetric(horizontal: isDesktop ? 20 : 12, vertical: isDesktop ? 14 : 10),
                             decoration: const BoxDecoration(
                               color: Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
@@ -1318,26 +1443,30 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                                   ),
                                   child: const Icon(Icons.table_chart_rounded, color: Color(0xFF059669), size: 18),
                                 ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Tabel Rekapitulasi Nilai Siswa',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF0F172A),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Tabel Rekapitulasi Nilai Siswa',
+                                    style: GoogleFonts.inter(
+                                      fontSize: isDesktop ? 15 : 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF0F172A),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
                                   ),
                                 ),
-                                const Spacer(),
+                                const SizedBox(width: 8),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(color: const Color(0xFFCBD5E1)),
                                   ),
                                   child: Text(
-                                    '$totalFilteredStudents Murid Terfilter',
-                                    style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF475569)),
+                                    '$totalFilteredStudents Murid',
+                                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF475569)),
                                   ),
                                 ),
                               ],
@@ -1539,91 +1668,159 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
                     // PAGINATION CONTROLS BAR (With Page Size Selector 30, 50, 80, 100)
                     Container(
                       margin: const EdgeInsets.only(top: 8, bottom: 20),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: EdgeInsets.symmetric(horizontal: isDesktop ? 20 : 12, vertical: isDesktop ? 12 : 10),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                totalItems > 0
-                                    ? 'Menampilkan ${startIndex + 1} - $endIndex dari $totalItems data murid'
-                                    : 'Menampilkan 0 data murid',
-                                style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(width: 16),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                      child: isDesktop
+                          ? Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      totalItems > 0
+                                          ? 'Menampilkan ${startIndex + 1} - $endIndex dari $totalItems data murid'
+                                          : 'Menampilkan 0 data murid',
+                                      style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF8FAFC),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                                      ),
+                                      child: DropdownButtonHideUnderline(
+                                        child: DropdownButton<int>(
+                                          value: _pageSize,
+                                          isDense: true,
+                                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF0F172A), fontWeight: FontWeight.w700),
+                                          items: const [
+                                            DropdownMenuItem(value: 30, child: Text('30 / hal')),
+                                            DropdownMenuItem(value: 50, child: Text('50 / hal')),
+                                            DropdownMenuItem(value: 80, child: Text('80 / hal')),
+                                            DropdownMenuItem(value: 100, child: Text('100 / hal')),
+                                          ],
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(() {
+                                                _pageSize = val;
+                                                _currentPage = 1;
+                                              });
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<int>(
-                                    value: _pageSize,
-                                    isDense: true,
-                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF0F172A), fontWeight: FontWeight.w700),
-                                    items: const [
-                                      DropdownMenuItem(value: 30, child: Text('30 / hal')),
-                                      DropdownMenuItem(value: 50, child: Text('50 / hal')),
-                                      DropdownMenuItem(value: 80, child: Text('80 / hal')),
-                                      DropdownMenuItem(value: 100, child: Text('100 / hal')),
-                                    ],
-                                    onChanged: (val) {
-                                      if (val != null) {
-                                        setState(() {
-                                          _pageSize = val;
-                                          _currentPage = 1;
-                                        });
-                                      }
-                                    },
-                                  ),
+                                Row(
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: _currentPage > 1
+                                          ? () => setState(() => _currentPage--)
+                                          : null,
+                                      icon: const Icon(Icons.chevron_left_rounded, size: 18),
+                                      label: Text('Sebelumnya', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        side: BorderSide(color: _currentPage > 1 ? const Color(0xFFCBD5E1) : const Color(0xFFF1F5F9)),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Halaman $_currentPage dari $totalPages',
+                                      style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    OutlinedButton.icon(
+                                      onPressed: _currentPage < totalPages
+                                          ? () => setState(() => _currentPage++)
+                                          : null,
+                                      icon: const Icon(Icons.chevron_right_rounded, size: 18),
+                                      label: Text('Berikutnya', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        side: BorderSide(color: _currentPage < totalPages ? const Color(0xFFCBD5E1) : const Color(0xFFF1F5F9)),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: _currentPage > 1
-                                    ? () => setState(() => _currentPage--)
-                                    : null,
-                                icon: const Icon(Icons.chevron_left_rounded, size: 18),
-                                label: Text('Sebelumnya', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  side: BorderSide(color: _currentPage > 1 ? const Color(0xFFCBD5E1) : const Color(0xFFF1F5F9)),
+                              ],
+                            )
+                          : Column(
+                              children: [
+                                Wrap(
+                                  alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 10,
+                                  runSpacing: 6,
+                                  children: [
+                                    Text(
+                                      totalItems > 0
+                                          ? '${startIndex + 1}-$endIndex dari $totalItems murid'
+                                          : '0 murid',
+                                      style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF8FAFC),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                                      ),
+                                      child: DropdownButtonHideUnderline(
+                                        child: DropdownButton<int>(
+                                          value: _pageSize,
+                                          isDense: true,
+                                          style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF0F172A), fontWeight: FontWeight.w700),
+                                          items: const [
+                                            DropdownMenuItem(value: 30, child: Text('30 / hal')),
+                                            DropdownMenuItem(value: 50, child: Text('50 / hal')),
+                                            DropdownMenuItem(value: 80, child: Text('80 / hal')),
+                                            DropdownMenuItem(value: 100, child: Text('100 / hal')),
+                                          ],
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(() {
+                                                _pageSize = val;
+                                                _currentPage = 1;
+                                              });
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                'Halaman $_currentPage dari $totalPages',
-                                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                              ),
-                              const SizedBox(width: 12),
-                              OutlinedButton.icon(
-                                onPressed: _currentPage < totalPages
-                                    ? () => setState(() => _currentPage++)
-                                    : null,
-                                icon: const Icon(Icons.chevron_right_rounded, size: 18),
-                                label: Text('Berikutnya', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  side: BorderSide(color: _currentPage < totalPages ? const Color(0xFFCBD5E1) : const Color(0xFFF1F5F9)),
+                                const SizedBox(height: 10),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    IconButton(
+                                      onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+                                      icon: const Icon(Icons.chevron_left_rounded, size: 20),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    Text(
+                                      'hal $_currentPage / $totalPages',
+                                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                                    ),
+                                    IconButton(
+                                      onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,
+                                      icon: const Icon(Icons.chevron_right_rounded, size: 20),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                              ],
+                            ),
                     ),
                   ],
                 ),
@@ -1645,12 +1842,13 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
     required IconData icon,
     required Color color,
     required Color bgColor,
+    required bool isDesktop,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isDesktop ? 16 : 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(isDesktop ? 16 : 12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
@@ -1663,31 +1861,33 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(isDesktop ? 12 : 8),
             decoration: BoxDecoration(
               color: bgColor,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(isDesktop ? 12 : 8),
             ),
-            child: Icon(icon, color: color, size: 22),
+            child: Icon(icon, color: color, size: isDesktop ? 22 : 18),
           ),
-          const SizedBox(width: 14),
+          SizedBox(width: isDesktop ? 14 : 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
-                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                  style: GoogleFonts.inter(fontSize: isDesktop ? 12 : 11, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+                  style: GoogleFonts.inter(fontSize: isDesktop ? 18 : 15, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF94A3B8)),
+                  style: GoogleFonts.inter(fontSize: isDesktop ? 10.5 : 9.5, color: const Color(0xFF94A3B8)),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1705,9 +1905,10 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
     required String value,
     required List<DropdownMenuItem<String>> items,
     required ValueChanged<String?> onChanged,
+    required bool isDesktop,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: EdgeInsets.symmetric(horizontal: isDesktop ? 10 : 8, vertical: isDesktop ? 2 : 1),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
@@ -1716,14 +1917,14 @@ class _RekapNilaiViewState extends State<RekapNilaiView> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: const Color(0xFF64748B)),
-          const SizedBox(width: 6),
+          Icon(icon, size: isDesktop ? 16 : 14, color: const Color(0xFF64748B)),
+          const SizedBox(width: 4),
           DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: value,
               isDense: true,
-              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF0F172A), fontWeight: FontWeight.w500),
-              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Color(0xFF64748B)),
+              style: GoogleFonts.inter(fontSize: isDesktop ? 13 : 11.5, color: const Color(0xFF0F172A), fontWeight: FontWeight.w500),
+              icon: Icon(Icons.keyboard_arrow_down_rounded, size: isDesktop ? 18 : 16, color: const Color(0xFF64748B)),
               items: items,
               onChanged: onChanged,
             ),

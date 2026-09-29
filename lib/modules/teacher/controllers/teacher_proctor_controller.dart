@@ -709,488 +709,32 @@ class TeacherProctorController {
     bool isAdminView = false,
     bool isExamEnded = false,
   }) {
-    final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
-    final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
-    final number = (seatData['participantNumber'] ?? '-').toString();
-    final nis = (seatData['nis'] ?? '-').toString();
-    final angkatan = (seatData['angkatan'] ?? '-').toString();
-    final rawGender = (seatData['gender'] ?? '').toString().toUpperCase();
-    final genderText = (rawGender == 'F' || rawGender == 'P') ? 'Perempuan (P)' : (rawGender == 'M' || rawGender == 'L') ? 'Laki-laki (L)' : '-';
-    final bool isCompleted = seatData['isCompleted'] == true || seatData['status'] == 'completed';
-    final bool isLeftApp = !isCompleted && (seatData['isLeftApp'] == true || seatData['status'] == 'left_app');
-
-    final noteController = TextEditingController(
-      text: (seatData['proctorNote'] ?? '').toString(),
-    );
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: EdgeInsets.only(
-          left: 24, right: 24, top: 24,
-          bottom: 24 + MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFCBD5E1),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: isCompleted
-                      ? const Color(0xFF10B981)
-                      : (isLeftApp ? const Color(0xFFEF4444) : scheme['bg']),
-                  child: Text(
-                    name.isNotEmpty ? name[0].toUpperCase() : 'S',
-                    style: GoogleFonts.inter(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: (isCompleted || isLeftApp) ? Colors.white : scheme['primary'],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 3),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: scheme['bg'],
-                              borderRadius: BorderRadius.circular(5),
-                              border: Border.all(color: scheme['border']!),
-                            ),
-                            child: Text(
-                              'Kelas $className',
-                              style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.bold, color: scheme['text']),
-                            ),
-                          ),
-                          Text(
-                            'No: $number',
-                            style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: isCompleted
-                          ? const Color(0xFF10B981)
-                          : (isLeftApp ? const Color(0xFFEF4444) : (isAttended ? const Color(0xFF059669) : scheme['primary'])),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      isCompleted
-                          ? 'SELESAI (#$seatNum)'
-                          : (isLeftApp ? 'KELUAR APP! (#$seatNum)' : (isAttended ? 'HADIR (#$seatNum)' : 'Meja #$seatNum')),
-                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Column(
-                    children: [
-                      Text('NIS', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      Text(nis.isEmpty ? '-' : nis, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
-                    ],
-                  ),
-                  Container(height: 24, width: 1, color: const Color(0xFFCBD5E1)),
-                  Column(
-                    children: [
-                      Text('Angkatan', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      Text(angkatan.isEmpty ? '-' : angkatan, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
-                    ],
-                  ),
-                  Container(height: 24, width: 1, color: const Color(0xFFCBD5E1)),
-                  Column(
-                    children: [
-                      Text('Gender', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      Text(genderText, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: scheme['primary'])),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            if ((seatData['totalQuestions'] as num?) != null && (seatData['totalQuestions'] as num) > 0) ...[
-              const SizedBox(height: 12),
-              Builder(
-                builder: (context) {
-                  final totalQ = (seatData['totalQuestions'] as num).toInt();
-                  final ansQ = (seatData['answeredCount'] as num?)?.toInt() ?? (isCompleted ? totalQ : 0);
-                  final percent = (ansQ / totalQ * 100).clamp(0, 100).round();
-                  return Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.fact_check_rounded, size: 16, color: Color(0xFF2563EB)),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Progress Pengerjaan Soal',
-                                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-                                ),
-                              ],
-                            ),
-                            Text(
-                              '$ansQ / $totalQ Soal ($percent%)',
-                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: const Color(0xFF2563EB)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: LinearProgressIndicator(
-                            value: totalQ > 0 ? (ansQ / totalQ).clamp(0.0, 1.0) : 0.0,
-                            minHeight: 8,
-                            backgroundColor: const Color(0xFFE2E8F0),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              isCompleted ? const Color(0xFF10B981) : const Color(0xFF2563EB),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
-            const SizedBox(height: 20),
-            const Divider(height: 1, color: Color(0xFFF1F5F9)),
-            const SizedBox(height: 16),
-            if (!isAdminView) ...[
-              Text(
-                'Aksi Pengawasan Sesi Ujian',
-                style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-              ),
-              const SizedBox(height: 12),
-              if (isExamEnded)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.lock_rounded, size: 16, color: Color(0xFF64748B)),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Ujian Telah Selesai (Presensi Dinonaktifkan)',
-                        style: GoogleFonts.inter(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          Navigator.of(ctx).pop();
-                          final newStatus = !isAttended;
-                          triggerScanFeedback(isSuccess: newStatus);
-                          await markStudentAttendance(
-                            schoolId: schoolId,
-                            eventId: eventId,
-                            roomId: roomId,
-                            seatData: seatData,
-                            isAttended: newStatus,
-                            localAttendedMap: localAttendedMap,
-                            seatNotifier: seatNotifier,
-                            dayIndex: dayIndex,
-                            sessionIndex: sessionIndex,
-                          );
-                        },
-                        icon: Icon(isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded),
-                        label: Text(isAttended ? 'Batalkan Status Hadir' : 'Tandai Hadir Manual'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isAttended ? const Color(0xFFDC2626) : const Color(0xFF059669),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        Navigator.of(ctx).pop();
-                        final bool? confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (dlgCtx) => AlertDialog(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            title: Row(
-                              children: [
-                                const Icon(Icons.phonelink_erase_rounded, color: Color(0xFFEF4444)),
-                                const SizedBox(width: 10),
-                                Text('Reset Sesi Login?', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 17)),
-                              ],
-                            ),
-                            content: Text(
-                              'Sesi login siswa "$name" di perangkat/browser aktif saat ini akan diakhiri. Siswa dapat login kembali di perangkat baru.',
-                              style: GoogleFonts.inter(fontSize: 13.5, height: 1.45, color: const Color(0xFF334155)),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(dlgCtx, false),
-                                child: Text('Batal', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                              ),
-                              ElevatedButton(
-                                onPressed: () => Navigator.pop(dlgCtx, true),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFEF4444),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                ),
-                                child: Text('Ya, Reset Sesi', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                              ),
-                            ],
-                          ),
-                        );
-
-                        if (confirm == true) {
-                          final studentIdVal = (seatData['studentId'] ?? seatData['id'])?.toString();
-                          final nisVal = (seatData['nis'])?.toString();
-                          final ok = await StudentSessionService.resetSession(
-                            schoolId: schoolId,
-                            studentId: studentIdVal,
-                            studentNis: nisVal,
-                          );
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                ok
-                                    ? 'Sesi login siswa "$name" berhasil direset.'
-                                    : 'Gagal mereset sesi login siswa.',
-                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white),
-                              ),
-                              backgroundColor: ok ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.phonelink_erase_rounded, size: 17, color: Color(0xFF475569)),
-                      label: Text('Reset Sesi Login Siswa', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF334155))),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        side: const BorderSide(color: Color(0xFFCBD5E1)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              const Divider(height: 1, color: Color(0xFFF1F5F9)),
-              const SizedBox(height: 16),
-            ],
-            // ── CATATAN PENGAWAS ─────────────────────────────────────
-            Text(
-              'Catatan Pengawas',
-              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              isAdminView
-                  ? 'Catatan yang diinputkan oleh guru pengawas untuk siswa ini'
-                  : 'Buat catatan untuk kejadian yang perlu dilaporkan',
-              style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
-            ),
-            const SizedBox(height: 10),
-            if (isAdminView) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
-                      ? const Color(0xFFFFFBEB)
-                      : const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
-                        ? const Color(0xFFFDE68A)
-                        : const Color(0xFFE2E8F0),
-                  ),
-                ),
-                child: Text(
-                  (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
-                      ? seatData['proctorNote'].toString().trim()
-                      : 'Tidak ada catatan pengawas untuk siswa ini.',
-                  style: GoogleFonts.inter(
-                    fontSize: 12.5,
-                    color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
-                        ? const Color(0xFF92400E)
-                        : const Color(0xFF64748B),
-                    fontStyle: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
-                        ? FontStyle.normal
-                        : FontStyle.italic,
-                  ),
-                ),
-              ),
-            ] else ...[
-              TextField(
-                controller: noteController,
-                maxLines: 3,
-                minLines: 2,
-                textInputAction: TextInputAction.newline,
-                decoration: InputDecoration(
-                  hintText: 'Contoh: Kedapatan mencontek, membawa catatan, dll.',
-                  hintStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFD97706), width: 2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final noteText = noteController.text.trim();
-                    try {
-                      await saveProctorNote(
-                        schoolId: schoolId,
-                        eventId: eventId,
-                        roomId: roomId,
-                        seatData: seatData,
-                        note: noteText,
-                        dayIndex: dayIndex,
-                        sessionIndex: sessionIndex,
-                      );
-                      seatData['proctorNote'] = noteText;
-                      seatNotifier.value++;
-                      if (ctx.mounted) {
-                        Navigator.of(ctx).pop();
-                      }
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              noteText.isEmpty
-                                  ? 'Catatan berhasil dihapus.'
-                                  : 'Catatan pengawas berhasil disimpan.',
-                            ),
-                            backgroundColor: const Color(0xFF059669),
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(
-                            content: Text('Gagal menyimpan catatan: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.save_rounded, size: 16),
-                  label: Text('Simpan Catatan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD97706),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 8),
-          ],
-        ),
+      // A proper StatefulWidget (not StatefulBuilder) is used so that
+      // State.deactivate() atomically removes all InheritedWidget subscriptions
+      // (MediaQuery etc.) before the element enters the inactive state.
+      // This prevents _dependents.isEmpty when the keyboard dismiss animation
+      // races with the modal close animation (e.g. pressing back while typing).
+      builder: (ctx) => _StudentDetailSheet(
+        parentContext: context,
+        seatNum: seatNum,
+        seatData: seatData,
+        scheme: scheme,
+        schoolId: schoolId,
+        eventId: eventId,
+        roomId: roomId,
+        localAttendedMap: localAttendedMap,
+        seatNotifier: seatNotifier,
+        isAttended: isAttended,
+        dayIndex: dayIndex,
+        sessionIndex: sessionIndex,
+        isAdminView: isAdminView,
+        isExamEnded: isExamEnded,
       ),
-    ).whenComplete(() => noteController.dispose());
+    );
   }
 
   static void showExitAppLogsModal({
@@ -1741,5 +1285,547 @@ class TeacherProctorController {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Private StatefulWidget for the student detail bottom sheet.
+// Using a proper StatefulWidget (instead of StatefulBuilder) ensures that
+// State.deactivate() is called atomically, which removes all InheritedWidget
+// subscriptions (MediaQuery, Theme, etc.) BEFORE the element becomes inactive.
+// This prevents the _dependents.isEmpty assertion error that occurs when the
+// keyboard dismisses and the modal closes simultaneously.
+// ─────────────────────────────────────────────────────────────────────────────
+class _StudentDetailSheet extends StatefulWidget {
+  final BuildContext parentContext;
+  final int seatNum;
+  final Map<String, dynamic> seatData;
+  final Map<String, Color> scheme;
+  final String schoolId;
+  final String eventId;
+  final String roomId;
+  final Map<String, bool> localAttendedMap;
+  final ValueNotifier<int> seatNotifier;
+  final bool isAttended;
+  final int dayIndex;
+  final int sessionIndex;
+  final bool isAdminView;
+  final bool isExamEnded;
+
+  const _StudentDetailSheet({
+    required this.parentContext,
+    required this.seatNum,
+    required this.seatData,
+    required this.scheme,
+    required this.schoolId,
+    required this.eventId,
+    required this.roomId,
+    required this.localAttendedMap,
+    required this.seatNotifier,
+    required this.isAttended,
+    required this.dayIndex,
+    required this.sessionIndex,
+    required this.isAdminView,
+    required this.isExamEnded,
+  });
+
+  @override
+  State<_StudentDetailSheet> createState() => _StudentDetailSheetState();
+}
+
+class _StudentDetailSheetState extends State<_StudentDetailSheet> {
+  late final TextEditingController _noteController;
+
+  @override
+  void initState() {
+    super.initState();
+    _noteController = TextEditingController(
+      text: (widget.seatData['proctorNote'] ?? '').toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // MediaQuery.of(context) is safe here: State.deactivate() removes this
+    // element from MediaQuery's _dependents map before any further rebuilds
+    // can re-add it, eliminating the race condition.
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    final seatData = widget.seatData;
+    final scheme = widget.scheme;
+    final seatNum = widget.seatNum;
+    final isAttended = widget.isAttended;
+    final isAdminView = widget.isAdminView;
+    final isExamEnded = widget.isExamEnded;
+
+    final name = (seatData['displayName'] ?? seatData['studentName'] ?? 'Siswa').toString();
+    final className = (seatData['classId'] ?? seatData['className'] ?? '').toString();
+    final number = (seatData['participantNumber'] ?? '-').toString();
+    final nis = (seatData['nis'] ?? '-').toString();
+    final angkatan = (seatData['angkatan'] ?? '-').toString();
+    final rawGender = (seatData['gender'] ?? '').toString().toUpperCase();
+    final genderText = (rawGender == 'F' || rawGender == 'P')
+        ? 'Perempuan (P)'
+        : (rawGender == 'M' || rawGender == 'L')
+            ? 'Laki-laki (L)'
+            : '-';
+    final bool isCompleted = seatData['isCompleted'] == true || seatData['status'] == 'completed';
+    final bool isLeftApp = !isCompleted && (seatData['isLeftApp'] == true || seatData['status'] == 'left_app');
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 24, right: 24, top: 24,
+        bottom: bottomInset + 24,
+      ),
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Drag handle ──────────────────────────────────────────
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // ── Header: Avatar + Name + Badge ────────────────────────
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: isCompleted
+                      ? const Color(0xFF10B981)
+                      : (isLeftApp ? const Color(0xFFEF4444) : scheme['bg']),
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : 'S',
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: (isCompleted || isLeftApp) ? Colors.white : scheme['primary'],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: scheme['bg'],
+                              borderRadius: BorderRadius.circular(5),
+                              border: Border.all(color: scheme['border']!),
+                            ),
+                            child: Text(
+                              'Kelas $className',
+                              style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.bold, color: scheme['text']),
+                            ),
+                          ),
+                          Text(
+                            'No: $number',
+                            style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isCompleted
+                          ? const Color(0xFF10B981)
+                          : (isLeftApp ? const Color(0xFFEF4444) : (isAttended ? const Color(0xFF059669) : scheme['primary'])),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isCompleted
+                          ? 'SELESAI (#$seatNum)'
+                          : (isLeftApp ? 'KELUAR APP! (#$seatNum)' : (isAttended ? 'HADIR (#$seatNum)' : 'Meja #$seatNum')),
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const SizedBox(height: 20),
+            // ── Info row: NIS / Angkatan / Gender ────────────────────
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Column(
+                    children: [
+                      Text('NIS', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(nis.isEmpty ? '-' : nis, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                    ],
+                  ),
+                  Container(height: 24, width: 1, color: const Color(0xFFCBD5E1)),
+                  Column(
+                    children: [
+                      Text('Angkatan', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(angkatan.isEmpty ? '-' : angkatan, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                    ],
+                  ),
+                  Container(height: 24, width: 1, color: const Color(0xFFCBD5E1)),
+                  Column(
+                    children: [
+                      Text('Gender', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(genderText, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: scheme['primary'])),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // ── Progress bar (optional) ───────────────────────────────
+            if ((seatData['totalQuestions'] as num?) != null && (seatData['totalQuestions'] as num) > 0) ...[
+              const SizedBox(height: 12),
+              Builder(
+                builder: (ctx) {
+                  final totalQ = (seatData['totalQuestions'] as num).toInt();
+                  final ansQ = (seatData['answeredCount'] as num?)?.toInt() ?? (isCompleted ? totalQ : 0);
+                  final percent = (ansQ / totalQ * 100).clamp(0, 100).round();
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.fact_check_rounded, size: 16, color: Color(0xFF2563EB)),
+                                const SizedBox(width: 6),
+                                Text('Progress Pengerjaan Soal', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                              ],
+                            ),
+                            Text('$ansQ / $totalQ Soal ($percent%)', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: const Color(0xFF2563EB))),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: LinearProgressIndicator(
+                            value: totalQ > 0 ? (ansQ / totalQ).clamp(0.0, 1.0) : 0.0,
+                            minHeight: 8,
+                            backgroundColor: const Color(0xFFE2E8F0),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              isCompleted ? const Color(0xFF10B981) : const Color(0xFF2563EB),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+            const SizedBox(height: 20),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            const SizedBox(height: 16),
+            // ── Aksi Pengawasan ──────────────────────────────────────
+            if (!isAdminView) ...[
+              Text('Aksi Pengawasan Sesi Ujian', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+              const SizedBox(height: 12),
+              if (isExamEnded)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.lock_rounded, size: 16, color: Color(0xFF64748B)),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Ujian Telah Selesai (Presensi Dinonaktifkan)',
+                        style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          Navigator.of(context).pop();
+                          final newStatus = !isAttended;
+                          TeacherProctorController.triggerScanFeedback(isSuccess: newStatus);
+                          await TeacherProctorController.markStudentAttendance(
+                            schoolId: widget.schoolId,
+                            eventId: widget.eventId,
+                            roomId: widget.roomId,
+                            seatData: seatData,
+                            isAttended: newStatus,
+                            localAttendedMap: widget.localAttendedMap,
+                            seatNotifier: widget.seatNotifier,
+                            dayIndex: widget.dayIndex,
+                            sessionIndex: widget.sessionIndex,
+                          );
+                        },
+                        icon: Icon(isAttended ? Icons.cancel_outlined : Icons.check_circle_rounded),
+                        label: Text(isAttended ? 'Batalkan Status Hadir' : 'Tandai Hadir Manual'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isAttended ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        Navigator.of(context).pop();
+                        final bool? confirm = await showDialog<bool>(
+                          context: widget.parentContext,
+                          builder: (dlgCtx) => AlertDialog(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            title: Row(
+                              children: [
+                                const Icon(Icons.phonelink_erase_rounded, color: Color(0xFFEF4444)),
+                                const SizedBox(width: 10),
+                                Text('Reset Sesi Login?', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 17)),
+                              ],
+                            ),
+                            content: Text(
+                              'Sesi login siswa "$name" di perangkat/browser aktif saat ini akan diakhiri. Siswa dapat login kembali di perangkat baru.',
+                              style: GoogleFonts.inter(fontSize: 13.5, height: 1.45, color: const Color(0xFF334155)),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dlgCtx, false),
+                                child: Text('Batal', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(dlgCtx, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEF4444),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                ),
+                                child: Text('Ya, Reset Sesi', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) {
+                          final studentIdVal = (seatData['studentId'] ?? seatData['id'])?.toString();
+                          final nisVal = seatData['nis']?.toString();
+                          final ok = await StudentSessionService.resetSession(
+                            schoolId: widget.schoolId,
+                            studentId: studentIdVal,
+                            studentNis: nisVal,
+                          );
+                          if (!widget.parentContext.mounted) return;
+                          ScaffoldMessenger.of(widget.parentContext).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                ok ? 'Sesi login siswa "$name" berhasil direset.' : 'Gagal mereset sesi login siswa.',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                              backgroundColor: ok ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.phonelink_erase_rounded, size: 17, color: Color(0xFF475569)),
+                      label: Text('Reset Sesi Login Siswa', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF334155))),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+              const SizedBox(height: 16),
+            ],
+            // ── Catatan Pengawas ─────────────────────────────────────
+            Text('Catatan Pengawas', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+            const SizedBox(height: 4),
+            Text(
+              isAdminView
+                  ? 'Catatan yang diinputkan oleh guru pengawas untuk siswa ini'
+                  : 'Buat catatan untuk kejadian yang perlu dilaporkan',
+              style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 10),
+            if (isAdminView) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                      ? const Color(0xFFFFFBEB)
+                      : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                        ? const Color(0xFFFDE68A)
+                        : const Color(0xFFE2E8F0),
+                  ),
+                ),
+                child: Text(
+                  (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                      ? seatData['proctorNote'].toString().trim()
+                      : 'Tidak ada catatan pengawas untuk siswa ini.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12.5,
+                    color: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                        ? const Color(0xFF92400E)
+                        : const Color(0xFF64748B),
+                    fontStyle: (seatData['proctorNote'] ?? '').toString().trim().isNotEmpty
+                        ? FontStyle.normal
+                        : FontStyle.italic,
+                  ),
+                ),
+              ),
+            ] else ...[
+              TextField(
+                controller: _noteController,
+                maxLines: 3,
+                minLines: 2,
+                textInputAction: TextInputAction.newline,
+                decoration: InputDecoration(
+                  hintText: 'Contoh: Kedapatan mencontek, membawa catatan, dll.',
+                  hintStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFD97706), width: 2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final noteText = _noteController.text.trim();
+                    // Capture context-dependent objects before the async gap
+                    final nav = Navigator.of(context);
+                    final parentCtx = widget.parentContext;
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await TeacherProctorController.saveProctorNote(
+                        schoolId: widget.schoolId,
+                        eventId: widget.eventId,
+                        roomId: widget.roomId,
+                        seatData: seatData,
+                        note: noteText,
+                        dayIndex: widget.dayIndex,
+                        sessionIndex: widget.sessionIndex,
+                      );
+                      seatData['proctorNote'] = noteText;
+                      widget.seatNotifier.value++;
+                      if (!mounted) return;
+                      nav.pop();
+                      if (parentCtx.mounted) {
+                        ScaffoldMessenger.of(parentCtx).showSnackBar(
+                          SnackBar(
+                            content: Text(noteText.isEmpty ? 'Catatan berhasil dihapus.' : 'Catatan pengawas berhasil disimpan.'),
+                            backgroundColor: const Color(0xFF059669),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (!mounted) return;
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text('Gagal menyimpan catatan: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.save_rounded, size: 16),
+                  label: Text('Simpan Catatan', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD97706),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 }
