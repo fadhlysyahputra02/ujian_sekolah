@@ -182,7 +182,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       }
     } catch (e) {
       debugPrint('[LOGIN] Fetch gagal: $e');
-      if (kIsWeb && getSessionItem('fs_reloaded') != 'true') {
+      if (e.toString().contains('permission-denied')) {
+        debugPrint('[LOGIN] HINT: Pastikan firestore.rules (allow read: if true; pada match /schools/{schoolId}) sudah di-deploy ke Firebase Console.');
+      } else if (kIsWeb && getSessionItem('fs_reloaded') != 'true') {
         setSessionItem('fs_reloaded', 'true');
         debugPrint('[LOGIN] Auto reloading browser page due to web hot-restart Firestore corruption...');
         reloadPage();
@@ -224,11 +226,21 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     if (found == null) {
       try {
-        final querySnap = await FirebaseFirestore.instance
+        final codeUpper = text.trim().toUpperCase();
+        var querySnap = await FirebaseFirestore.instance
             .collection('schools')
-            .where('code', isEqualTo: text.trim())
+            .where('code', isEqualTo: codeUpper)
             .limit(1)
             .get();
+
+        if (querySnap.docs.isEmpty && codeUpper != text.trim()) {
+          querySnap = await FirebaseFirestore.instance
+              .collection('schools')
+              .where('code', isEqualTo: text.trim())
+              .limit(1)
+              .get();
+        }
+
         if (querySnap.docs.isNotEmpty) {
           final doc = querySnap.docs.first;
           final data = doc.data();
@@ -348,11 +360,21 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       // 2. Direct Firestore fallback query if not found in memory
       if (matchedSchool == null) {
         try {
-          final querySnap = await FirebaseFirestore.instance
+          final codeUpper = typedText.toUpperCase();
+          var querySnap = await FirebaseFirestore.instance
               .collection('schools')
-              .where('code', isEqualTo: typedText)
+              .where('code', isEqualTo: codeUpper)
               .limit(1)
               .get();
+
+          if (querySnap.docs.isEmpty && codeUpper != typedText) {
+            querySnap = await FirebaseFirestore.instance
+                .collection('schools')
+                .where('code', isEqualTo: typedText)
+                .limit(1)
+                .get();
+          }
+
           if (querySnap.docs.isNotEmpty) {
             final doc = querySnap.docs.first;
             final data = doc.data();

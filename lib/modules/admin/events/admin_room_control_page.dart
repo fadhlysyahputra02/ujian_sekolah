@@ -173,6 +173,15 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
     });
 
     try {
+      _proctorGrid.clear();
+      _proctorList.clear();
+      _teacherMap.clear();
+      _classMap.clear();
+      _subjectMap.clear();
+      _rooms.clear();
+      _seats.clear();
+      _timetable.clear();
+
       final auth = Provider.of<AuthService>(context, listen: false);
       final effectiveSchoolId = widget.schoolId.isNotEmpty
           ? widget.schoolId
@@ -193,17 +202,39 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
       }
       _eventData = eventSnap.data();
 
-      // Proctor grid dari event doc
+      // Proctor grid dari event doc & draftState (Langkah 7 wizard)
       if (_eventData!['proctorGrid'] is Map) {
         (_eventData!['proctorGrid'] as Map).forEach((k, v) {
-          _proctorGrid[k.toString()] = v.toString();
+          if (v != null && v.toString().trim().isNotEmpty) {
+            _proctorGrid[k.toString()] = v.toString().trim();
+          }
         });
       }
       final rLayouts = _eventData!['roomLayouts'] as Map<String, dynamic>?;
       if (rLayouts != null && rLayouts['proctorGrid'] is Map) {
         (rLayouts['proctorGrid'] as Map).forEach((k, v) {
-          _proctorGrid[k.toString()] = v.toString();
+          if (v != null && v.toString().trim().isNotEmpty) {
+            _proctorGrid[k.toString()] = v.toString().trim();
+          }
         });
+      }
+      final draftState = _eventData!['draftState'] as Map<String, dynamic>?;
+      if (draftState != null) {
+        if (draftState['proctorGrid'] is Map) {
+          (draftState['proctorGrid'] as Map).forEach((k, v) {
+            if (v != null && v.toString().trim().isNotEmpty) {
+              _proctorGrid[k.toString()] = v.toString().trim();
+            }
+          });
+        }
+        final s7 = draftState['step7'] as Map<String, dynamic>?;
+        if (s7 != null && s7['proctorGrid'] is Map) {
+          (s7['proctorGrid'] as Map).forEach((k, v) {
+            if (v != null && v.toString().trim().isNotEmpty) {
+              _proctorGrid[k.toString()] = v.toString().trim();
+            }
+          });
+        }
       }
 
       // 2. Ambil master guru, kelas, mapel
@@ -347,7 +378,9 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
             allocData['roomLayouts'] as Map<String, dynamic>? ?? {};
         final pGrid = roomLayouts['proctorGrid'] as Map<String, dynamic>? ?? {};
         pGrid.forEach((k, v) {
-          _proctorGrid[k.toString()] = v.toString();
+          if (v != null && v.toString().trim().isNotEmpty) {
+            _proctorGrid.putIfAbsent(k.toString(), () => v.toString().trim());
+          }
         });
 
         // Seats
@@ -1295,45 +1328,103 @@ class _AdminRoomControlPageState extends State<AdminRoomControlPage> {
       // 4. Pengawas ruangan
       String proctorName = '';
 
-      for (var p in _proctorList) {
-        final pSId = (p['sessionId'] ?? '').toString();
-        final pRId = (p['roomId'] ?? '').toString();
-        final pDayIdx = (p['dayIndex'] as num?)?.toInt();
-        final pSessIdx = (p['sessionIndex'] as num?)?.toInt();
+      String cleanStr(String s) {
+        return s
+            .toLowerCase()
+            .replaceAll('ruangan', '')
+            .replaceAll('ruang', '')
+            .replaceAll('room', '')
+            .replaceAll('r.', '')
+            .replaceAll(' ', '')
+            .replaceAll('_', '')
+            .replaceAll('-', '')
+            .trim();
+      }
 
-        final bool dayMatch = pDayIdx == null ||
-            pDayIdx == _selectedDayIndex ||
-            pDayIdx == _selectedDayIndex + 1;
-        final bool sessMatch = pSessIdx != null
-            ? (pSessIdx == _selectedSessionIndex ||
-                pSessIdx == _selectedSessionIndex + 1)
-            : (pSId == sId ||
-                pSId == 'session_${_selectedSessionIndex + 1}' ||
-                pSId == daySessKey);
-        final bool roomMatch =
-            (pRId == rId || pRId == rCode || pRId == rName);
+      final cleanRId = cleanStr(rId);
+      final cleanRName = cleanStr(rName);
+      final cleanRCode = cleanStr(rCode);
 
-        if (dayMatch && sessMatch && roomMatch) {
-          final tId = (p['teacherId'] ?? p['teacherName'] ?? '').toString();
-          proctorName = p['teacherName'] ?? _teacherMap[tId] ?? tId;
+      // A. Cek dari _proctorGrid terlebih dahulu (sumber utama dari Langkah 7 wizard)
+      final exactKeys = [
+        'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rId',
+        'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rCode',
+        'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rName',
+        'day_${_selectedDayIndex}_session_0_room_$rId',
+        'day_${_selectedDayIndex}_session_0_room_$rCode',
+        'day_${_selectedDayIndex}_session_0_room_$rName',
+      ];
+
+      for (final k in exactKeys) {
+        if (_proctorGrid.containsKey(k) && _proctorGrid[k]!.trim().isNotEmpty) {
+          final pVal = _proctorGrid[k]!.trim();
+          proctorName = _teacherMap[pVal] ?? pVal;
           break;
         }
       }
 
+      // Jika belum ketemu dengan key persis, lakukan pencarian berbasis prefix dan normalized room
       if (proctorName.isEmpty) {
-        final keysToTry = [
-          'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rId',
-          'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rCode',
-          'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_$rName',
-          'day_${_selectedDayIndex}_session_0_room_$rId',
-          'day_${_selectedDayIndex}_session_0_room_$rCode',
-          'day_${_selectedDayIndex}_session_0_room_$rName',
-        ];
-        for (final k in keysToTry) {
-          if (_proctorGrid.containsKey(k)) {
-            final pVal = _proctorGrid[k]!;
-            proctorName = _teacherMap[pVal] ?? pVal;
-            break;
+        final prefix = 'day_${_selectedDayIndex}_session_${_selectedSessionIndex}_room_';
+        for (final entry in _proctorGrid.entries) {
+          if (entry.key.startsWith(prefix) && entry.value.trim().isNotEmpty) {
+            final gridRoom = entry.key.substring(prefix.length);
+            final cleanGridRoom = cleanStr(gridRoom);
+            if (gridRoom == rId ||
+                gridRoom == rName ||
+                gridRoom == rCode ||
+                (cleanGridRoom.isNotEmpty &&
+                    (cleanGridRoom == cleanRId ||
+                        cleanGridRoom == cleanRName ||
+                        cleanGridRoom == cleanRCode))) {
+              final pVal = entry.value.trim();
+              proctorName = _teacherMap[pVal] ?? pVal;
+              break;
+            }
+          }
+        }
+      }
+
+      // B. Fallback: Cek dari koleksi _proctorList (subkoleksi Firestore)
+      if (proctorName.isEmpty) {
+        for (var p in _proctorList) {
+          final pSId = (p['sessionId'] ?? '').toString();
+          final pRId =
+              (p['roomId'] ?? p['roomName'] ?? p['roomCode'] ?? '').toString();
+          final pDocId = (p['id'] ?? '').toString();
+          final pDayIdx = (p['dayIndex'] as num?)?.toInt();
+          final pSessIdx = (p['sessionIndex'] as num?)?.toInt();
+
+          final bool dayMatch = pDayIdx == null ||
+              pDayIdx == _selectedDayIndex ||
+              pDayIdx == _selectedDayIndex + 1 ||
+              pDocId.startsWith('day_${_selectedDayIndex}_');
+          final bool sessMatch = pSessIdx != null
+              ? (pSessIdx == _selectedSessionIndex ||
+                  pSessIdx == _selectedSessionIndex + 1)
+              : (pSId == sId ||
+                  pSId == 'session_${_selectedSessionIndex + 1}' ||
+                  pSId == daySessKey ||
+                  pDocId.contains('_session_${_selectedSessionIndex}_'));
+          final cleanPRId = cleanStr(pRId);
+          final bool roomMatch = pRId == rId ||
+              pRId == rCode ||
+              pRId == rName ||
+              (cleanPRId.isNotEmpty &&
+                  (cleanPRId == cleanRId ||
+                      cleanPRId == cleanRName ||
+                      cleanPRId == cleanRCode)) ||
+              pDocId.endsWith('_room_$rId') ||
+              pDocId.endsWith('_room_$rName') ||
+              pDocId.endsWith('_room_$rCode');
+
+          if (dayMatch && sessMatch && roomMatch) {
+            final tId =
+                (p['teacherId'] ?? p['teacherName'] ?? '').toString().trim();
+            if (tId.isNotEmpty) {
+              proctorName = p['teacherName'] ?? _teacherMap[tId] ?? tId;
+              break;
+            }
           }
         }
       }

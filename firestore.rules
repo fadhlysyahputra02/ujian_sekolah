@@ -55,7 +55,7 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId} {
-      allow read: if isSuperAdmin() || isSchoolMember(schoolId);
+      allow read: if true;
       allow create, delete: if isSuperAdmin();
       allow update: if isSuperAdmin() || (
         isSchoolAdmin(schoolId) &&
@@ -109,55 +109,56 @@ service cloud.firestore {
 
       // Sub-collection for events
       match /events/{eventId} {
-        allow read: if isSchoolMember(schoolId);
-        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow read: if isSchoolMember(schoolId) || request.auth != null;
+        allow create, delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSchoolStaff(schoolId) || request.auth != null;
 
         match /sessions/{sessionId} {
-          allow read: if isSchoolMember(schoolId);
-          allow write: if isSchoolStaff(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow write: if isSchoolStaff(schoolId) || request.auth != null;
         }
 
         match /timetable/{timetableId} {
-          allow read: if isSchoolMember(schoolId);
-          allow write: if isSchoolStaff(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow write: if isSchoolStaff(schoolId) || request.auth != null;
         }
 
         match /proctors/{proctorId} {
-          allow read: if isSchoolMember(schoolId);
-          allow write: if isSchoolStaff(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow write: if isSchoolStaff(schoolId) || request.auth != null;
         }
 
         match /allocations/{allocationId} {
-          allow read: if isSchoolMember(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
           allow write: if isSchoolStaff(schoolId);
 
           match /seats/{seatId} {
-            allow read: if isSchoolMember(schoolId);
+            allow read: if isSchoolMember(schoolId) || request.auth != null;
             allow write: if isSchoolStaff(schoolId);
 
             match /rooms/{roomId} {
-              allow read: if isSchoolMember(schoolId);
+              allow read: if isSchoolMember(schoolId) || request.auth != null;
               allow write: if isSchoolStaff(schoolId);
             }
           }
 
           match /rooms/{roomId} {
-            allow read: if isSchoolMember(schoolId);
+            allow read: if isSchoolMember(schoolId) || request.auth != null;
             allow write: if isSchoolStaff(schoolId);
           }
         }
 
         match /participants/{participantId} {
-          allow read: if isSchoolMember(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
           allow write: if isSchoolStaff(schoolId);
         }
 
         match /subjects/{subjectId} {
-          allow read: if isSchoolMember(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
           allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
 
           match /questions/{questionId} {
-            allow read: if isSchoolMember(schoolId);
+            allow read: if isSchoolMember(schoolId) || request.auth != null;
             allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
 
             match /answerKey/{keyDocId} {
@@ -167,7 +168,7 @@ service cloud.firestore {
         }
 
         match /questions/{questionId} {
-          allow read: if isSchoolMember(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
           allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isTeacherOrProctor(schoolId);
 
           match /answerKey/{keyDocId} {
@@ -176,61 +177,45 @@ service cloud.firestore {
         }
 
         match /submissions/{submissionId} {
-          allow read: if isSchoolStaff(schoolId) || (
-            isStudent(schoolId) && (
-              resource == null ||
-              resource.data.studentId == request.auth.uid ||
-              submissionId == request.auth.uid
-            )
-          );
-          allow create: if isSchoolStaff(schoolId) || (
-            isStudent(schoolId) &&
-            request.resource.data.studentId == request.auth.uid &&
-            !request.resource.data.keys().hasAny(['status', 'score', 'finalScore', 'grade', 'submittedAt', 'isFinal', 'verifiedBy', 'isVerified', 'proctorVerified'])
-          );
-          allow update: if isSchoolStaff(schoolId) || (
-            isStudent(schoolId) &&
-            resource.data.studentId == request.auth.uid &&
-            request.resource.data.studentId == request.auth.uid &&
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'score', 'finalScore', 'grade', 'submittedAt', 'isFinal', 'verifiedBy', 'isVerified', 'proctorVerified', 'proctorStatus'])
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow create, update: if isSchoolStaff(schoolId) || (
+            request.auth != null &&
+            !request.resource.data.keys().hasAny(['score', 'finalScore', 'grade', 'verifiedBy', 'isVerified', 'proctorVerified'])
           );
           allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
         }
 
         match /attendances/{attendanceId} {
-          allow read: if isSchoolStaff(schoolId) || (
-            isStudent(schoolId) && (
-              resource == null ||
-              resource.data.studentId == request.auth.uid ||
-              resource.data.studentUid == request.auth.uid
-            )
-          );
-          allow write: if isSchoolStaff(schoolId) || (
-            isStudent(schoolId) && (
-              (request.resource.data.studentId == request.auth.uid || request.resource.data.studentUid == request.auth.uid) &&
-              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'verifiedBy', 'isVerifiedByProctor', 'overrideStatus'])
-            )
-          );
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow write: if isSchoolStaff(schoolId) || request.auth != null;
         }
 
         match /proctor_notes/{noteId} {
-          allow read: if isSchoolStaff(schoolId) || isStudent(schoolId);
-          allow write: if isSchoolStaff(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow write: if isSchoolStaff(schoolId) || request.auth != null;
         }
 
         match /realtime_control/{controlId} {
-          allow read: if isSchoolMember(schoolId);
-          allow write: if isSchoolStaff(schoolId);
+          allow read, write: if isSchoolMember(schoolId) || request.auth != null;
         }
 
         match /makeup_approvals/{approvalId} {
-          allow read: if isSchoolMember(schoolId);
-          allow write: if isSchoolStaff(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow create: if isSchoolStaff(schoolId) || (
+            request.auth != null &&
+            request.resource.data.status == 'pending'
+          );
+          allow update: if isSchoolStaff(schoolId) || (
+            request.auth != null &&
+            request.resource.data.status == 'pending' &&
+            resource.data.status == 'pending'
+          );
+          allow delete: if isSchoolStaff(schoolId);
         }
 
         match /makeup_sessions/{sessionId} {
-          allow read: if isSchoolMember(schoolId);
-          allow write: if isSchoolStaff(schoolId);
+          allow read: if isSchoolMember(schoolId) || request.auth != null;
+          allow write: if isSchoolStaff(schoolId) || request.auth != null;
         }
       }
 
@@ -245,12 +230,12 @@ service cloud.firestore {
     }
 
     match /system_settings/{settingId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if isSuperAdmin();
     }
 
     match /system_config/{configId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if isSuperAdmin();
     }
 
@@ -266,15 +251,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if request.auth != null && (
         isSuperAdmin() ||
-        (request.auth.uid == userId && isUserSchoolActive())
+        (request.auth.uid == userId && isUserSchoolActive()) ||
+        (resource != null && isSchoolAdmin(resource.data.schoolId))
       );
-      allow create: if isSuperAdmin();
-      allow update: if request.auth != null && (
-        isSuperAdmin() ||
-        (request.auth.uid == userId && isUserSchoolActive() &&
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'schoolId']))
-      );
-      allow delete: if isSuperAdmin();
+      allow create: if isSuperAdmin() || (request.resource != null && isSchoolAdmin(request.resource.data.schoolId));
+      allow update: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.schoolId));
+      allow delete: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.schoolId));
     }
 
     match /{path=**}/bug_reports/{reportId} {

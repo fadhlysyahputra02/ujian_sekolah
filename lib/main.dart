@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/network_service.dart';
+import 'core/utils/environment_config.dart';
 import 'core/widgets/global_network_status_overlay.dart';
 import 'core/routes/app_router.dart';
 import 'firebase_options.dart';
@@ -36,6 +37,7 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     if (kIsWeb) {
+      debugPrint("🌐 App Environment: ${EnvironmentConfig.debugInfo}");
       // Disable offline persistence on Web to avoid IndexedDB cache corruption.
       FirebaseFirestore.instance.settings = const Settings(
         persistenceEnabled: false,

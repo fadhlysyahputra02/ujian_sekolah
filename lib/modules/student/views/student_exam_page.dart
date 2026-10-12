@@ -222,6 +222,18 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
       final docSubjId = (data['subjectId'] ?? '').toString().toLowerCase().trim();
       final docSubjName = (data['subjectName'] ?? '').toString().toLowerCase().trim();
 
+      // Isolasi sesi ujian susulan vs ujian reguler:
+      final bool isDocMakeup = data['isMakeup'] == true ||
+          (data['sessionName'] ?? '').toString().toLowerCase().contains('susulan') ||
+          (data['roomId'] ?? '').toString().toLowerCase().contains('susulan');
+
+      if (widget.isMakeup && !isDocMakeup) {
+        return; // Abaikan trigger dari ujian reguler jika siswa sedang menempuh ujian susulan
+      }
+      if (!widget.isMakeup && isDocMakeup) {
+        return; // Abaikan trigger dari ujian susulan jika siswa sedang menempuh ujian reguler
+      }
+
       // Dokumen global HANYA boleh mentrigger jika memiliki identitas mapel yang sama persis
       if (isGlobalDoc) {
         if (cleanSubjId.isNotEmpty) {
@@ -451,7 +463,6 @@ class _StudentExamPageState extends State<StudentExamPage> with WidgetsBindingOb
         data['isLeftApp'] = false;
         data['isCompleted'] = false;
         data['isWorking'] = true;
-        data['isForceSubmitted'] = false;
         data['logs'] = FieldValue.arrayUnion([logEntry]);
       }
 

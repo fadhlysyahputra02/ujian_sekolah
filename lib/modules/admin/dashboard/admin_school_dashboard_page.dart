@@ -34,6 +34,7 @@ import '../alumni/admin_alumni_list_view.dart';
 import '../subjects/admin_subject_list_view.dart';
 import '../classes/admin_class_list_view.dart';
 import '../settings/admin_settings_view.dart';
+import '../widgets/admin_tour_dialog.dart';
 
 class AdminSchoolDashboardPage extends StatefulWidget {
   final String? tabName;
@@ -51,11 +52,28 @@ class _AdminSchoolDashboardPageState extends State<AdminSchoolDashboardPage> {
   void initState() {
     super.initState();
     _updateTabFromWidget();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (mounted) {
-        AppUpdateService().checkAndShowUpdateDialog(context);
+        await AppUpdateService().checkAndShowUpdateDialog(context);
+        _checkAndShowAdminTour();
       }
     });
+  }
+
+  Future<void> _checkAndShowAdminTour() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final uid = authService.user?.uid;
+    final role = authService.role;
+    if (uid != null && role == 'school_admin') {
+      final seen = await AdminTourDialog.hasSeenTour(uid);
+      if (!seen && mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AdminTourDialog(isAutoPrompt: true),
+        );
+      }
+    }
   }
 
   @override

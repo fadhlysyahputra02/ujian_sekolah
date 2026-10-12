@@ -740,16 +740,12 @@ exports.permanentDeleteUser = functions.https.onCall(async (request) => {
     if (!request.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login terlebih dahulu.');
     }
-    const role = request.auth.token.role;
-    const isSuperAdmin = role === 'super_admin';
-    if (!isSuperAdmin) {
-        throw new functions.https.HttpsError('permission-denied', 'Hanya Super Admin yang berhak menghapus akun pengguna secara permanen.');
-    }
     const { schoolId, collectionType, docId } = request.data || {};
     if (!schoolId || !collectionType || !docId) {
         throw new functions.https.HttpsError('invalid-argument', 'Parameter tidak lengkap.');
     }
     validateCollectionType(collectionType);
+    verifySchoolAdmin(request, schoolId);
     const db = admin.firestore();
     try {
         let classDocRefs = [];
@@ -1015,7 +1011,7 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
     const cleanSchoolId = schoolId.trim();
     const db = admin.firestore();
     try {
-        // 1. Search in teachers NIP or email
+        // 1. Search in teachers NIP, email, or tempPassword
         let teachersQuery = await db.collection('schools')
             .doc(cleanSchoolId)
             .collection('teachers')
@@ -1030,6 +1026,14 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
                 .where('archived', '==', false)
                 .get();
         }
+        if (teachersQuery.empty) {
+            teachersQuery = await db.collection('schools')
+                .doc(cleanSchoolId)
+                .collection('teachers')
+                .where('tempPassword', '==', lookupKey)
+                .where('archived', '==', false)
+                .get();
+        }
         if (!teachersQuery.empty) {
             const teacherData = teachersQuery.docs[0].data();
             return {
@@ -1038,7 +1042,7 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
                 role: 'teacher',
             };
         }
-        // 2. Search in students NIS or email
+        // 2. Search in students NIS, email, or tempPassword
         let studentsQuery = await db.collection('schools')
             .doc(cleanSchoolId)
             .collection('students')
@@ -1050,6 +1054,14 @@ exports.resolveEmailByPassword = functions.https.onCall(async (request) => {
                 .doc(cleanSchoolId)
                 .collection('students')
                 .where('email', '==', lookupKey)
+                .where('archived', '==', false)
+                .get();
+        }
+        if (studentsQuery.empty) {
+            studentsQuery = await db.collection('schools')
+                .doc(cleanSchoolId)
+                .collection('students')
+                .where('tempPassword', '==', lookupKey)
                 .where('archived', '==', false)
                 .get();
         }

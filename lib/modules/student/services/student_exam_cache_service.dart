@@ -13,6 +13,19 @@ class StudentExamCacheService {
   static String _finalCompletedKey(String studentId, String subjectId) =>
       'exam_final_completed_${studentId}_$subjectId';
 
+  static dynamic _sanitizeForJson(dynamic value) {
+    if (value is Timestamp) {
+      return value.toDate().toIso8601String();
+    } else if (value is DateTime) {
+      return value.toIso8601String();
+    } else if (value is Map) {
+      return value.map((k, v) => MapEntry(k.toString(), _sanitizeForJson(v)));
+    } else if (value is List) {
+      return value.map((v) => _sanitizeForJson(v)).toList();
+    }
+    return value;
+  }
+
   /// Save questions list locally so exam can be reloaded even if internet dies
   static Future<void> saveQuestionsLocally({
     required String studentId,
@@ -21,7 +34,8 @@ class StudentExamCacheService {
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonStr = jsonEncode(questions);
+      final sanitized = _sanitizeForJson(questions);
+      final jsonStr = jsonEncode(sanitized);
       await prefs.setString(_questionsKey(studentId, subjectId), jsonStr);
       debugPrint('💾 LocalCache: Saved ${questions.length} questions to offline storage.');
     } catch (e) {

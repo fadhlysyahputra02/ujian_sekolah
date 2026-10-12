@@ -57,6 +57,21 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
   // Real-time stream of makeup attendances for this student
   Stream<QuerySnapshot>? _makeupAttendancesStream;
 
+  // Stream Subscriptions for full real-time database reactivity
+  StreamSubscription? _eventSub;
+  StreamSubscription? _sessionsSub;
+  StreamSubscription? _timetableSub;
+  StreamSubscription? _makeupApprovalsSub;
+  StreamSubscription? _makeupSessionsSub;
+  StreamSubscription? _submissionsSub;
+  StreamSubscription? _allocationsSub;
+  StreamSubscription? _seatsSub;
+
+  // Cached snapshots for reactive merging
+  QuerySnapshot<Map<String, dynamic>>? _latestMakeupApprovalsSnap;
+  QuerySnapshot<Map<String, dynamic>>? _latestMakeupSessionsSnap;
+  QuerySnapshot<Map<String, dynamic>>? _latestSubmissionsSnap;
+
   @override
   void initState() {
     super.initState();
@@ -67,9 +82,29 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     });
   }
 
+  void _cancelSubscriptions() {
+    _eventSub?.cancel();
+    _eventSub = null;
+    _sessionsSub?.cancel();
+    _sessionsSub = null;
+    _timetableSub?.cancel();
+    _timetableSub = null;
+    _makeupApprovalsSub?.cancel();
+    _makeupApprovalsSub = null;
+    _makeupSessionsSub?.cancel();
+    _makeupSessionsSub = null;
+    _submissionsSub?.cancel();
+    _submissionsSub = null;
+    _allocationsSub?.cancel();
+    _allocationsSub = null;
+    _seatsSub?.cancel();
+    _seatsSub = null;
+  }
+
   @override
   void dispose() {
     _clockTimer?.cancel();
+    _cancelSubscriptions();
     super.dispose();
   }
 
@@ -457,6 +492,9 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
         }
 
         _myTimetable = filteredTimetable;
+
+        // Activate real-time Firestore listeners for immediate auto-updates on database changes
+        _setupRealtimeSubscriptions();
       }
     } catch (e) {
       debugPrint("Error loading student event details: $e");
@@ -464,6 +502,355 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  void _setupRealtimeSubscriptions() {
+    _cancelSubscriptions();
+
+    if (_schoolId.isEmpty || _student == null) return;
+
+    final db = FirebaseFirestore.instance;
+    final schoolRef = db.collection('schools').doc(_schoolId);
+    final eventRef = schoolRef.collection('events').doc(widget.eventId);
+
+    // 1. Live stream Event Doc (startDate, endDate, status)
+    _eventSub = eventRef.snapshots().listen((docSnap) {
+      if (!docSnap.exists) return;
+      final evData = docSnap.data() ?? {};
+      final sd = evData['startDate'];
+      final ed = evData['endDate'];
+      DateTime? start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
+      DateTime? end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
+      _eventStartDate = start;
+      final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
+      if (start != null && end != null) {
+        _eventDateRange = '${dateFormat.format(start)} - ${dateFormat.format(end)}';
+      } else {
+        _eventDateRange = 'Tanggal belum diatur';
+      }
+      if (mounted) setState(() {});
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _eventSub: $e');
+    });
+
+    // 2. Live stream Sessions (session hours, names)
+    _sessionsSub = eventRef.collection('sessions').snapshots().listen((sessionsSnap) {
+      _sessionMap.clear();
+      for (var sDoc in sessionsSnap.docs) {
+        final sData = Map<String, dynamic>.from(sDoc.data());
+        sData['id'] = sDoc.id;
+        _sessionMap[sDoc.id] = sData;
+        final tempId = sData['tempId']?.toString();
+        if (tempId != null && tempId.isNotEmpty) {
+          _sessionMap[tempId] = sData;
+        }
+      }
+      if (mounted) setState(() {});
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _sessionsSub: $e');
+    });
+
+    // 3. Live stream Submissions (status selesai / reset ujian dari pengawas)
+    _submissionsSub = eventRef.collection('submissions').snapshots().listen((subSnap) {
+      _latestSubmissionsSnap = subSnap;
+      if (_myTimetable.isNotEmpty) {
+        _applySubmissionsToTimetable(_myTimetable, subSnap);
+        if (mounted) setState(() {});
+      }
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _submissionsSub: $e');
+    });
+
+    // 4. Live stream Timetable (mata pelajaran, jadwal kelas, urutan)
+    _timetableSub = eventRef.collection('timetable').snapshots().listen((timetableSnap) {
+      _processTimetable(timetableSnap);
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _timetableSub: $e');
+    });
+
+    // 5. Live stream Makeup Approvals (persetujuan ujian susulan dari guru/pengawas)
+    _makeupApprovalsSub = eventRef.collection('makeup_approvals').snapshots().listen((snap) {
+      _latestMakeupApprovalsSnap = snap;
+      _rebuildMakeupApprovals();
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _makeupApprovalsSub: $e');
+    });
+
+    // 6. Live stream Makeup Sessions (jadwal sesi susulan baru)
+    _makeupSessionsSub = eventRef.collection('makeup_sessions').snapshots().listen((snap) {
+      _latestMakeupSessionsSnap = snap;
+      _rebuildMakeupApprovals();
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _makeupSessionsSub: $e');
+    });
+
+    // 7. Live stream Allocations & Seats (ruangan & nomor kursi)
+    _allocationsSub = eventRef.collection('allocations').snapshots().listen((allocSnap) {
+      if (allocSnap.docs.isNotEmpty) {
+        final sortedAllocDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(allocSnap.docs);
+        sortedAllocDocs.sort((a, b) {
+          final aTime = a.data()['createdAt'];
+          final bTime = b.data()['createdAt'];
+          if (aTime is Timestamp && bTime is Timestamp) {
+            return bTime.compareTo(aTime);
+          }
+          return 0;
+        });
+        final activeAllocId = sortedAllocDocs.first.id;
+        _seatsSub?.cancel();
+        _seatsSub = eventRef
+            .collection('allocations')
+            .doc(activeAllocId)
+            .collection('seats')
+            .snapshots()
+            .listen((seatSnap) {
+          Map<String, dynamic>? foundSeat;
+          for (var sDoc in seatSnap.docs) {
+            final sData = sDoc.data();
+            if (sData['studentId'] == _student?.id ||
+                (sData['nis'] != null && sData['nis'].toString().isNotEmpty && sData['nis'].toString() == _student!.nis) ||
+                (sData['studentName'] != null && sData['studentName'] == _student!.displayName) ||
+                (sData['displayName'] != null && sData['displayName'] == _student!.displayName)) {
+              foundSeat = sData;
+              break;
+            }
+          }
+          if (mounted && foundSeat != null) {
+            setState(() {
+              _allocatedSeat = foundSeat;
+            });
+          }
+        }, onError: (e) {
+          debugPrint('⚠️ Error in _seatsSub: $e');
+        });
+      }
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _allocationsSub: $e');
+    });
+
+    // 8. Live stream makeup attendances (always active so QR scan unlocks immediately)
+    _makeupAttendancesStream = eventRef
+        .collection('attendances')
+        .where('studentId', isEqualTo: _student!.id)
+        .snapshots();
+  }
+
+  void _rebuildMakeupApprovals() {
+    if (_student == null) return;
+    final currentStudentId = (_student!.id).trim();
+    final currentStudentNis = (_student?.nis ?? '').trim();
+
+    final Map<String, Map<String, dynamic>> newApprovals = {};
+
+    // 1. Process makeup_approvals docs
+    if (_latestMakeupApprovalsSnap != null) {
+      for (var mDoc in _latestMakeupApprovalsSnap!.docs) {
+        final mData = mDoc.data();
+        final mStudentId = (mData['studentId'] ?? '').toString().trim();
+        final mNis = (mData['nis'] ?? '').toString().trim();
+
+        final bool isStudentMatch = (currentStudentId.isNotEmpty && mStudentId == currentStudentId) ||
+            (currentStudentNis.isNotEmpty && mNis.isNotEmpty && mNis == currentStudentNis) ||
+            (currentStudentId.isNotEmpty && mDoc.id.startsWith('${currentStudentId}_')) ||
+            (currentStudentNis.isNotEmpty && mDoc.id.startsWith('${currentStudentNis}_'));
+
+        if (isStudentMatch) {
+          String subId = (mData['subjectId'] ?? '').toString().trim();
+          final subName = (mData['subjectName'] ?? '').toString().trim();
+
+          if (subId.isEmpty && mDoc.id.contains('_')) {
+            subId = mDoc.id.substring(mDoc.id.indexOf('_') + 1).trim();
+          }
+
+          if (subId.isNotEmpty) {
+            newApprovals[subId] = mData;
+          }
+          if (subName.isNotEmpty) {
+            newApprovals[subName] = mData;
+            newApprovals[subName.toLowerCase()] = mData;
+          }
+        }
+      }
+    }
+
+    // 2. Supplement with makeup_sessions collection
+    if (_latestMakeupSessionsSnap != null) {
+      for (var sDoc in _latestMakeupSessionsSnap!.docs) {
+        final sData = sDoc.data();
+        final room = (sData['roomName'] ?? sData['room'] ?? '').toString();
+        final date = (sData['date'] ?? sData['makeupDate'] ?? '').toString();
+        final start = (sData['startTime'] ?? sData['makeupStartTime'] ?? '').toString();
+        final end = (sData['endTime'] ?? sData['makeupEndTime'] ?? '').toString();
+        final students = sData['approvedStudents'] as List<dynamic>? ?? [];
+
+        for (var st in students) {
+          if (st is Map<String, dynamic>) {
+            final stId = (st['studentId'] ?? '').toString().trim();
+            final stNis = (st['nis'] ?? '').toString().trim();
+            final stSubId = (st['subjectId'] ?? '').toString().trim();
+            final stSubName = (st['subjectName'] ?? '').toString().trim();
+
+            final bool isStudentMatch = (currentStudentId.isNotEmpty && stId == currentStudentId) ||
+                (currentStudentNis.isNotEmpty && stNis.isNotEmpty && stNis == currentStudentNis);
+
+            if (isStudentMatch) {
+              final Map<String, dynamic> mergedData = {
+                'status': 'approved',
+                'makeupRoom': room,
+                'makeupDate': date,
+                'makeupStartTime': start,
+                'makeupEndTime': end,
+                'subjectId': stSubId,
+                'subjectName': stSubName,
+              };
+              void applyMerged(String key) {
+                if (key.isEmpty) return;
+                if (!newApprovals.containsKey(key)) {
+                  newApprovals[key] = mergedData;
+                } else {
+                  if (start.isNotEmpty) newApprovals[key]!['makeupStartTime'] = start;
+                  if (end.isNotEmpty) newApprovals[key]!['makeupEndTime'] = end;
+                  if (room.isNotEmpty) newApprovals[key]!['makeupRoom'] = room;
+                  if (date.isNotEmpty) newApprovals[key]!['makeupDate'] = date;
+                  newApprovals[key]!['status'] = 'approved';
+                }
+              }
+              applyMerged(stSubId);
+              applyMerged(stSubName);
+              applyMerged(stSubName.toLowerCase());
+            }
+          }
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _makeupApprovals.clear();
+        _makeupApprovals.addAll(newApprovals);
+      });
+    }
+  }
+
+  void _applySubmissionsToTimetable(
+    List<Map<String, dynamic>> timetableList,
+    QuerySnapshot<Map<String, dynamic>>? subSnap,
+  ) {
+    if (subSnap == null || _student == null) return;
+
+    for (var item in timetableList) {
+      final subId = (item['subjectId'] ?? item['subjectName'] ?? '').toString();
+      final subName = (item['subjectName'] ?? '').toString();
+      final docId = '${_student!.id}_$subId';
+
+      bool isCompletedFound = false;
+      num? score;
+
+      for (var sDoc in subSnap.docs) {
+        final sData = sDoc.data();
+        final sStudentId = (sData['studentId'] ?? '').toString();
+        final sSubId = (sData['subjectId'] ?? sData['subjectName'] ?? '').toString();
+        final isCompleted = sData['isCompleted'] == true;
+
+        final matchesStudent = sStudentId == _student!.id ||
+            (sData['nis'] != null && sData['nis'].toString().isNotEmpty && sData['nis'].toString() == _student!.nis);
+
+        final matchesSubject = sSubId == subId || sSubId == subName || sDoc.id == docId;
+
+        if (isCompleted && matchesStudent && matchesSubject) {
+          isCompletedFound = true;
+          score = sData['score'];
+          break;
+        }
+      }
+
+      item['isSubmitted'] = isCompletedFound;
+      item['submittedScore'] = score;
+    }
+  }
+
+  Future<void> _processTimetable(QuerySnapshot<Map<String, dynamic>> timetableSnap) async {
+    if (_student == null) return;
+    final filteredTimetable = <Map<String, dynamic>>[];
+    final cleanMyClass = _myClassName?.toLowerCase().replaceAll(' ', '') ?? '';
+    final cleanMyClassId = _myClassId?.toLowerCase().replaceAll(' ', '') ?? '';
+    final studentReligion = (_student?.religion ?? 'Islam').trim();
+
+    for (var tDoc in timetableSnap.docs) {
+      final tData = Map<String, dynamic>.from(tDoc.data());
+      tData['id'] = tDoc.id;
+      final tClass = (tData['className'] ?? tData['classId'] ?? '').toString().trim();
+      final tClassId = (tData['classId'] ?? '').toString().trim();
+
+      final cleanTClass = tClass.toLowerCase().replaceAll(' ', '');
+      final cleanTClassId = tClassId.toLowerCase().replaceAll(' ', '');
+
+      bool matched = cleanTClass == cleanMyClass ||
+          cleanTClassId == cleanMyClassId ||
+          (cleanMyClass.isNotEmpty && cleanTClass.contains(cleanMyClass)) ||
+          (cleanMyClassId.isNotEmpty && cleanTClassId.contains(cleanMyClassId));
+
+      if (matched) {
+        final subjectName = (tData['subjectName'] ?? tData['subject'] ?? '').toString().trim();
+        final subjectReligion = (tData['religion'] ?? tData['agama'] ?? '').toString().trim();
+
+        if (_isReligionSubjectMatching(
+          subjectName: subjectName,
+          subjectReligion: subjectReligion,
+          studentReligion: studentReligion,
+        )) {
+          filteredTimetable.add(tData);
+        }
+      }
+    }
+
+    _applySubmissionsToTimetable(filteredTimetable, _latestSubmissionsSnap);
+
+    final db = FirebaseFirestore.instance;
+    final eventRef = db.collection('schools').doc(_schoolId).collection('events').doc(widget.eventId);
+    final studentAngkatan = (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty)
+        ? _student!.angkatan.trim()
+        : (_myClassName ?? '').trim();
+
+    final List<Future<void>> countTasks = [];
+    for (var item in filteredTimetable) {
+      final subId = (item['subjectId'] ?? item['subjectName'] ?? '').toString();
+      final subName = (item['subjectName'] ?? '').toString();
+
+      final existing = _myTimetable.firstWhere(
+        (e) => (e['subjectId'] ?? e['subjectName']) == (item['subjectId'] ?? item['subjectName']),
+        orElse: () => {},
+      );
+
+      if (existing.isNotEmpty && existing.containsKey('isQuestionReady')) {
+        item['isQuestionReady'] = existing['isQuestionReady'];
+        item['questionCount'] = existing['questionCount'];
+        item['pgQuestionCount'] = existing['pgQuestionCount'];
+        item['essayQuestionCount'] = existing['essayQuestionCount'];
+      } else if (subId.isNotEmpty) {
+        countTasks.add(
+          _countAndCategorizeQuestions(
+            eventRef: eventRef,
+            subId: subId,
+            subName: subName,
+            item: item,
+            studentAngkatan: studentAngkatan,
+            studentClass: _myClassName ?? '',
+            forceRefresh: false,
+          ),
+        );
+      }
+    }
+
+    if (countTasks.isNotEmpty) {
+      await Future.wait(countTasks);
+    }
+
+    if (mounted) {
+      setState(() {
+        _myTimetable = filteredTimetable;
+      });
     }
   }
 
@@ -1922,6 +2309,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                       final aSubjName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
                       final targetSubjId = subjectIdForMakeup.trim();
                       final targetSubjName = subjectName.toString().trim().toLowerCase();
+                      final bool isBothReligion = _religionKeywords.values.expand((l) => l).any((kw) => aSubjName.contains(kw)) &&
+                          _religionKeywords.values.expand((l) => l).any((kw) => targetSubjName.contains(kw));
 
                       final bool hasSubjectInDoc = aSubjId.isNotEmpty || aSubjName.isNotEmpty;
                       final bool subjectMatches = hasSubjectInDoc
@@ -1930,11 +2319,19 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                               (targetSubjId.isNotEmpty && targetSubjId.contains(aSubjId)) ||
                               (aSubjId.isNotEmpty && aSubjId.contains(targetSubjId)) ||
                               (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
-                              (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)))
+                              (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)) ||
+                              isBothReligion)
                           : (doc.id.toLowerCase().contains(targetSubjId.toLowerCase()) ||
                               doc.id.toLowerCase().contains(targetSubjName.toLowerCase()));
 
-                      if (aDay == 0 && aSess == 0 && roomMatches && subjectMatches) {
+                      final bool isDaySessionMatch = (aDay == 0 && aSess == 0) ||
+                          aDay == null ||
+                          aSess == null ||
+                          aData['isMakeup'] == true ||
+                          aRoom.contains('susulan') ||
+                          makeupRoomClean.contains('susulan');
+
+                      if (isDaySessionMatch && roomMatches && subjectMatches) {
                         isAttendedByProctor = true;
                         break;
                       }
@@ -2177,6 +2574,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                                       timeLabel: timeLabel,
                                       startTime: startTime,
                                       endTime: endTime,
+                                      isAttendedByProctor: isAttendedByProctor,
                                     )
                                   : isNotStarted && !isAttendedByProctor
                                       ? OutlinedButton.icon(
@@ -2352,22 +2750,45 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     required String timeLabel,
     required String startTime,
     required String endTime,
+    bool isAttendedByProctor = false,
   }) {
     final subjectId = (item['subjectId'] ?? subjectName).toString();
     final approval = _makeupApprovals[subjectId];
     final status = approval?['status'] as String?;
 
-    // Status: approved → Harus scan QR dahulu sebelum Mulai Ujian Susulan
+    // Status: approved → Harus scan QR dahulu & tunggu jam mulai sebelum Mulai Ujian Susulan
     if (status == 'approved') {
       final makeupRoom = (approval!['makeupRoom'] ?? '').toString();
+      final makeupDate = (approval['makeupDate'] ?? '').toString();
       final makeupStart = (approval['makeupStartTime'] ?? startTime).toString();
       final makeupEnd = (approval['makeupEndTime'] ?? endTime).toString();
 
+      final String makeupTimeRange = makeupStart.isNotEmpty
+          ? (makeupEnd.isNotEmpty ? '$makeupStart - $makeupEnd' : makeupStart)
+          : timeLabel;
+
+      final bool isMakeupNotStarted = _isSessionNotStartedYet(
+        makeupDate.isNotEmpty ? makeupDate : null,
+        makeupTimeRange,
+      );
+
+      final bool isMakeupExpired = _isSessionExpired(
+        makeupDate.isNotEmpty ? makeupDate : null,
+        makeupTimeRange,
+      );
+
       return StreamBuilder<QuerySnapshot>(
-        stream: _makeupAttendancesStream,
+        stream: _makeupAttendancesStream ?? FirebaseFirestore.instance
+            .collection('schools')
+            .doc(_schoolId)
+            .collection('events')
+            .doc(widget.eventId)
+            .collection('attendances')
+            .where('studentId', isEqualTo: _student?.id ?? '')
+            .snapshots(),
         builder: (context, attSnap) {
           // Check if student has been attended for the makeup room (dayIndex=0, sessionIndex=0)
-          bool isMakeupAttended = false;
+          bool isMakeupAttended = isAttendedByProctor;
           if (attSnap.hasData) {
             for (var aDoc in attSnap.data!.docs) {
               final aData = aDoc.data() as Map<String, dynamic>? ?? {};
@@ -2379,7 +2800,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
 
               if (!isAtt) continue;
 
-              // Match by dayIndex=0, sessionIndex=0 AND room matches the makeup room
+              // Match by room matches the makeup room
               final roomMatches = makeupRoomClean.isEmpty ||
                   aRoom == makeupRoomClean ||
                   aRoom.contains(makeupRoomClean) ||
@@ -2389,6 +2810,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
               final aSubjName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
               final targetSubjId = (item['subjectId'] ?? subjectName).toString().trim();
               final targetSubjName = subjectName.toString().trim().toLowerCase();
+              final bool isBothReligion = _religionKeywords.values.expand((l) => l).any((kw) => aSubjName.contains(kw)) &&
+                  _religionKeywords.values.expand((l) => l).any((kw) => targetSubjName.contains(kw));
 
               final bool subjectMatches = aSubjId.isEmpty ||
                   aSubjId == targetSubjId ||
@@ -2396,23 +2819,76 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                   targetSubjId.contains(aSubjId) ||
                   aSubjId.contains(targetSubjId) ||
                   (targetSubjName.isNotEmpty && targetSubjName.contains(aSubjName)) ||
-                  (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName));
+                  (aSubjName.isNotEmpty && aSubjName.contains(targetSubjName)) ||
+                  isBothReligion;
 
-              if (aDay == 0 && aSess == 0 && roomMatches && subjectMatches) {
+              final bool isDaySessionMatch = (aDay == 0 && aSess == 0) ||
+                  aDay == -1 ||
+                  aSess == -1 ||
+                  aData['isMakeup'] == true ||
+                  aRoom.contains('susulan') ||
+                  makeupRoomClean.contains('susulan');
+
+              if (isDaySessionMatch && roomMatches && subjectMatches) {
                 isMakeupAttended = true;
                 break;
               }
             }
           }
 
+          final bool isSubmitted = item['isSubmitted'] == true;
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isMakeupAttended) ...[
+              if (isSubmitted) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF059669)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Ujian Susulan Selesai',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: const Color(0xFF475569),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (isMakeupExpired) ...[
+                ElevatedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.timer_off_rounded, size: 14),
+                  label: Text('Waktu Susulan Habis',
+                      style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.bold, fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF1F5F9),
+                    foregroundColor: const Color(0xFF94A3B8),
+                    disabledBackgroundColor: const Color(0xFFF1F5F9),
+                    disabledForegroundColor: const Color(0xFF94A3B8),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ] else if (!isMakeupAttended) ...[
                 ElevatedButton.icon(
                   onPressed: null,
                   icon: const Icon(Icons.lock_rounded, size: 14),
-                  label: Text('Mulai Ujian Susulan', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 12)),
+                  label: Text('Mulai Ujian Susulan',
+                      style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.bold, fontSize: 12)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFE2E8F0),
                     foregroundColor: const Color(0xFF94A3B8),
@@ -2423,57 +2899,88 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
-              ] else ...[
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      if (item['isSubmitted'] == true) return;
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => StudentExamPage(
-                            schoolId: _schoolId,
-                            eventId: widget.eventId,
-                            eventName: widget.eventName,
-                            subjectId: subjectId,
-                            subjectName: subjectName,
-                            studentId: _student?.id ?? '',
-                            studentName: _student?.displayName ?? 'Siswa',
-                            nis: _student?.nis ?? '',
-                            className: _myClassName ?? '',
-                            angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty)
-                                ? _student!.angkatan
-                                : (_myClassName ?? ''),
-                            sessionName: sName,
-                            startTimeStr: makeupStart,
-                            endTimeStr: makeupEnd,
-                            isMakeup: true,
-                          ),
+              ] else if (isMakeupNotStarted) ...[
+                OutlinedButton.icon(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Presensi terverifikasi. Ujian susulan baru dapat dimulai tepat pukul $makeupStart WIB. Silakan menunggu.',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
                         ),
-                      ).then((_) {
-                        if (mounted) {
-                          setState(() {
-                            item['isSubmitted'] = true;
-                          });
-                        }
-                        _loadStudentAndEventDetails();
-                      });
-                    },
-                    icon: const Icon(Icons.history_edu_rounded, size: 16),
-                    label: Text(
-                      'Mulai Ujian Susulan',
-                      style: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF7C3AED),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                        backgroundColor: const Color(0xFF2563EB),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFF2563EB)),
+                  label: Text(
+                    'Mulai Pukul $makeupStart WIB',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: const Color(0xFF2563EB),
                     ),
                   ),
-                ],
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEFF6FF),
+                    side: const BorderSide(color: Color(0xFF93C5FD)),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ] else ...[
+                ElevatedButton.icon(
+                  onPressed: () {
+                    if (item['isSubmitted'] == true) return;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => StudentExamPage(
+                          schoolId: _schoolId,
+                          eventId: widget.eventId,
+                          eventName: widget.eventName,
+                          subjectId: subjectId,
+                          subjectName: subjectName,
+                          studentId: _student?.id ?? '',
+                          studentName: _student?.displayName ?? 'Siswa',
+                          nis: _student?.nis ?? '',
+                          className: _myClassName ?? '',
+                          angkatan: (_student?.angkatan != null && _student!.angkatan.trim().isNotEmpty)
+                              ? _student!.angkatan
+                              : (_myClassName ?? ''),
+                          sessionName: sName,
+                          startTimeStr: makeupStart,
+                          endTimeStr: makeupEnd,
+                          isMakeup: true,
+                        ),
+                      ),
+                    ).then((_) {
+                      if (mounted) {
+                        setState(() {
+                          item['isSubmitted'] = true;
+                        });
+                      }
+                      _loadStudentAndEventDetails();
+                    });
+                  },
+                  icon: const Icon(Icons.history_edu_rounded, size: 16),
+                  label: Text(
+                    'Mulai Ujian Susulan',
+                    style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
             ],
           );
         },
@@ -2665,6 +3172,8 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
     try {
       final db = FirebaseFirestore.instance;
       final docId = '${_student!.id}_$subjectId';
+      final authService = context.read<AuthService>();
+      final uid = authService.user?.uid ?? '';
       await db
           .collection('schools')
           .doc(_schoolId)
@@ -2674,6 +3183,7 @@ class _StudentEventDetailPageState extends State<StudentEventDetailPage> {
           .doc(docId)
           .set({
         'studentId': _student!.id,
+        'studentUid': uid,
         'studentName': _student!.displayName,
         'nis': _student!.nis,
         'className': _myClassName ?? '',

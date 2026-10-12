@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "sesicermat"
+  },
+  "targets": {
+    "sesicermat": {
+      "hosting": {
+        "dev": [
+          "dev-sesicermat-exam"
+        ],
+        "prod": [
+          "sesicermat"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

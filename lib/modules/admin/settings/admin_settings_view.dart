@@ -1,16 +1,12 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
-import '../../../core/services/admin_user_service.dart';
-import '../../../core/widgets/app_splash_loader.dart';
 import '../widgets/report_bug_dialog.dart';
+import '../widgets/admin_tour_dialog.dart';
 
 class AdminSettingsView extends StatefulWidget {
   final String schoolId;
@@ -25,7 +21,6 @@ class AdminSettingsView extends StatefulWidget {
 }
 
 class _AdminSettingsViewState extends State<AdminSettingsView> {
-  final AdminUserService _adminUserService = AdminUserService();
   DocumentSnapshot? _cachedSchoolSnapshot;
 
   Widget _buildModernTile({
@@ -255,23 +250,70 @@ class _AdminSettingsViewState extends State<AdminSettingsView> {
                                             ),
                                           ),
                                           const SizedBox(height: 16),
-                                          ElevatedButton.icon(
-                                            onPressed: () {
-                                              showDialog(
-                                                context: context,
-                                                builder: (context) => ReportBugDialog(
-                                                  schoolId: schoolId,
-                                                  schoolName: schoolName,
-                                                  schoolCode: schoolCode,
+                                          Wrap(
+                                            spacing: 12,
+                                            runSpacing: 10,
+                                            children: [
+                                              ElevatedButton.icon(
+                                                onPressed: () {
+                                                  showDialog(
+                                                    context: context,
+                                                    builder: (context) => const AdminTourDialog(isAutoPrompt: false),
+                                                  );
+                                                },
+                                                icon: const Icon(Icons.menu_book_rounded, size: 18),
+                                                label: const Text('Baca Panduan'),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Colors.white,
+                                                  foregroundColor: const Color(0xFF4338CA),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                  elevation: 2,
                                                 ),
-                                              );
-                                            },
-                                            icon: const Icon(Icons.bug_report, size: 16),
-                                            label: const Text('Laporkan Bug'),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.white,
-                                              foregroundColor: const Color(0xFF4338CA),
-                                            ),
+                                              ),
+                                              OutlinedButton.icon(
+                                                onPressed: () async {
+                                                  final uid = authService.user?.uid;
+                                                  if (uid != null) {
+                                                    await AdminTourDialog.resetTourStatus(uid);
+                                                    if (context.mounted) {
+                                                      ScaffoldMessenger.of(context).showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text('Status panduan berhasil di-reset! Pop-up panduan akan otomatis muncul kembali pada login/refresh berikutnya.'),
+                                                          backgroundColor: Color(0xFF10B981),
+                                                          duration: Duration(seconds: 4),
+                                                        ),
+                                                      );
+                                                    }
+                                                  }
+                                                },
+                                                icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                                                label: const Text('Reset Auto-Tour'),
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: Colors.white,
+                                                  side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                ),
+                                              ),
+                                              OutlinedButton.icon(
+                                                onPressed: () {
+                                                  showDialog(
+                                                    context: context,
+                                                    builder: (context) => ReportBugDialog(
+                                                      schoolId: schoolId,
+                                                      schoolName: schoolName,
+                                                      schoolCode: schoolCode,
+                                                    ),
+                                                  );
+                                                },
+                                                icon: const Icon(Icons.bug_report, size: 18),
+                                                label: const Text('Laporkan Bug'),
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: Colors.white,
+                                                  side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),

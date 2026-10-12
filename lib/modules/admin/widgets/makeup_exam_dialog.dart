@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -45,15 +46,187 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
 
   List<Map<String, dynamic>> _activeMakeupSessions = [];
 
+  StreamSubscription<QuerySnapshot>? _makeupApprovalsSub;
+  StreamSubscription<QuerySnapshot>? _makeupSessionsSub;
+  QuerySnapshot? _latestMakeupApprovalsSnap;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadData();
+    _setupRealtimeSubscriptions();
+  }
+
+  void _setupRealtimeSubscriptions() {
+    _makeupApprovalsSub?.cancel();
+    _makeupSessionsSub?.cancel();
+
+    final db = FirebaseFirestore.instance;
+    final eventRef = db
+        .collection('schools')
+        .doc(widget.schoolId)
+        .collection('events')
+        .doc(widget.eventId);
+
+    _makeupApprovalsSub = eventRef
+        .collection('makeup_approvals')
+        .snapshots()
+        .listen((snap) {
+      _latestMakeupApprovalsSnap = snap;
+      if (!_isLoadingMissed) {
+        _applyMakeupApprovalsRealtime(snap);
+      }
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _makeupApprovalsSub: $e');
+    });
+
+    _makeupSessionsSub = eventRef
+        .collection('makeup_sessions')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((snap) {
+      if (!_isLoadingMissed) {
+        final List<Map<String, dynamic>> activeSessions = [];
+        for (var doc in snap.docs) {
+          final mData = Map<String, dynamic>.from(doc.data());
+          mData['id'] = doc.id;
+          activeSessions.add(mData);
+        }
+        if (mounted) {
+          setState(() {
+            _activeMakeupSessions = activeSessions;
+          });
+        }
+      }
+    }, onError: (e) {
+      debugPrint('⚠️ Error in _makeupSessionsSub: $e');
+    });
+  }
+
+  void _applyMakeupApprovalsRealtime(QuerySnapshot snap) {
+    if (!mounted) return;
+
+    final Set<String> alreadyApprovedKeys = {};
+    final Map<String, Map<String, dynamic>> pendingRequestsMap = {};
+
+    for (var doc in snap.docs) {
+      final aData = doc.data() as Map<String, dynamic>;
+      final stId = (aData['studentId'] ?? '').toString().trim().toLowerCase();
+      final nis = (aData['nis'] ?? '').toString().trim().toLowerCase();
+      final subId = (aData['subjectId'] ?? '').toString().trim().toLowerCase();
+      final subName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
+      final status = (aData['status'] ?? 'approved').toString().trim().toLowerCase();
+
+      if (status == 'approved') {
+        if (stId.isNotEmpty && subId.isNotEmpty) alreadyApprovedKeys.add('${stId}_$subId');
+        if (stId.isNotEmpty && subName.isNotEmpty) alreadyApprovedKeys.add('${stId}_$subName');
+        if (nis.isNotEmpty && subId.isNotEmpty) alreadyApprovedKeys.add('${nis}_$subId');
+        if (nis.isNotEmpty && subName.isNotEmpty) alreadyApprovedKeys.add('${nis}_$subName');
+      } else if (status == 'pending') {
+        pendingRequestsMap[doc.id.toLowerCase()] = aData;
+        if (stId.isNotEmpty) {
+          if (subId.isNotEmpty) pendingRequestsMap['${stId}_$subId'] = aData;
+          if (subName.isNotEmpty) pendingRequestsMap['${stId}_$subName'] = aData;
+        }
+        if (nis.isNotEmpty) {
+          if (subId.isNotEmpty) pendingRequestsMap['${nis}_$subId'] = aData;
+          if (subName.isNotEmpty) pendingRequestsMap['${nis}_$subName'] = aData;
+        }
+      }
+    }
+
+    // 1. Update existing students in _missedStudents
+    for (var s in _missedStudents) {
+      final cleanStId = (s['studentId'] ?? '').toString().trim().toLowerCase();
+      final cleanStNis = (s['nis'] ?? '').toString().trim().toLowerCase();
+      final cleanSubId = (s['subjectId'] ?? '').toString().trim().toLowerCase();
+      final cleanSubName = (s['actualSubjectName'] ?? s['subjectName'] ?? '').toString().trim().toLowerCase();
+
+      final isAlreadyApproved = (cleanStId.isNotEmpty && cleanSubId.isNotEmpty && alreadyApprovedKeys.contains('${cleanStId}_$cleanSubId')) ||
+          (cleanStId.isNotEmpty && cleanSubName.isNotEmpty && alreadyApprovedKeys.contains('${cleanStId}_$cleanSubName')) ||
+          (cleanStNis.isNotEmpty && cleanSubId.isNotEmpty && alreadyApprovedKeys.contains('${cleanStNis}_$cleanSubId')) ||
+          (cleanStNis.isNotEmpty && cleanSubName.isNotEmpty && alreadyApprovedKeys.contains('${cleanStNis}_$cleanSubName'));
+
+      Map<String, dynamic>? pendingDoc = pendingRequestsMap['${cleanStId}_$cleanSubId'] ??
+          pendingRequestsMap['${cleanStId}_$cleanSubName'] ??
+          (cleanStNis.isNotEmpty
+              ? (pendingRequestsMap['${cleanStNis}_$cleanSubId'] ??
+                  pendingRequestsMap['${cleanStNis}_$cleanSubName'])
+              : null);
+
+      final hasPendingRequest = pendingDoc != null;
+      final pendingReason = pendingDoc?['reason']?.toString();
+
+      s['hasPendingRequest'] = hasPendingRequest;
+      s['pendingReason'] = pendingReason;
+      s['isAlreadyApproved'] = isAlreadyApproved;
+
+      if (hasPendingRequest) {
+        s['statusLabel'] = 'Request Susulan';
+      } else if (isAlreadyApproved) {
+        s['statusLabel'] = 'Sudah Dijadwalkan';
+      } else if (s['studentHasSubmitted'] == true) {
+        s['statusLabel'] = 'Hadir • Sudah Ujian';
+      } else if (s['attended'] == true) {
+        s['statusLabel'] = 'Hadir';
+      } else {
+        s['statusLabel'] = 'Tidak Hadir';
+      }
+    }
+
+    // 2. Add any new pending request students not yet in _missedStudents
+    for (var appDoc in snap.docs) {
+      final aData = appDoc.data() as Map<String, dynamic>;
+      final status = (aData['status'] ?? 'pending').toString().trim().toLowerCase();
+      if (status != 'pending') continue;
+
+      final stId = (aData['studentId'] ?? '').toString().trim();
+      final subId = (aData['subjectId'] ?? '').toString().trim();
+      final subName = (aData['subjectName'] ?? 'Ujian').toString().trim();
+
+      final isRel = _isReligionSubject(subName);
+      final groupSubName = isRel ? 'Pendidikan Agama' : subName;
+
+      final alreadyAdded = _missedStudents.any((m) =>
+          m['studentId'].toString().toLowerCase() == stId.toLowerCase() &&
+          (m['subjectId'].toString().toLowerCase() == subId.toLowerCase() ||
+              (m['actualSubjectName'] ?? m['subjectName']).toString().toLowerCase() == subName.toLowerCase() ||
+              m['subjectName'].toString().toLowerCase() == groupSubName.toLowerCase()));
+
+      if (!alreadyAdded && stId.isNotEmpty) {
+        final studentName = (aData['studentName'] ?? stId).toString().trim();
+        final className = (aData['className'] ?? '').toString().trim();
+        final nis = (aData['nis'] ?? '').toString().trim();
+
+        _missedStudents.add({
+          'key': '${stId}_${subId.isNotEmpty ? subId : subName}',
+          'studentId': stId,
+          'studentName': studentName,
+          'nis': nis,
+          'className': className.isNotEmpty ? className : 'Umum',
+          'subjectId': subId,
+          'subjectName': groupSubName,
+          'actualSubjectName': subName,
+          'isReligionSubject': isRel,
+          'sessionName': (aData['sessionName'] ?? 'Sesi 1').toString(),
+          'sessionId': '',
+          'dayIndex': 0,
+          'statusLabel': 'Request Susulan',
+          'attended': false,
+          'hasPendingRequest': true,
+          'pendingReason': aData['reason']?.toString() ?? 'Minta Susulan',
+        });
+      }
+    }
+
+    setState(() {});
   }
 
   @override
   void dispose() {
+    _makeupApprovalsSub?.cancel();
+    _makeupSessionsSub?.cancel();
     _tabController.dispose();
     _roomController.dispose();
     super.dispose();
@@ -93,6 +266,74 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
     }
 
     return true;
+  }
+
+  bool _isReligionSubject(String subjectName) {
+    final s = subjectName.toLowerCase();
+    final religionKeywords = [
+      'agama', 'religion', 'religius', 'relig',
+      'islam', 'kristen', 'protestan', 'katolik', 'hindu', 'buddha', 'budha', 'konghucu', 'khonghucu',
+      'paibp', 'pakk', 'pabp', 'pake', 'pai', 'keguruan kristen'
+    ];
+    return religionKeywords.any((kw) => s.contains(kw));
+  }
+
+  bool _isReligionMatch({
+    required String subjectName,
+    required String subjectReligion,
+    required String studentReligion,
+  }) {
+    if (!_isReligionSubject(subjectName) && subjectReligion.trim().isEmpty) {
+      return true; // Bukan mapel agama
+    }
+
+    final sName = subjectName.toLowerCase().trim();
+    final sRel = subjectReligion.toLowerCase().trim();
+    final stRel = studentReligion.trim().isNotEmpty
+        ? studentReligion.toLowerCase().trim()
+        : 'islam'; // Default konsisten di database jika atribut agama kosong
+
+    const Map<String, List<String>> keywords = {
+      'islam': ['islam', 'muslim', 'pai', 'paibp'],
+      'kristen': ['kristen', 'kristiani', 'protestan', 'protestant', 'christian', 'pakbp', 'keguruan kristen'],
+      'katolik': ['katolik', 'katholik', 'catholic', 'pkkp'],
+      'hindu': ['hindu', 'parisada'],
+      'buddha': ['buddha', 'budha', 'pabud'],
+      'konghucu': ['konghucu', 'khonghucu', 'pakhong'],
+    };
+
+    String? studentKey;
+    for (var entry in keywords.entries) {
+      if (entry.value.any((kw) => stRel.contains(kw))) {
+        studentKey = entry.key;
+        break;
+      }
+    }
+    studentKey ??= 'islam';
+
+    String? subjectKey;
+    if (sRel.isNotEmpty) {
+      for (var entry in keywords.entries) {
+        if (entry.value.any((kw) => sRel.contains(kw))) {
+          subjectKey = entry.key;
+          break;
+        }
+      }
+    }
+    if (subjectKey == null) {
+      for (var entry in keywords.entries) {
+        if (entry.value.any((kw) => sName.contains(kw))) {
+          subjectKey = entry.key;
+          break;
+        }
+      }
+    }
+
+    if (subjectKey == null) {
+      return true; // "Pendidikan Agama" generik cocok untuk semua siswa
+    }
+
+    return subjectKey == studentKey;
   }
 
   Future<void> _loadData() async {
@@ -283,6 +524,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         final tData = tDoc.data() as Map<String, dynamic>;
         final subjectId = (tData['subjectId'] ?? tData['subjectName'] ?? '').toString();
         final subjectName = (tData['subjectName'] ?? subjectId).toString();
+        final subjectReligion = (tData['religion'] ?? tData['agama'] ?? '').toString().trim();
         final sessionId = (tData['sessionId'] ?? '').toString();
         final sessionName = sessionNameMap[sessionId] ??
             (tData['sessionName'] ?? 'Sesi').toString();
@@ -335,6 +577,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           final stNis = (stData['nis'] ?? '').toString().trim();
           final stName = (stData['name'] ?? stData['displayName'] ?? '').toString().trim();
           final stClass = (studentClassMap[stId] ?? stData['className'] ?? stData['classId'] ?? '').toString().trim();
+          final stReligion = (stData['religion'] ?? stData['agama'] ?? '').toString().trim();
 
           final cleanStId = stId.trim().toLowerCase();
           final cleanStNis = stNis.toLowerCase();
@@ -352,6 +595,14 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           );
           if (!isCompatibleTrack) continue; // Skip incompatible track subjects!
 
+          // 0.1 Religion compatibility check: student must take matching religion subject
+          final isCompatibleReligion = _isReligionMatch(
+            subjectName: subjectName,
+            subjectReligion: subjectReligion,
+            studentReligion: stReligion,
+          );
+          if (!isCompatibleReligion) continue; // Skip incompatible religion subjects!
+
           // 1. Strict Subject-Class verification: If timetable specifies targetClasses, student MUST belong to targetClasses!
           if (targetClasses.isNotEmpty) {
             final belongsToTargetClass = targetClasses.contains(cleanStClass) ||
@@ -360,9 +611,14 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           }
 
           // 2. Strict Subject Allocation verification: If seat allocations map subjects to students, verify student is assigned to this subject!
+          final isRel = _isReligionSubject(subjectName);
+          final groupSubName = isRel ? 'Pendidikan Agama' : subjectName;
+
           final assignedSubs = studentAssignedSubjectsMap[stId];
           if (assignedSubs != null && assignedSubs.isNotEmpty) {
-            final isAssigned = assignedSubs.contains(cleanSubId) || assignedSubs.contains(cleanSubName);
+            final isAssigned = assignedSubs.contains(cleanSubId) ||
+                assignedSubs.contains(cleanSubName) ||
+                (isRel && (assignedSubs.contains('pendidikan agama') || assignedSubs.any((s) => _isReligionSubject(s))));
             if (!isAssigned) continue; // Skip student who is not assigned to this subject!
           }
 
@@ -454,7 +710,9 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                 'nis': stNis,
                 'className': stClass.isNotEmpty ? stClass : 'Umum',
                 'subjectId': subjectId,
-                'subjectName': subjectName,
+                'subjectName': groupSubName,
+                'actualSubjectName': subjectName,
+                'isReligionSubject': isRel,
                 'sessionName': sessionName,
                 'sessionId': sessionId,
                 'dayIndex': dayIdx,
@@ -479,7 +737,9 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             'nis': stNis,
             'className': stClass.isNotEmpty ? stClass : 'Umum',
             'subjectId': subjectId,
-            'subjectName': subjectName,
+            'subjectName': groupSubName,
+            'actualSubjectName': subjectName,
+            'isReligionSubject': isRel,
             'sessionName': sessionName,
             'sessionId': sessionId,
             'dayIndex': dayIdx,
@@ -503,10 +763,14 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
         final subId = (aData['subjectId'] ?? '').toString().trim();
         final subName = (aData['subjectName'] ?? 'Ujian').toString().trim();
 
+        final isRel = _isReligionSubject(subName);
+        final groupSubName = isRel ? 'Pendidikan Agama' : subName;
+
         final alreadyAdded = missed.any((m) =>
             m['studentId'].toString().toLowerCase() == stId.toLowerCase() &&
             (m['subjectId'].toString().toLowerCase() == subId.toLowerCase() ||
-                m['subjectName'].toString().toLowerCase() == subName.toLowerCase()));
+                (m['actualSubjectName'] ?? m['subjectName']).toString().toLowerCase() == subName.toLowerCase() ||
+                m['subjectName'].toString().toLowerCase() == groupSubName.toLowerCase()));
 
         if (!alreadyAdded && stId.isNotEmpty) {
           final stData = studentMap[stId];
@@ -521,7 +785,9 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
             'nis': nis,
             'className': className.isNotEmpty ? className : 'Umum',
             'subjectId': subId,
-            'subjectName': subName,
+            'subjectName': groupSubName,
+            'actualSubjectName': subName,
+            'isReligionSubject': isRel,
             'sessionName': (aData['sessionName'] ?? 'Sesi 1').toString(),
             'sessionId': '',
             'dayIndex': 0,
@@ -573,6 +839,10 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           _activeMakeupSessions = activeSessions;
           _isLoadingMissed = false;
         });
+
+        if (_latestMakeupApprovalsSnap != null) {
+          _applyMakeupApprovalsRealtime(_latestMakeupApprovalsSnap!);
+        }
       }
     } catch (e) {
       debugPrint('Error loading makeup data: $e');
@@ -873,7 +1143,8 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           'nis': student['nis'],
           'className': student['className'],
           'subjectId': student['subjectId'],
-          'subjectName': student['subjectName'],
+          'subjectName': student['actualSubjectName'] ?? student['subjectName'],
+          'groupSubjectName': student['subjectName'],
           'sessionName': student['sessionName'],
         });
 
@@ -888,7 +1159,8 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           'nis': student['nis'],
           'className': student['className'],
           'subjectId': student['subjectId'],
-          'subjectName': student['subjectName'],
+          'subjectName': student['actualSubjectName'] ?? student['subjectName'],
+          'groupSubjectName': student['subjectName'],
           'sessionName': student['sessionName'],
           'status': 'approved',
           'approvedAt': FieldValue.serverTimestamp(),
@@ -900,6 +1172,15 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
           'proctorNames': _selectedProctorNames,
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+
+        // Bersihkan state realtime_control lama dari ujian reguler untuk mapel ini
+        final stId = (student['studentId'] ?? '').toString().trim();
+        final subId = (student['subjectId'] ?? '').toString().trim().toLowerCase();
+        if (stId.isNotEmpty && subId.isNotEmpty) {
+          try {
+            await eventRef.collection('realtime_control').doc('${stId}_$subId').delete();
+          } catch (_) {}
+        }
       }
 
       await eventRef
@@ -1458,9 +1739,11 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                   ],
                 ),
                 const SizedBox(height: 2),
-                Text('${s['subjectName']}  •  ${s['sessionName']}',
-                    style: GoogleFonts.inter(
-                        fontSize: 11, color: const Color(0xFF64748B))),
+                Text(
+                  '${s['subjectName']}${s['isReligionSubject'] == true && s['actualSubjectName'] != null && s['actualSubjectName'] != s['subjectName'] ? ' (${s['actualSubjectName']})' : ''}  •  ${s['sessionName']}',
+                  style: GoogleFonts.inter(
+                      fontSize: 11, color: const Color(0xFF64748B)),
+                ),
                 if (hasReq) ...[
                   const SizedBox(height: 3),
                   Container(
@@ -1767,7 +2050,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                   border: Border.all(color: const Color(0xFFCBD5E1)),
                 ),
                 child: Text(
-                  '${s['studentName']} – ${s['subjectName']}',
+                  '${s['studentName']} – ${s['subjectName']}${s['isReligionSubject'] == true && s['actualSubjectName'] != null && s['actualSubjectName'] != s['subjectName'] ? ' (${s['actualSubjectName']})' : ''}',
                   style: GoogleFonts.inter(
                       fontSize: 11,
                       color: const Color(0xFF334155),
@@ -2169,7 +2452,7 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
                       const SizedBox(height: 12),
                       const Divider(height: 1, color: Color(0xFFE2E8F0)),
                       const SizedBox(height: 10),
-                      _buildRealtimeMini(sessId, students),
+                      _buildRealtimeMini(sess, students),
                     ],
                   ]),
             ),
@@ -2180,115 +2463,226 @@ class _MakeupExamDialogState extends State<MakeupExamDialog>
   }
 
   Widget _buildRealtimeMini(
-      String sessId, List<dynamic> students) {
+      Map<String, dynamic> sess, List<dynamic> students) {
+    final sessRoom = (sess['roomName'] ?? '').toString().trim().toLowerCase();
+    final sessCreatedAt = sess['createdAt'] as Timestamp?;
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('schools')
           .doc(widget.schoolId)
           .collection('events')
           .doc(widget.eventId)
-          .collection('realtime_control')
+          .collection('attendances')
           .snapshots(),
-      builder: (context, rtSnap) {
-        final Map<String, Map<String, dynamic>> rtMap = {};
-        if (rtSnap.hasData) {
-          for (var doc in rtSnap.data!.docs) {
-            rtMap[doc.id] = doc.data() as Map<String, dynamic>;
-            final stId =
-                ((doc.data() as Map)['studentId'] ?? '').toString();
-            if (stId.isNotEmpty) rtMap[stId] = doc.data() as Map<String, dynamic>;
-          }
-        }
-        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.sensors_rounded,
-                color: Color(0xFF10B981), size: 14),
-            const SizedBox(width: 6),
-            Text('Status Pengerjaan Realtime',
-                style: GoogleFonts.inter(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: const Color(0xFF0F172A))),
-          ]),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: students.map((stRaw) {
-              final st = stRaw as Map<String, dynamic>? ?? {};
-              final stId = (st['studentId'] ?? '').toString();
-              final stName = (st['studentName'] ?? '-').toString();
-              final subName = (st['subjectName'] ?? '-').toString();
-              final rtDoc = rtMap[stId];
-              final isCompleted = rtDoc?['isCompleted'] == true;
-              final isLeftApp = rtDoc?['isLeftApp'] == true;
-              final isWorking = rtDoc?['isWorking'] == true;
+      builder: (context, attSnap) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('schools')
+              .doc(widget.schoolId)
+              .collection('events')
+              .doc(widget.eventId)
+              .collection('realtime_control')
+              .snapshots(),
+          builder: (context, rtSnap) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const Icon(Icons.sensors_rounded,
+                      color: Color(0xFF10B981), size: 14),
+                  const SizedBox(width: 6),
+                  Text('Status Pengerjaan Realtime',
+                      style: GoogleFonts.inter(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: const Color(0xFF0F172A))),
+                ]),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: students.map((stRaw) {
+                    final st = stRaw as Map<String, dynamic>? ?? {};
+                    final stId = (st['studentId'] ?? '').toString().trim().toLowerCase();
+                    final stNis = (st['nis'] ?? '').toString().trim().toLowerCase();
+                    final stName = (st['studentName'] ?? '-').toString().trim().toLowerCase();
+                    final rawStName = (st['studentName'] ?? '-').toString();
+                    final rawSubName = (st['subjectName'] ?? '-').toString();
+                    final subId = (st['subjectId'] ?? '').toString().trim().toLowerCase();
+                    final subName = (st['subjectName'] ?? '').toString().trim().toLowerCase();
 
-              Color statusColor;
-              IconData statusIcon;
-              String statusText;
-              if (isCompleted) {
-                statusColor = const Color(0xFF10B981);
-                statusIcon = Icons.check_circle_rounded;
-                statusText = 'Selesai';
-              } else if (isLeftApp) {
-                statusColor = const Color(0xFFEF4444);
-                statusIcon = Icons.warning_rounded;
-                statusText = 'Keluar App';
-              } else if (isWorking) {
-                statusColor = const Color(0xFF3B82F6);
-                statusIcon = Icons.pending_rounded;
-                statusText = 'Mengerjakan';
-              } else if (rtDoc != null) {
-                statusColor = const Color(0xFFF59E0B);
-                statusIcon = Icons.hourglass_empty_rounded;
-                statusText = 'Hadir';
-              } else {
-                statusColor = const Color(0xFF94A3B8);
-                statusIcon = Icons.person_off_outlined;
-                statusText = 'Belum Hadir';
-              }
+                    // 1. Cek Presensi Pengawas khusus sesi susulan
+                    bool isAttended = false;
+                    if (attSnap.hasData) {
+                      for (var aDoc in attSnap.data!.docs) {
+                        final aData = aDoc.data() as Map<String, dynamic>? ?? {};
+                        if (aData['isAttended'] != true && aData['attended'] != true) continue;
 
-              return Container(
-                constraints: const BoxConstraints(minWidth: 110),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: statusColor.withValues(alpha: 0.3)),
+                        final aStudentId = (aData['studentId'] ?? '').toString().trim().toLowerCase();
+                        final aNis = (aData['nis'] ?? '').toString().trim().toLowerCase();
+                        final aStudentName = (aData['studentName'] ?? aData['displayName'] ?? '').toString().trim().toLowerCase();
+                        final aRoom = (aData['roomId'] ?? aData['room'] ?? '').toString().trim().toLowerCase();
+                        final aSubjId = (aData['subjectId'] ?? '').toString().trim().toLowerCase();
+                        final aSubjName = (aData['subjectName'] ?? '').toString().trim().toLowerCase();
+
+                        final bool matchStudent = (stId.isNotEmpty && aStudentId == stId) ||
+                            (stNis.isNotEmpty && aNis == stNis) ||
+                            (stName.isNotEmpty && (aStudentName == stName || aStudentName.contains(stName)));
+                        if (!matchStudent) continue;
+
+                        final bool isAttMakeup = aData['isMakeup'] == true ||
+                            aRoom.contains('susulan') ||
+                            aRoom.contains('makeup') ||
+                            (sessRoom.isNotEmpty && (aRoom == sessRoom || aRoom.contains(sessRoom) || sessRoom.contains(aRoom)));
+
+                        bool matchSubject = true;
+                        if (subId.isNotEmpty || subName.isNotEmpty) {
+                          matchSubject = (subId.isNotEmpty && (aSubjId == subId || aSubjId.contains(subId) || subId.contains(aSubjId))) ||
+                              (subName.isNotEmpty && (aSubjName == subName || aSubjName.contains(subName) || subName.contains(aSubjName))) ||
+                              (aSubjId.isEmpty && aSubjName.isEmpty);
+                        }
+
+                        if (isAttMakeup && matchSubject) {
+                          isAttended = true;
+                          break;
+                        }
+                      }
+                    }
+
+                    // 2. Cek Realtime Control HANYA untuk pengerjaan ujian susulan
+                    Map<String, dynamic>? rtDoc;
+                    DateTime? bestTime;
+
+                    if (rtSnap.hasData) {
+                      for (var doc in rtSnap.data!.docs) {
+                        final data = doc.data() as Map<String, dynamic>? ?? {};
+                        final docId = doc.id.toLowerCase().trim();
+
+                        // WAJIB dokumen ujian susulan! Abaikan dokumen ujian reguler agar tidak terbaca 'Selesai'
+                        final bool isDocMakeup = data['isMakeup'] == true ||
+                            (data['sessionName'] ?? '').toString().toLowerCase().contains('susulan') ||
+                            (data['roomId'] ?? '').toString().toLowerCase().contains('susulan') ||
+                            docId.contains('makeup') ||
+                            docId.contains('susulan');
+
+                        if (!isDocMakeup) continue;
+
+                        final dStudentId = (data['studentId'] ?? '').toString().trim().toLowerCase();
+                        final dNis = (data['nis'] ?? '').toString().trim().toLowerCase();
+                        final dStudentName = (data['studentName'] ?? '').toString().trim().toLowerCase();
+
+                        final bool matchStudent = (stId.isNotEmpty && (dStudentId == stId || docId == stId || docId.startsWith('${stId}_'))) ||
+                            (stNis.isNotEmpty && (dNis == stNis || docId == stNis || docId.startsWith('${stNis}_'))) ||
+                            (stName.isNotEmpty && (dStudentName == stName || dStudentName.contains(stName)));
+
+                        if (!matchStudent) continue;
+
+                        final dSubjId = (data['subjectId'] ?? '').toString().trim().toLowerCase();
+                        final dSubName = (data['subjectName'] ?? '').toString().trim().toLowerCase();
+
+                        bool matchSubject = true;
+                        if (subId.isNotEmpty || subName.isNotEmpty) {
+                          matchSubject = (subId.isNotEmpty && (dSubjId == subId || docId.endsWith('_$subId') || dSubjId.contains(subId) || subId.contains(dSubjId))) ||
+                              (subName.isNotEmpty && (dSubName == subName || dSubName.contains(subName) || subName.contains(dSubName))) ||
+                              (dSubjId.isEmpty && dSubName.isEmpty && docId == stId);
+                        }
+                        if (!matchSubject) continue;
+
+                        // Jika sesi memiliki waktu pembuatan, abaikan dokumen lama sebelum sesi ini dibuat
+                        if (sessCreatedAt != null) {
+                          final docTime = (data['updatedAt'] as Timestamp?)?.toDate() ??
+                              (data['completedAt'] as Timestamp?)?.toDate();
+                          if (docTime != null && docTime.isBefore(sessCreatedAt.toDate().subtract(const Duration(minutes: 5)))) {
+                            continue;
+                          }
+                        }
+
+                        final docTime = (data['updatedAt'] as Timestamp?)?.toDate() ??
+                            (data['completedAt'] as Timestamp?)?.toDate() ??
+                            DateTime(2000);
+                        if (bestTime == null || docTime.isAfter(bestTime)) {
+                          bestTime = docTime;
+                          rtDoc = data;
+                        }
+                      }
+                    }
+
+                    final isCompleted = rtDoc?['isCompleted'] == true || rtDoc?['status'] == 'completed';
+                    final isLeftApp = rtDoc?['isLeftApp'] == true || rtDoc?['status'] == 'left_app';
+                    final isWorking = rtDoc?['isWorking'] == true ||
+                        rtDoc?['status'] == 'in_progress' ||
+                        rtDoc?['status'] == 'working';
+
+                    Color statusColor;
+                    IconData statusIcon;
+                    String statusText;
+
+                    if (isCompleted) {
+                      statusColor = const Color(0xFF10B981);
+                      statusIcon = Icons.check_circle_rounded;
+                      statusText = 'Selesai';
+                    } else if (isLeftApp) {
+                      statusColor = const Color(0xFFEF4444);
+                      statusIcon = Icons.warning_rounded;
+                      statusText = 'Keluar App';
+                    } else if (isWorking) {
+                      statusColor = const Color(0xFF3B82F6);
+                      statusIcon = Icons.pending_rounded;
+                      statusText = 'Mengerjakan';
+                    } else if (isAttended || rtDoc != null) {
+                      statusColor = const Color(0xFFF59E0B);
+                      statusIcon = Icons.hourglass_empty_rounded;
+                      statusText = 'Hadir';
+                    } else {
+                      statusColor = const Color(0xFF94A3B8);
+                      statusIcon = Icons.person_off_outlined;
+                      statusText = 'Belum Hadir';
+                    }
+
+                    return Container(
+                      constraints: const BoxConstraints(minWidth: 110),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: statusColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(statusIcon, color: statusColor, size: 12),
+                              const SizedBox(width: 4),
+                              Text(statusText,
+                                  style: GoogleFonts.inter(
+                                      color: statusColor,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
+                            ]),
+                            const SizedBox(height: 2),
+                            Text(rawStName,
+                                style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF0F172A)),
+                                overflow: TextOverflow.ellipsis),
+                            Text(rawSubName,
+                                style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    color: const Color(0xFF64748B)),
+                                overflow: TextOverflow.ellipsis),
+                          ]),
+                    );
+                  }).toList(),
                 ),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(statusIcon, color: statusColor, size: 12),
-                        const SizedBox(width: 4),
-                        Text(statusText,
-                            style: GoogleFonts.inter(
-                                color: statusColor,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold)),
-                      ]),
-                      const SizedBox(height: 2),
-                      Text(stName,
-                          style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF0F172A)),
-                          overflow: TextOverflow.ellipsis),
-                      Text(subName,
-                          style: GoogleFonts.inter(
-                              fontSize: 10,
-                              color: const Color(0xFF64748B)),
-                          overflow: TextOverflow.ellipsis),
-                    ]),
-              );
-            }).toList(),
-          ),
-        ]);
+              ],
+            );
+          },
+        );
       },
     );
   }

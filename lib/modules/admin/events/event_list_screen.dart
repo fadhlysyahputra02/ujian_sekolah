@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -91,7 +92,7 @@ class _EventListScreenState extends State<EventListScreen> {
     }
   }
 
-  Color _getStatusColor(String status) {
+  static Color getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'published':
         return const Color(0xFF10B981); // Emerald 500
@@ -102,7 +103,7 @@ class _EventListScreenState extends State<EventListScreen> {
     }
   }
 
-  Color _getStatusBgColor(String status) {
+  static Color getStatusBgColor(String status) {
     switch (status.toLowerCase()) {
       case 'published':
         return const Color(0xFFD1FAE5); // Emerald 100
@@ -113,7 +114,7 @@ class _EventListScreenState extends State<EventListScreen> {
     }
   }
 
-  String _getStatusText(String status) {
+  static String getStatusText(String status) {
     switch (status.toLowerCase()) {
       case 'published':
         return 'Aktif / Published';
@@ -123,6 +124,8 @@ class _EventListScreenState extends State<EventListScreen> {
         return 'Siap Publish';
     }
   }
+
+  String _getStatusText(String status) => getStatusText(status);
 
   Future<void> _updateStatus(String eventId, String currentStatus) async {
     String newStatus = 'draft';
@@ -526,550 +529,14 @@ class _EventListScreenState extends State<EventListScreen> {
                       separatorBuilder: (_, __) => const SizedBox(height: 16),
                       itemBuilder: (context, i) {
                         final e = events[i];
-                        final name = e['name'] ?? '-';
-                        final academicYear = e['academicYear'] ?? '-';
-                        final status = e['status'] ?? 'draft';
-
-                        DateTime? start;
-                        DateTime? end;
-                        if (e['startDate'] != null) {
-                          final sd = e['startDate'];
-                          start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
-                        }
-                        if (e['endDate'] != null) {
-                          final ed = e['endDate'];
-                          end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
-                        }
-
-                        final dateRangeStr = (start != null && end != null)
-                            ? '${dateFormat.format(start)} - ${dateFormat.format(end)}'
-                            : '-';
-
-                        return Container(
-                          padding: EdgeInsets.all(isDesktop ? 20 : 16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.03),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          name,
-                                          style: GoogleFonts.inter(
-                                            fontSize: isDesktop ? 16 : 15,
-                                            fontWeight: FontWeight.bold,
-                                            color: const Color(0xFF0F172A),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'TA: $academicYear  •  Jadwal: $dateRangeStr',
-                                          style: GoogleFonts.inter(
-                                            fontSize: 11,
-                                            color: const Color(0xFF64748B),
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: _getStatusBgColor(status),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      _getStatusText(status),
-                                      style: GoogleFonts.inter(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: _getStatusColor(status),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              StreamBuilder<List<Map<String, dynamic>>>(
-                                stream: _eventService.streamTimetable(widget.schoolId, e['id']),
-                                builder: (context, timetableSnap) {
-                                  if (!timetableSnap.hasData || timetableSnap.data!.isEmpty) {
-                                    return const SizedBox.shrink();
-                                  }
-
-                                  // Group teachers by subject
-                                  final Map<String, Set<String>> subjectToTeachers = {};
-                                  for (final entry in timetableSnap.data!) {
-                                    final subName = entry['subjectName'] as String? ?? '-';
-                                    final tName = entry['teacherName'] as String? ?? '-';
-
-                                    if (!subjectToTeachers.containsKey(subName)) {
-                                      subjectToTeachers[subName] = {};
-                                    }
-                                    if (tName.isNotEmpty && tName != '-') {
-                                      for (final t in tName.split(',')) {
-                                        if (t.trim().isNotEmpty) {
-                                          subjectToTeachers[subName]!.add(t.trim());
-                                        }
-                                      }
-                                    }
-                                  }
-
-                                  return Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        'Mata Pelajaran & Pembuat Soal:',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: const Color(0xFF475569),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      ...subjectToTeachers.entries.map((entry) {
-                                        final teachersList = entry.value.isNotEmpty
-                                            ? entry.value.join(', ')
-                                            : 'Belum ditentukan';
-                                        // Cari subjectId dari timetable berdasarkan nama mapel
-                                        final subjectEntry = timetableSnap.data!.firstWhere(
-                                          (t) => t['subjectName'] == entry.key,
-                                          orElse: () => {},
-                                        );
-                                        final subjectId = subjectEntry['subjectId'] as String? ?? entry.key;
-
-                                        return StreamBuilder<QuerySnapshot>(
-                                          stream: FirebaseFirestore.instance
-                                              .collection('schools')
-                                              .doc(widget.schoolId)
-                                              .collection('events')
-                                              .doc(e['id'])
-                                              .collection('subjects')
-                                              .doc(subjectId)
-                                              .collection('questions')
-                                              .limit(1)
-                                              .snapshots(),
-                                          builder: (context, qSnap) {
-                                            final hasQuestions = qSnap.hasData && qSnap.data!.docs.isNotEmpty;
-                                            final isChecking = qSnap.connectionState == ConnectionState.waiting;
-
-                                            return Padding(
-                                              padding: const EdgeInsets.symmetric(vertical: 3),
-                                              child: Row(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Container(
-                                                    width: 5,
-                                                    height: 5,
-                                                    margin: const EdgeInsets.only(top: 6),
-                                                    decoration: const BoxDecoration(
-                                                      color: Color(0xFF94A3B8),
-                                                      shape: BoxShape.circle,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Expanded(
-                                                    child: RichText(
-                                                      text: TextSpan(
-                                                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF334155)),
-                                                        children: [
-                                                          TextSpan(
-                                                            text: '${entry.key}: ',
-                                                            style: const TextStyle(fontWeight: FontWeight.bold),
-                                                          ),
-                                                          TextSpan(
-                                                            text: teachersList,
-                                                            style: const TextStyle(color: Color(0xFF64748B)),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  if (isChecking)
-                                                    const SizedBox(
-                                                      width: 12,
-                                                      height: 12,
-                                                      child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF94A3B8)),
-                                                    )
-                                                  else if (hasQuestions)
-                                                    Tooltip(
-                                                      message: 'Soal sudah siap',
-                                                      child: Container(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                        decoration: BoxDecoration(
-                                                          color: const Color(0xFFD1FAE5),
-                                                          borderRadius: BorderRadius.circular(6),
-                                                          border: Border.all(color: const Color(0xFF6EE7B7)),
-                                                        ),
-                                                        child: Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
-                                                            const SizedBox(width: 3),
-                                                            Text(
-                                                              'Soal sudah siap',
-                                                              style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF059669)),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    )
-                                                  else
-                                                    Tooltip(
-                                                      message: 'Belum ada soal untuk mapel ini',
-                                                      child: Container(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                        decoration: BoxDecoration(
-                                                          color: const Color(0xFFFEF3C7),
-                                                          borderRadius: BorderRadius.circular(6),
-                                                          border: Border.all(color: const Color(0xFFFCD34D)),
-                                                        ),
-                                                        child: Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            const Icon(Icons.warning_amber_rounded, size: 11, color: Color(0xFFD97706)),
-                                                            const SizedBox(width: 3),
-                                                            Text(
-                                                              'Belum ada soal',
-                                                              style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFFD97706)),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                            );
-                                          },
-                                        );
-                                      }),
-                                    ],
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 16),
-                              const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                              const SizedBox(height: 16),
-                              if (isDesktop)
-                                Wrap(
-                                  spacing: 10,
-                                  runSpacing: 10,
-                                  children: [
-                                    // 1. Primary CTA: Lihat Jadwal Lengkap
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.calendar_month_rounded, size: 15),
-                                      label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF4F46E5),
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    // 1.5 Kontrol Ruangan: Modern Emerald/Teal Tint
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.push('/admin/event/${e['id']}/room-control?name=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.meeting_room_rounded, size: 15),
-                                      label: Text('Kontrol Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFF0FDFA),
-                                        foregroundColor: const Color(0xFF0D9488),
-                                        elevation: 0,
-                                        side: const BorderSide(color: Color(0xFF99F6E4)),
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    // 1.5 Laporan Complete & Ranking
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.push('/admin/eventujian/Laporan-Complete?eventId=${e['id']}&name=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.analytics_rounded, size: 15),
-                                      label: Text('Laporan Complete', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF4F46E5),
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    // 2. Rekap Nilai: Soft Indigo Tint
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.assessment_rounded, size: 15),
-                                      label: Text('Rekap Nilai', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFEEF2FF),
-                                        foregroundColor: const Color(0xFF4F46E5),
-                                        elevation: 0,
-                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    // 3. Edit Event: Soft Slate Tint
-                                    if (status == 'draft')
-                                      ElevatedButton.icon(
-                                        onPressed: () {
-                                          Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (_) => EventEditorWizard(
-                                                schoolId: widget.schoolId,
-                                                eventId: e['id'],
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                        icon: const Icon(Icons.edit_rounded, size: 15),
-                                        label: Text('Edit Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFFF8FAFC),
-                                          foregroundColor: const Color(0xFF475569),
-                                          elevation: 0,
-                                          side: const BorderSide(color: Color(0xFFE2E8F0)),
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                        ),
-                                      ),
-                                    // 4. Ujian Susulan: Soft Lavender Tint
-                                    ElevatedButton.icon(
-                                      onPressed: () => showDialog(
-                                        context: context,
-                                        barrierDismissible: false,
-                                        builder: (_) => MakeupExamDialog(
-                                          schoolId: widget.schoolId,
-                                          eventId: e['id'],
-                                          eventName: name,
-                                        ),
-                                      ),
-                                      icon: const Icon(Icons.history_edu_rounded, size: 15),
-                                      label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFF3E8FF),
-                                        foregroundColor: const Color(0xFF7C3AED),
-                                        elevation: 0,
-                                        side: const BorderSide(color: Color(0xFFDDD6FE)),
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    // 5. Publish / Tutup Event: Accent Fill
-                                    if (status != 'closed')
-                                      ElevatedButton.icon(
-                                        onPressed: () => _updateStatus(e['id'], status),
-                                        icon: Icon(status == 'draft' ? Icons.publish_rounded : Icons.check_circle_outline, size: 15),
-                                        label: Text(status == 'draft' ? 'Publish Event' : 'Tutup Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: status == 'draft' ? const Color(0xFF059669) : const Color(0xFFF1F5F9),
-                                          foregroundColor: status == 'draft' ? Colors.white : const Color(0xFF334155),
-                                          elevation: 0,
-                                          side: status == 'draft' ? BorderSide.none : const BorderSide(color: Color(0xFFCBD5E1)),
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                        ),
-                                      ),
-                                    // 6. Hapus Event: Soft Rose Tint
-                                    ElevatedButton.icon(
-                                      onPressed: () => _deleteEvent(e['id'], e['name'] ?? 'Tanpa Nama'),
-                                      icon: const Icon(Icons.delete_outline_rounded, size: 15),
-                                      label: Text('Hapus', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFFEF2F2),
-                                        foregroundColor: const Color(0xFFDC2626),
-                                        elevation: 0,
-                                        side: const BorderSide(color: Color(0xFFFECACA)),
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              else
-                                // Premium stacked/row action layout on Mobile
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.calendar_month_rounded, size: 15),
-                                      label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF4F46E5),
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.push('/admin/event/${e['id']}/room-control?name=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.meeting_room_rounded, size: 15),
-                                      label: Text('Kontrol Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFF0FDFA),
-                                        foregroundColor: const Color(0xFF0D9488),
-                                        elevation: 0,
-                                        side: const BorderSide(color: Color(0xFF99F6E4)),
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.push('/admin/eventujian/Laporan-Complete?eventId=${e['id']}&name=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.analytics_rounded, size: 15),
-                                      label: Text('Laporan Complete', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF4F46E5),
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
-                                      },
-                                      icon: const Icon(Icons.assessment_rounded, size: 15),
-                                      label: Text('Rekap Nilai', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFEEF2FF),
-                                        foregroundColor: const Color(0xFF4F46E5),
-                                        elevation: 0,
-                                        side: const BorderSide(color: Color(0xFFC7D2FE)),
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    if (status == 'published' || status == 'closed') ...[
-                                      ElevatedButton.icon(
-                                        onPressed: () => showDialog(
-                                          context: context,
-                                          barrierDismissible: false,
-                                          builder: (_) => MakeupExamDialog(
-                                            schoolId: widget.schoolId,
-                                            eventId: e['id'],
-                                            eventName: name,
-                                          ),
-                                        ),
-                                        icon: const Icon(Icons.history_edu_rounded, size: 15),
-                                        label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFFF3E8FF),
-                                          foregroundColor: const Color(0xFF7C3AED),
-                                          elevation: 0,
-                                          side: const BorderSide(color: Color(0xFFDDD6FE)),
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                    ],
-                                    if (status != 'closed') ...[
-                                      ElevatedButton.icon(
-                                        onPressed: () => _updateStatus(e['id'], status),
-                                        icon: Icon(status == 'draft' ? Icons.publish_rounded : Icons.check_circle_outline, size: 15),
-                                        label: Text(status == 'draft' ? 'Publish Event' : 'Tutup Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: status == 'draft' ? const Color(0xFF059669) : const Color(0xFFF1F5F9),
-                                          foregroundColor: status == 'draft' ? Colors.white : const Color(0xFF334155),
-                                          elevation: 0,
-                                          side: status == 'draft' ? BorderSide.none : const BorderSide(color: Color(0xFFCBD5E1)),
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                    ],
-                                    Row(
-                                      children: [
-                                        if (status == 'draft') ...[
-                                          Expanded(
-                                            child: ElevatedButton.icon(
-                                              onPressed: () {
-                                                Navigator.of(context).push(
-                                                  MaterialPageRoute(
-                                                    builder: (_) => EventEditorWizard(
-                                                      schoolId: widget.schoolId,
-                                                      eventId: e['id'],
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                              icon: const Icon(Icons.edit_rounded, size: 15),
-                                              label: Text('Edit', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: const Color(0xFFF8FAFC),
-                                                foregroundColor: const Color(0xFF475569),
-                                                elevation: 0,
-                                                side: const BorderSide(color: Color(0xFFE2E8F0)),
-                                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                        ],
-                                        Expanded(
-                                          child: ElevatedButton.icon(
-                                            onPressed: () => _deleteEvent(e['id'], e['name'] ?? 'Tanpa Nama'),
-                                            icon: const Icon(Icons.delete_outline_rounded, size: 15),
-                                            label: Text('Hapus', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(0xFFFEF2F2),
-                                              foregroundColor: const Color(0xFFDC2626),
-                                              elevation: 0,
-                                              side: const BorderSide(color: Color(0xFFFECACA)),
-                                              padding: const EdgeInsets.symmetric(vertical: 12),
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
+                        return _EventCardItem(
+                          key: ValueKey(e['id']),
+                          event: e,
+                          schoolId: widget.schoolId,
+                          dateFormat: dateFormat,
+                          isDesktop: isDesktop,
+                          onUpdateStatus: _updateStatus,
+                          onDeleteEvent: _deleteEvent,
                         );
                       },
                     ),
@@ -1078,6 +545,845 @@ class _EventListScreenState extends State<EventListScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _EventCardItem extends StatefulWidget {
+  final Map<String, dynamic> event;
+  final String schoolId;
+  final DateFormat dateFormat;
+  final bool isDesktop;
+  final Future<void> Function(String eventId, String currentStatus) onUpdateStatus;
+  final Future<void> Function(String eventId, String eventName) onDeleteEvent;
+
+  const _EventCardItem({
+    super.key,
+    required this.event,
+    required this.schoolId,
+    required this.dateFormat,
+    required this.isDesktop,
+    required this.onUpdateStatus,
+    required this.onDeleteEvent,
+  });
+
+  @override
+  State<_EventCardItem> createState() => _EventCardItemState();
+}
+
+class _EventCardItemState extends State<_EventCardItem> {
+  final EventExamService _eventService = EventExamService();
+  StreamSubscription<List<Map<String, dynamic>>>? _timetableSub;
+  final Map<String, StreamSubscription<QuerySnapshot>> _questionSubs = {};
+  final Map<String, bool> _subjectHasQuestions = {};
+  List<Map<String, dynamic>>? _timetableData;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribeTimetable();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EventCardItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.event['id'] != widget.event['id'] || oldWidget.schoolId != widget.schoolId) {
+      _unsubscribeAll();
+      _subscribeTimetable();
+    }
+  }
+
+  @override
+  void dispose() {
+    _unsubscribeAll();
+    super.dispose();
+  }
+
+  void _unsubscribeAll() {
+    _timetableSub?.cancel();
+    _timetableSub = null;
+    for (final sub in _questionSubs.values) {
+      sub.cancel();
+    }
+    _questionSubs.clear();
+    _subjectHasQuestions.clear();
+  }
+
+  void _subscribeTimetable() {
+    _timetableSub = _eventService
+        .streamTimetable(widget.schoolId, widget.event['id'])
+        .listen((timetable) {
+      if (!mounted) return;
+      setState(() {
+        _timetableData = timetable;
+      });
+      _syncQuestionSubscriptions(timetable);
+    });
+  }
+
+  void _syncQuestionSubscriptions(List<Map<String, dynamic>> timetable) {
+    final Set<String> currentSubjectIds = {};
+    for (final item in timetable) {
+      final subName = item['subjectName'] as String?;
+      final sId = (item['subjectId'] as String?)?.isNotEmpty == true
+          ? item['subjectId'] as String
+          : subName;
+      if (sId != null && sId.trim().isNotEmpty) {
+        currentSubjectIds.add(sId.trim());
+      }
+    }
+
+    // Cancel removed subscriptions
+    final removed = _questionSubs.keys.where((id) => !currentSubjectIds.contains(id)).toList();
+    for (final id in removed) {
+      _questionSubs[id]?.cancel();
+      _questionSubs.remove(id);
+      _subjectHasQuestions.remove(id);
+    }
+
+    // Subscribe to newly added subjects
+    for (final id in currentSubjectIds) {
+      if (!_questionSubs.containsKey(id)) {
+        _questionSubs[id] = FirebaseFirestore.instance
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('events')
+            .doc(widget.event['id'])
+            .collection('subjects')
+            .doc(id)
+            .collection('questions')
+            .limit(1)
+            .snapshots()
+            .listen((snap) {
+          if (!mounted) return;
+          setState(() {
+            _subjectHasQuestions[id] = snap.docs.isNotEmpty;
+          });
+        }, onError: (_) {
+          if (!mounted) return;
+          setState(() {
+            _subjectHasQuestions[id] = false;
+          });
+        });
+      }
+    }
+  }
+
+  String _getSubjectId(String subName) {
+    if (_timetableData == null) return subName;
+    final entry = _timetableData!.firstWhere(
+      (t) => t['subjectName'] == subName,
+      orElse: () => {},
+    );
+    final sId = entry['subjectId'] as String?;
+    if (sId != null && sId.trim().isNotEmpty) {
+      return sId.trim();
+    }
+    return subName;
+  }
+
+  void _showUnreadyQuestionsWarning(
+    BuildContext context,
+    List<String> unreadySubjects,
+    bool hasSubjects,
+  ) {
+    final String contentMsg = hasSubjects
+        ? 'Event belum dapat dipublikasikan karena masih ada mata pelajaran yang soalnya belum siap/dibuat.'
+        : 'Event belum dapat dipublikasikan karena belum ada jadwal mata pelajaran yang dimasukkan.';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          hasSubjects
+              ? 'Ada ${unreadySubjects.length} mata pelajaran yang soalnya belum siap!'
+              : 'Belum ada mata pelajaran pada event ini!',
+        ),
+        backgroundColor: const Color(0xFFD97706),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 24),
+            SizedBox(width: 8),
+            Text('Soal Belum Siap', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              contentMsg,
+              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155)),
+            ),
+            if (hasSubjects && unreadySubjects.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Daftar mapel yang soalnya belum siap:',
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFFB45309)),
+                    ),
+                    const SizedBox(height: 6),
+                    ...unreadySubjects.map((s) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2.5),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.error_outline_rounded, size: 14, color: Color(0xFFD97706)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  s,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF92400E),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              'Pastikan seluruh pembuat soal telah memasukkan soal sebelum event dipublikasikan.',
+              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F172A),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Mengerti'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.event;
+    final name = e['name'] ?? '-';
+    final academicYear = e['academicYear'] ?? '-';
+    final status = (e['status'] as String? ?? 'draft').toLowerCase();
+
+    DateTime? start;
+    DateTime? end;
+    if (e['startDate'] != null) {
+      final sd = e['startDate'];
+      start = sd is Timestamp ? sd.toDate() : (sd is String ? DateTime.tryParse(sd) : null);
+    }
+    if (e['endDate'] != null) {
+      final ed = e['endDate'];
+      end = ed is Timestamp ? ed.toDate() : (ed is String ? DateTime.tryParse(ed) : null);
+    }
+
+    final dateRangeStr = (start != null && end != null)
+        ? '${widget.dateFormat.format(start)} - ${widget.dateFormat.format(end)}'
+        : '-';
+
+    // Group teachers by subject
+    final Map<String, Set<String>> subjectToTeachers = {};
+    if (_timetableData != null) {
+      for (final entry in _timetableData!) {
+        final subName = entry['subjectName'] as String? ?? '-';
+        final tName = entry['teacherName'] as String? ?? '-';
+
+        if (!subjectToTeachers.containsKey(subName)) {
+          subjectToTeachers[subName] = {};
+        }
+        if (tName.isNotEmpty && tName != '-') {
+          for (final t in tName.split(',')) {
+            if (t.trim().isNotEmpty) {
+              subjectToTeachers[subName]!.add(t.trim());
+            }
+          }
+        }
+      }
+    }
+
+    final bool hasSubjects = subjectToTeachers.isNotEmpty;
+    final List<String> unreadySubjects = [];
+    if (hasSubjects) {
+      for (final subName in subjectToTeachers.keys) {
+        final sId = _getSubjectId(subName);
+        if (_subjectHasQuestions[sId] != true) {
+          unreadySubjects.add(subName);
+        }
+      }
+    }
+    final bool allQuestionsReady = hasSubjects && unreadySubjects.isEmpty;
+
+    return Container(
+      padding: EdgeInsets.all(widget.isDesktop ? 20 : 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header: Name, TA, Date range & Status badge
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: GoogleFonts.inter(
+                        fontSize: widget.isDesktop ? 16 : 15,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'TA: $academicYear  •  Jadwal: $dateRangeStr',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: const Color(0xFF64748B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _EventListScreenState.getStatusBgColor(status),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _EventListScreenState.getStatusText(status),
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: _EventListScreenState.getStatusColor(status),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Subjects & Question readiness badges
+          if (subjectToTeachers.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Mata Pelajaran & Pembuat Soal:',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF475569),
+              ),
+            ),
+            const SizedBox(height: 6),
+            ...subjectToTeachers.entries.map((entry) {
+              final teachersList = entry.value.isNotEmpty
+                  ? entry.value.join(', ')
+                  : 'Belum ditentukan';
+              final sId = _getSubjectId(entry.key);
+              final isChecking = !_subjectHasQuestions.containsKey(sId);
+              final hasQuestions = _subjectHasQuestions[sId] == true;
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 5,
+                      height: 5,
+                      margin: const EdgeInsets.only(top: 6),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF94A3B8),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF334155)),
+                          children: [
+                            TextSpan(
+                              text: '${entry.key}: ',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            TextSpan(
+                              text: teachersList,
+                              style: const TextStyle(color: Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (isChecking)
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF94A3B8)),
+                      )
+                    else if (hasQuestions)
+                      Tooltip(
+                        message: 'Soal sudah siap',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFF6EE7B7)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.check_circle_rounded, size: 11, color: Color(0xFF059669)),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Soal sudah siap',
+                                style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF059669)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Tooltip(
+                        message: 'Belum ada soal untuk mapel ini',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFFCD34D)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.warning_amber_rounded, size: 11, color: Color(0xFFD97706)),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Belum ada soal',
+                                style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFFD97706)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+          ],
+
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          const SizedBox(height: 16),
+
+          // ── Action Buttons ──
+          if (widget.isDesktop)
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                // 1. Primary CTA: Lihat Jadwal Lengkap (Selalu tampil di semua status)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
+                  },
+                  icon: const Icon(Icons.calendar_month_rounded, size: 15),
+                  label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                  ),
+                ),
+
+                // 2. Kontrol Ruangan: Hilang saat draft, muncul saat published & closed
+                if (status != 'draft')
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      context.push('/admin/event/${e['id']}/room-control?name=${Uri.encodeComponent(name)}');
+                    },
+                    icon: const Icon(Icons.meeting_room_rounded, size: 15),
+                    label: Text('Kontrol Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF0FDFA),
+                      foregroundColor: const Color(0xFF0D9488),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFF99F6E4)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+
+                // 3. Laporan Complete: Hilang saat draft & published, BARU MUNCUL saat closed (tutup event)
+                if (status == 'closed')
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      context.push('/admin/eventujian/Laporan-Complete?eventId=${e['id']}&name=${Uri.encodeComponent(name)}');
+                    },
+                    icon: const Icon(Icons.analytics_rounded, size: 15),
+                    label: Text('Laporan Complete', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F46E5),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+
+                // 4. Rekap Nilai: BARU MUNCUL saat closed (tutup event)
+                if (status == 'closed')
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
+                    },
+                    icon: const Icon(Icons.assessment_rounded, size: 15),
+                    label: Text('Rekap Nilai', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEEF2FF),
+                      foregroundColor: const Color(0xFF4F46E5),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFFC7D2FE)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+
+                // 5. Edit Event: Hanya muncul saat status draft
+                if (status == 'draft')
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => EventEditorWizard(
+                            schoolId: widget.schoolId,
+                            eventId: e['id'],
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.edit_rounded, size: 15),
+                    label: Text('Edit Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF8FAFC),
+                      foregroundColor: const Color(0xFF475569),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFFE2E8F0)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+
+                // 6. Ujian Susulan: Hilang saat draft & published, BARU MUNCUL saat closed (tutup event)
+                if (status == 'closed')
+                  ElevatedButton.icon(
+                    onPressed: () => showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => MakeupExamDialog(
+                        schoolId: widget.schoolId,
+                        eventId: e['id'],
+                        eventName: name,
+                      ),
+                    ),
+                    icon: const Icon(Icons.history_edu_rounded, size: 15),
+                    label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF3E8FF),
+                      foregroundColor: const Color(0xFF7C3AED),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFFDDD6FE)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+
+                // 7. Publish Event / Tutup Event (Hanya saat belum closed)
+                if (status != 'closed')
+                  if (status == 'draft')
+                    ElevatedButton.icon(
+                      onPressed: allQuestionsReady
+                          ? () => widget.onUpdateStatus(e['id'], status)
+                          : () => _showUnreadyQuestionsWarning(context, unreadySubjects, hasSubjects),
+                      icon: const Icon(Icons.publish_rounded, size: 15),
+                      label: Text('Publish Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: allQuestionsReady ? const Color(0xFF059669) : const Color(0xFFF1F5F9),
+                        foregroundColor: allQuestionsReady ? Colors.white : const Color(0xFF94A3B8),
+                        elevation: 0,
+                        side: allQuestionsReady ? BorderSide.none : const BorderSide(color: Color(0xFFCBD5E1)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                      ),
+                    )
+                  else
+                    ElevatedButton.icon(
+                      onPressed: () => widget.onUpdateStatus(e['id'], status),
+                      icon: const Icon(Icons.check_circle_outline, size: 15),
+                      label: Text('Tutup Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        foregroundColor: const Color(0xFF334155),
+                        elevation: 0,
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                      ),
+                    ),
+
+                // 8. Hapus Event: Selalu tampil
+                ElevatedButton.icon(
+                  onPressed: () => widget.onDeleteEvent(e['id'], e['name'] ?? 'Tanpa Nama'),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 15),
+                  label: Text('Hapus', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFEF2F2),
+                    foregroundColor: const Color(0xFFDC2626),
+                    elevation: 0,
+                    side: const BorderSide(color: Color(0xFFFECACA)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                  ),
+                ),
+              ],
+            )
+          else
+            // Layout Mobile
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 1. Primary CTA: Lihat Jadwal Lengkap
+                ElevatedButton.icon(
+                  onPressed: () {
+                    context.push('/admin/event/${e['id']}/schedule?name=${Uri.encodeComponent(name)}');
+                  },
+                  icon: const Icon(Icons.calendar_month_rounded, size: 15),
+                  label: Text('Lihat Jadwal Lengkap', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                  ),
+                ),
+
+                // 2. Kontrol Ruangan: Hilang saat draft
+                if (status != 'draft') ...[
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      context.push('/admin/event/${e['id']}/room-control?name=${Uri.encodeComponent(name)}');
+                    },
+                    icon: const Icon(Icons.meeting_room_rounded, size: 15),
+                    label: Text('Kontrol Ruangan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF0FDFA),
+                      foregroundColor: const Color(0xFF0D9488),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFF99F6E4)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+                ],
+
+                // 3. Laporan Complete: BARU MUNCUL saat closed
+                if (status == 'closed') ...[
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      context.push('/admin/eventujian/Laporan-Complete?eventId=${e['id']}&name=${Uri.encodeComponent(name)}');
+                    },
+                    icon: const Icon(Icons.analytics_rounded, size: 15),
+                    label: Text('Laporan Complete', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F46E5),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+                ],
+
+                // 4. Rekap Nilai: BARU MUNCUL saat closed (tutup event)
+                if (status == 'closed') ...[
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      context.go('/admin/event/${e['id']}/rekap?eventName=${Uri.encodeComponent(name)}');
+                    },
+                    icon: const Icon(Icons.assessment_rounded, size: 15),
+                    label: Text('Rekap Nilai', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEEF2FF),
+                      foregroundColor: const Color(0xFF4F46E5),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFFC7D2FE)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+                ],
+
+                // 5. Ujian Susulan: BARU MUNCUL saat closed
+                if (status == 'closed') ...[
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => MakeupExamDialog(
+                        schoolId: widget.schoolId,
+                        eventId: e['id'],
+                        eventName: name,
+                      ),
+                    ),
+                    icon: const Icon(Icons.history_edu_rounded, size: 15),
+                    label: Text('Ujian Susulan', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF3E8FF),
+                      foregroundColor: const Color(0xFF7C3AED),
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFFDDD6FE)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                  ),
+                ],
+
+                // 6. Publish Event / Tutup Event (Hanya saat belum closed)
+                if (status != 'closed') ...[
+                  const SizedBox(height: 8),
+                  if (status == 'draft')
+                    ElevatedButton.icon(
+                      onPressed: allQuestionsReady
+                          ? () => widget.onUpdateStatus(e['id'], status)
+                          : () => _showUnreadyQuestionsWarning(context, unreadySubjects, hasSubjects),
+                      icon: const Icon(Icons.publish_rounded, size: 15),
+                      label: Text('Publish Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: allQuestionsReady ? const Color(0xFF059669) : const Color(0xFFF1F5F9),
+                        foregroundColor: allQuestionsReady ? Colors.white : const Color(0xFF94A3B8),
+                        elevation: 0,
+                        side: allQuestionsReady ? BorderSide.none : const BorderSide(color: Color(0xFFCBD5E1)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                      ),
+                    )
+                  else
+                    ElevatedButton.icon(
+                      onPressed: () => widget.onUpdateStatus(e['id'], status),
+                      icon: const Icon(Icons.check_circle_outline, size: 15),
+                      label: Text('Tutup Event', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        foregroundColor: const Color(0xFF334155),
+                        elevation: 0,
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                      ),
+                    ),
+                ],
+
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (status == 'draft') ...[
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => EventEditorWizard(
+                                  schoolId: widget.schoolId,
+                                  eventId: e['id'],
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.edit_rounded, size: 15),
+                          label: Text('Edit', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFF8FAFC),
+                            foregroundColor: const Color(0xFF475569),
+                            elevation: 0,
+                            side: const BorderSide(color: Color(0xFFE2E8F0)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => widget.onDeleteEvent(e['id'], e['name'] ?? 'Tanpa Nama'),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 15),
+                        label: Text('Hapus', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFEF2F2),
+                          foregroundColor: const Color(0xFFDC2626),
+                          elevation: 0,
+                          side: const BorderSide(color: Color(0xFFFECACA)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }

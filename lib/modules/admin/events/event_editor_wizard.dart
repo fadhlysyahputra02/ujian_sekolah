@@ -1505,6 +1505,7 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
       'step7': {
         'proctorGrid': _proctorGrid,
       },
+      'proctorGrid': _proctorGrid,
     };
 
     try {
@@ -1516,8 +1517,14 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             .doc(widget.eventId)
             .update({
           'draftState': draftData,
+          'proctorGrid': _proctorGrid,
           'updatedAt': FieldValue.serverTimestamp(),
         });
+
+        // Sinkronkan penugasan pengawas langsung ke subkoleksi proctors
+        if (_proctorGrid.isNotEmpty || _currentStep >= 6) {
+          await _syncProctorsToFirestore(widget.schoolId, widget.eventId!);
+        }
       } else {
         final draftsRef = FirebaseFirestore.instance
             .collection('schools')
@@ -1944,7 +1951,9 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
             'step7': {
               'proctorGrid': _proctorGrid,
             },
+            'proctorGrid': _proctorGrid,
           },
+          'proctorGrid': _proctorGrid,
           'roomAssignments': _roomAssignments,
           'roomLayouts': _addState,
         },
@@ -1987,39 +1996,8 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
         },
       );
 
-      // 3.5. Save Proctor Assignments
-      if (_proctorGrid.isNotEmpty) {
-        final List<Map<String, dynamic>> proctorAssignments = [];
-        _proctorGrid.forEach((key, teacherId) {
-          final parts = key.split('_');
-          if (parts.length >= 6 && parts[4] == 'room') {
-            final d = int.tryParse(parts[1]) ?? 0;
-            final s = int.tryParse(parts[3]) ?? 0;
-            final roomId = parts.sublist(5).join('_');
-            final realSessionId = 'day_${d}_session_$s';
-            
-            if (teacherId.isNotEmpty) {
-              proctorAssignments.add({
-                'sessionId': realSessionId,
-                'roomId': roomId,
-                'teacherId': teacherId,
-                'dayIndex': d,
-                'sessionIndex': s,
-                'role': 'main',
-                'notes': 'Mengawas Sesi',
-              });
-            }
-          }
-        });
-
-        if (proctorAssignments.isNotEmpty) {
-          await _eventService.assignProctors(
-            schoolId: widget.schoolId,
-            eventId: eventId,
-            assignments: proctorAssignments,
-          );
-        }
-      }
+      // 3.5. Save Proctor Assignments cleanly
+      await _syncProctorsToFirestore(widget.schoolId, eventId);
 
       _updateSaveProgress(0.95, 'Membuat pembersihan draft & memfinalisasi event...', 5);
       await Future.delayed(const Duration(milliseconds: 200));
@@ -2439,6 +2417,110 @@ class _EventEditorWizardState extends State<EventEditorWizard> {
     }
     setState(() {});
     _autoSaveDraft();
+  }
+
+  /// Sinkronisasi langsung penugasan pengawas dari _proctorGrid ke subkoleksi proctors
+  Future<void> _syncProctorsToFirestore(String schoolId, String eventId) async {
+    try {
+      final proctorsRef = FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('events')
+          .doc(eventId)
+          .collection('proctors');
+
+      final teacherMap = <String, String>{};
+      try {
+        final tSnap = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('teachers')
+            .get();
+        for (var d in tSnap.docs) {
+          final tData = d.data();
+          teacherMap[d.id] = (tData['displayName'] ?? tData['name'] ?? d.id).toString();
+        }
+      } catch (_) {}
+
+      try {
+        final uSnap = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('users')
+            .where('role', isEqualTo: 'teacher')
+            .get();
+        for (var d in uSnap.docs) {
+          final uData = d.data();
+          teacherMap[d.id] = (uData['displayName'] ?? uData['name'] ?? d.id).toString();
+        }
+      } catch (_) {}
+
+      final existingSnap = await proctorsRef.get();
+
+      final validDocIds = <String>{};
+      final entriesToWrite = <String, Map<String, dynamic>>{};
+
+      _proctorGrid.forEach((key, teacherId) {
+        if (teacherId.trim().isNotEmpty) {
+          final parts = key.split('_');
+          if (parts.length >= 6 && parts[4] == 'room') {
+            final d = int.tryParse(parts[1]) ?? 0;
+            final s = int.tryParse(parts[3]) ?? 0;
+            final roomId = parts.sublist(5).join('_');
+            final realSessionId = 'day_${d}_session_$s';
+            final docId = 'day_${d}_session_${s}_room_$roomId';
+
+            validDocIds.add(docId);
+            final tName = teacherMap[teacherId] ?? teacherId;
+
+            entriesToWrite[docId] = {
+              'sessionId': realSessionId,
+              'roomId': roomId,
+              'teacherId': teacherId,
+              'teacherName': tName,
+              'dayIndex': d,
+              'sessionIndex': s,
+              'role': 'main',
+              'notes': 'Mengawas Sesi',
+              'updatedAt': FieldValue.serverTimestamp(),
+            };
+          }
+        }
+      });
+
+      var batch = FirebaseFirestore.instance.batch();
+      int batchCount = 0;
+
+      // Hapus data pengawas lama atau yang sudah tidak valid/dihapus
+      for (final doc in existingSnap.docs) {
+        if (!validDocIds.contains(doc.id)) {
+          batch.delete(doc.reference);
+          batchCount++;
+          if (batchCount >= 400) {
+            await batch.commit();
+            batch = FirebaseFirestore.instance.batch();
+            batchCount = 0;
+          }
+        }
+      }
+
+      // Tulis data pengawas terbaru dari _proctorGrid
+      for (final entry in entriesToWrite.entries) {
+        batch.set(proctorsRef.doc(entry.key), entry.value, SetOptions(merge: true));
+        batchCount++;
+        if (batchCount >= 400) {
+          await batch.commit();
+          batch = FirebaseFirestore.instance.batch();
+          batchCount = 0;
+        }
+      }
+
+      if (batchCount > 0) {
+        await batch.commit();
+      }
+    } catch (e) {
+      debugPrint('[Wizard] Error syncing proctors to Firestore: $e');
+    }
   }
 
   /// Save detailed rooms and seats documents/subcollections to Firestore matching Step 5 roomAssignments & roomLayouts

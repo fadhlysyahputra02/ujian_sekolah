@@ -895,16 +895,6 @@ export const permanentDeleteUser = functions.https.onCall(async (request) => {
     throw new functions.https.HttpsError('unauthenticated', 'Pengguna harus login terlebih dahulu.');
   }
 
-  const role = request.auth.token.role;
-  const isSuperAdmin = role === 'super_admin';
-
-  if (!isSuperAdmin) {
-    throw new functions.https.HttpsError(
-      'permission-denied',
-      'Hanya Super Admin yang berhak menghapus akun pengguna secara permanen.'
-    );
-  }
-
   const { schoolId, collectionType, docId } = request.data || {};
 
   if (!schoolId || !collectionType || !docId) {
@@ -912,6 +902,7 @@ export const permanentDeleteUser = functions.https.onCall(async (request) => {
   }
 
   validateCollectionType(collectionType);
+  verifySchoolAdmin(request, schoolId);
 
   const db = admin.firestore();
 
@@ -1219,7 +1210,7 @@ export const resolveEmailByPassword = functions.https.onCall(async (request) => 
   const db = admin.firestore();
 
   try {
-    // 1. Search in teachers NIP or email
+    // 1. Search in teachers NIP, email, or tempPassword
     let teachersQuery = await db.collection('schools')
         .doc(cleanSchoolId)
         .collection('teachers')
@@ -1236,6 +1227,15 @@ export const resolveEmailByPassword = functions.https.onCall(async (request) => 
           .get();
     }
 
+    if (teachersQuery.empty) {
+      teachersQuery = await db.collection('schools')
+          .doc(cleanSchoolId)
+          .collection('teachers')
+          .where('tempPassword', '==', lookupKey)
+          .where('archived', '==', false)
+          .get();
+    }
+
     if (!teachersQuery.empty) {
       const teacherData = teachersQuery.docs[0].data();
       return {
@@ -1245,7 +1245,7 @@ export const resolveEmailByPassword = functions.https.onCall(async (request) => 
       };
     }
 
-    // 2. Search in students NIS or email
+    // 2. Search in students NIS, email, or tempPassword
     let studentsQuery = await db.collection('schools')
         .doc(cleanSchoolId)
         .collection('students')
@@ -1258,6 +1258,15 @@ export const resolveEmailByPassword = functions.https.onCall(async (request) => 
           .doc(cleanSchoolId)
           .collection('students')
           .where('email', '==', lookupKey)
+          .where('archived', '==', false)
+          .get();
+    }
+
+    if (studentsQuery.empty) {
+      studentsQuery = await db.collection('schools')
+          .doc(cleanSchoolId)
+          .collection('students')
+          .where('tempPassword', '==', lookupKey)
           .where('archived', '==', false)
           .get();
     }

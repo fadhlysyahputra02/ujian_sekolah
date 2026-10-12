@@ -499,9 +499,13 @@ class TeacherProctorController {
       }
 
       if (proctorDocId.isNotEmpty) {
-        await proctorColl.doc(proctorDocId).set(proctorPayload, SetOptions(merge: true));
-        if (proctorDocId.startsWith('grid_')) {
-          await proctorColl.doc(proctorDocId.substring(5)).set(proctorPayload, SetOptions(merge: true));
+        try {
+          await proctorColl.doc(proctorDocId).set(proctorPayload, SetOptions(merge: true));
+          if (proctorDocId.startsWith('grid_')) {
+            await proctorColl.doc(proctorDocId.substring(5)).set(proctorPayload, SetOptions(merge: true));
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error updating proctorDoc: $e');
         }
       }
 
@@ -519,18 +523,25 @@ class TeacherProctorController {
           'sessionIndex': sIdx,
         };
 
-        await proctorColl.doc(compositeKey1).set(roomPayload, SetOptions(merge: true));
-        await proctorColl.doc(compositeKey2).set(roomPayload, SetOptions(merge: true));
-        await proctorColl.doc(compositeKey3).set(roomPayload, SetOptions(merge: true));
+        try {
+          await proctorColl.doc(compositeKey1).set(roomPayload, SetOptions(merge: true));
+          await proctorColl.doc(compositeKey2).set(roomPayload, SetOptions(merge: true));
+          await proctorColl.doc(compositeKey3).set(roomPayload, SetOptions(merge: true));
+        } catch (e) {
+          debugPrint('⚠️ Error updating room composite proctor docs: $e');
+        }
 
-        // JANGAN menimpa dokumen proctor sesi lain menggunakan where('roomId', isEqualTo: roomId)
         // Cukup perbarui status sesi spesifik di dokumen event utama
-        await eventRef.set({
-          'proctorGridStatus': {
-            compositeKey1: newStatus,
-            compositeKey2: newStatus,
-          },
-        }, SetOptions(merge: true));
+        try {
+          await eventRef.set({
+            'proctorGridStatus': {
+              compositeKey1: newStatus,
+              compositeKey2: newStatus,
+            },
+          }, SetOptions(merge: true));
+        } catch (e) {
+          debugPrint('⚠️ Error updating event proctorGridStatus: $e');
+        }
       }
 
       // If exam is completed by proctor, force finish all active/allocated students in this room
@@ -601,6 +612,13 @@ class TeacherProctorController {
             'updatedAt': FieldValue.serverTimestamp(),
             'completedAt': FieldValue.serverTimestamp(),
           };
+          if (effectiveSubjId.isNotEmpty) rtPayload['subjectId'] = effectiveSubjId;
+          if (effectiveSubjName.isNotEmpty) rtPayload['subjectName'] = effectiveSubjName;
+
+          // Always write to studentDocId directly so global listener catches it
+          batch.set(realtimeColl.doc(studentDocId), rtPayload, SetOptions(merge: true));
+          batchCount++;
+
           // Write session-scoped documents (${studentDocId}_${subjectId})
           final targetSubjects = subjectIdList.isNotEmpty
               ? subjectIdList
